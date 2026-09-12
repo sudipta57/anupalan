@@ -61,6 +61,8 @@ function RootNavigator() {
         <Stack.Protected guard={isAuthenticated}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="settings" options={{ title: t('settings.title') }} />
+          <Stack.Screen name="marker" options={{ title: t('marker.title') }} />
+          <Stack.Screen name="capture" options={{ title: t('capture.title') }} />
         </Stack.Protected>
 
         <Stack.Protected guard={!isAuthenticated}>

@@ -47,6 +47,78 @@ export const en = {
       'The rule pack is an engineering transcription of published rules, pending legal review.',
   },
 
+  capture: {
+    title: 'Capture',
+    permissionTitle: 'Camera access is needed',
+    permissionBody:
+      'Anupalan measures the label from a photograph, so it needs the camera. Nothing is uploaded until you submit a scan.',
+    permissionGrant: 'Allow camera access',
+    permissionBlocked:
+      'Camera access was declined. Turn it on for Anupalan in the system settings to continue.',
+    noDevice: 'No camera found',
+    noDeviceBody: 'This device reports no usable back camera, so a label cannot be photographed.',
+    gates: 'Capture checks',
+    gateMarker: 'Marker',
+    gateBlur: 'Sharpness',
+    gateGlare: 'Glare',
+    gateTilt: 'Angle',
+    gateMarkerFail: 'Get all four corners of the reference into the frame.',
+    gateBlurFail: 'Hold steadier or move slightly back — the edges are too soft to measure.',
+    gateGlareFail: 'Reduce glare: move the light, or tilt the pack away from it.',
+    gateTiltFail: 'Hold the camera square to the pack.',
+    gateTiltUnknown: 'Angle cannot be judged until the reference is in frame.',
+    shutter: 'Capture',
+    shutterBlocked: 'Capture is disabled until every check passes',
+    capturedCount: '{count} photo captured',
+    capturedCountPlural: '{count} photos captured',
+    retake: 'Discard last',
+    continueLabel: 'Add product details',
+    continuePending: 'The product details form arrives with the next stage.',
+    saveFailed: 'That photograph could not be saved. Try again.',
+    usingReference: 'Measuring against: {name} · {mm} mm',
+    simulated: 'Simulated frame checks',
+    simulatedBody:
+      'Dev only. The native marker detector is not wired up yet, so these gates are driven by a simulation.',
+  },
+
+  marker: {
+    title: 'Scale reference',
+    subtitle:
+      'Millimetres can only be measured against something of a known size in the same photograph.',
+    why: 'Why this is needed',
+    whyBody:
+      'Every size check in a report — numeral height, letter height — is a millimetre measurement. Without a reference of known size in frame, those rules return Not assessable rather than a guess.',
+    choose: 'Choose your reference',
+    arucoName: 'Printed marker',
+    arucoDetail: 'A 40 mm tag printed from the sheet in this repo. Most reliable.',
+    id1Name: 'Standard card',
+    id1Detail: 'Any ID-1 card — debit, credit, Aadhaar, licence — 85.60 × 53.98 mm.',
+    userName: 'Known pack dimension',
+    userDetail: 'A dimension you have measured yourself. Last resort.',
+    recommended: 'Recommended',
+    printTitle: 'Print at 100%',
+    printBody:
+      'The sheet is at mobile/assets/marker/anupalan-marker-a4.pdf. Print it with scaling off — no “fit to page”, no “shrink to fit”.',
+    printWarning:
+      'A printer that scales the page makes every millimetre in every report wrong by the same factor, and nothing downstream can detect it.',
+    screenWarning:
+      'A marker shown on a screen is never valid: its size is unknown and it is backlit. It must be on paper.',
+    dimensionLabel: 'Measured dimension',
+    dimensionHint: 'In millimetres, between {min} and {max}',
+    dimensionInvalid: 'Enter a dimension between {min} and {max} mm.',
+    verifyTitle: 'Measure it before you use it',
+    verifyAruco: 'I measured the printed tag with a ruler and each side is exactly 40 mm.',
+    verifyId1: 'I checked my card against the outline and it matches exactly.',
+    verifyUser: 'I measured this dimension with a ruler and it is exactly {mm} mm.',
+    save: 'Save reference',
+    change: 'Change reference',
+    current: 'Current reference',
+    verifiedOn: 'Verified {date}',
+    notSet: 'No reference set up',
+    notSetBody: 'A scan cannot be started until the app knows what to measure against.',
+    setUp: 'Set up a reference',
+  },
+
   scan: {
     title: 'Scan a label',
     subtitle: 'Photograph the package with the scale marker in frame.',

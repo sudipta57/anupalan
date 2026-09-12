@@ -9,6 +9,7 @@
  * going through `t()`.
  */
 
+import { router } from 'expo-router';
 import { useSyncExternalStore } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Constants from 'expo-constants';
@@ -36,6 +37,15 @@ import {
 } from '@/components';
 import { useRequestOtp, useSignOut, useVerifyOtp } from '@/features/auth';
 import { useT, type Locale } from '@/i18n';
+import {
+  GATE_SIMULATIONS,
+  GATE_SIMULATION_LABELS,
+  getGateSimulation,
+  setGateSimulation,
+  subscribeToGateSimulation,
+  type GateSimulation,
+} from '@/features/capture';
+import { useMarkerStore } from '@/store/marker';
 import { usePreferences, type ThemePreference } from '@/store/preferences';
 import { useCurrentOrg, useCurrentUser } from '@/store/session';
 import { spacing } from '@/theme';
@@ -139,6 +149,71 @@ function FixtureAccountPanel() {
 }
 
 /**
+ * The scale reference is a device setting, so it is reachable from where device settings live —
+ * not only from the Scan screen that blocks on it.
+ */
+function MarkerCard() {
+  const t = useT();
+  const reference = useMarkerStore((s) => s.reference);
+
+  const name =
+    reference?.type === 'aruco_40mm'
+      ? t('marker.arucoName')
+      : reference?.type === 'id1_card'
+        ? t('marker.id1Name')
+        : t('marker.userName');
+
+  return (
+    <Card>
+      <Text variant="heading">{t('marker.title')}</Text>
+      <Text variant="body" tone={reference ? 'muted' : 'fail'}>
+        {reference ? `${name} · ${reference.mm} mm` : t('marker.notSet')}
+      </Text>
+      <Button
+        label={reference ? t('marker.change') : t('marker.setUp')}
+        variant="secondary"
+        onPress={() => router.push('/marker')}
+      />
+    </Card>
+  );
+}
+
+/**
+ * Choose what the simulated frame processor is pretending to see.
+ *
+ * Each capture gate has its own instruction, and an instruction nobody can trigger is an
+ * instruction nobody has read. Deleted when the native ArUco plugin lands.
+ */
+function GateSimulationPanel() {
+  const t = useT();
+  const mode = useSyncExternalStore(
+    subscribeToGateSimulation,
+    getGateSimulation,
+    getGateSimulation
+  );
+
+  return (
+    <Card>
+      <Text variant="heading">{t('capture.simulated')}</Text>
+      <Text variant="caption" tone="muted">
+        {t('capture.simulatedBody')}
+      </Text>
+      <View style={styles.chips}>
+        {GATE_SIMULATIONS.map((value: GateSimulation) => (
+          <Chip
+            key={value}
+            label={GATE_SIMULATION_LABELS[value]}
+            tone={value === mode ? 'brand' : 'neutral'}
+            selected={value === mode}
+            onPress={() => setGateSimulation(value)}
+          />
+        ))}
+      </View>
+    </Card>
+  );
+}
+
+/**
  * Force the mock backend into one of its failure modes.
  *
  * The degradation paths are acceptance criteria, so they need to be reachable without editing
@@ -192,6 +267,8 @@ export default function SettingsScreen() {
     <Screen scroll>
       <AccountCard />
 
+      <MarkerCard />
+
       <Card>
         <Text variant="heading">{t('settings.language')}</Text>
         <SegmentedControl
@@ -212,6 +289,7 @@ export default function SettingsScreen() {
         />
       </Card>
 
+      {__DEV__ ? <GateSimulationPanel /> : null}
       {__DEV__ ? <FixtureAccountPanel /> : null}
       {__DEV__ ? <MockScenarioPanel /> : null}
 

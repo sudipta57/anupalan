@@ -1,6 +1,6 @@
 # Anupalan — Frontend Build Order
 
-**Doc version:** v1.3 · Companion to `02-trd.md` (the requirements) and `03-implementation-plan.md` §P3 (the phase this sits inside)
+**Doc version:** v1.5 · Companion to `02-trd.md` (the requirements) and `03-implementation-plan.md` §P3 (the phase this sits inside)
 **Scope:** the Android app, end to end, built against dummy data until the backend is ready
 **Owner:** frontend half of a two-person team; the backend is being built in parallel
 
@@ -19,8 +19,8 @@
 | 0 | Shell, design system, i18n | NFR-07, NFR-08 | ✅ |
 | 1 | Domain types and the dummy-data engine | — | ✅ |
 | 2 | Auth and mode-aware navigation | — (TRD has no SR-xx entries; see flag 12) | ✅ |
-| 3 | Marker onboarding | FR-02 | ⬜ |
-| 4 | Guided capture and the four gates | FR-01 | ⬜ |
+| 3 | Marker onboarding | FR-02 | ✅ |
+| 4 | Guided capture and the four gates | FR-01 | ✅ (device check pending) |
 | 5 | Product context form | FR-03 | ⬜ |
 | 6 | Offline queue | FR-04 | ⬜ |
 | 7 | Processing and low-confidence confirmation | FR-06 | ⬜ |
@@ -230,36 +230,116 @@ on-device check is tapping the two fixture accounts in Settings and watching the
 
 Needs the EAS dev client on a real phone.
 
-### Stage 3 · Marker onboarding ⬜
+### Stage 3 · Marker onboarding ✅
 
 **Requirements:** FR-02
 
-- First-run choice: print the A4 marker sheet (40 mm ArUco tag, 5 mm quiet zone) or use an ID-1
-  card at 85.60 × 53.98 mm.
-- The printable sheet ships as an asset, with the print-at-100% warning and a ruler-check step.
-  A printer that scales the page makes every downstream millimetre wrong, and it looks like a
-  code bug for days (CLAUDE.md §8).
-- `markerType` and `markerMm` persisted and attached to every scan.
+**What shipped**
+
+- **`scripts/make-marker-sheet.py`** — generates `assets/marker/anupalan-marker-a4.pdf`, the
+  printable A4 sheet. The tag is read from **OpenCV's own 4×4_50 codebook**, never hand-drawn, so
+  the pattern on paper and the pattern the backend's detector looks for cannot diverge.
+- `src/features/capture/markers.ts` — the three references and their sizes: 40.00 mm tag,
+  85.60 mm ID-1 long edge, or a user-measured dimension bounded to 20–200 mm.
+- `src/store/marker.ts` — the device's verified choice, in the **preferences** MMKV instance, so
+  signing out does not discard the fact that you printed and measured a marker.
+- `app/marker.tsx` — the setup flow, reachable from the Scan tab and from Settings.
+- The Scan tab **will not offer a scan** until a reference is set up; it offers setup instead.
+- 22 new tests, 125 total.
+
+**The sheet is paper, so the checks are on the paper**
+
+- Rendered at exactly **15 px/mm**, which makes the 40 mm tag exactly 600 px — six cells of 100.
+  At 300 dpi it would be 472.44 px and the cells would not divide evenly, which is how a tag ends
+  up a fraction of a millimetre off its declared size.
+- It carries **its own 100 mm ruler**. If 100 mm does not measure 100 mm, the print was scaled and
+  nothing else on the page can be trusted. That is the only place a "fit to page" can be caught.
+- It carries an **ID-1 outline**, so a user can confirm their card really is 85.60 × 53.98 mm
+  rather than some odd loyalty card.
+- The generator asserts three things and fails rather than writing a bad sheet: nothing is printed
+  inside the 5 mm quiet zone, the footer does not collide with the body, and **the detector finds
+  exactly one marker, id 0, at 40 mm**. That last one is a round trip through the same library the
+  backend will use.
+
+**The invariant**
+
+`markerFieldsForScan(reference)` is the single choke point: it returns `{ markerType, markerMm }`
+or throws `MarkerNotSetError`. The UI prevents it ever throwing; it exists for the case where a
+future screen forgets, because a scan submitted without a declared reference fails *silently* —
+every metric rule NOT_ASSESSABLE, no error anywhere.
+
+**Verification is a step, not advice.** The store only ever holds a reference the user has
+confirmed measuring, which is why the invariant needs to check only that one exists.
 
 **Done when:** the scan payload contains `marker_type` and `marker_mm`, and a scan cannot be
 submitted without both.
+**Verified:** lint 0 · tsc clean · 125 tests pass · prettier clean · `expo export` bundles with the
+preview byte-identical. The sheet was rasterised at 381 dpi and OpenCV detected id 0 with all four
+sides measuring 40.0000 mm. Payload `1011 0101 0011 0010`.
+**Note:** the scan payload itself is assembled in Stage 4, where there is a scan to assemble. What
+landed here is the reference, its persistence, and the guard the assembly must go through.
 
-### Stage 4 · Guided capture and the four gates ⬜
+### Stage 4 · Guided capture and the four gates ✅ (device check pending)
 
 **Requirements:** FR-01
 
-- vision-camera preview, permission flow, marker alignment overlay.
-- A `GateEvaluator` interface with a simulated implementation behind it, plus a dev toggle to
-  force each pass/fail state. The native ArUco frame processor drops in later unchanged.
-- Four gate chips, each with its own instruction when red. Thresholds: blur ≥ 120 variance of
-  Laplacian, glare < 2% of pixels at ≥ 250 luminance, tilt ≤ 25°.
-- Shutter disabled while any gate fails. Capture writes the image to disk and opens a local scan.
+**What shipped**
 
-> **Prerequisite:** Expo Go cannot run frame processors. The EAS dev client build must be on the
-> device before this stage starts.
+- `src/features/capture/gates.ts` — the four gates and their thresholds, pure. `evaluateGates` is
+  a function of its metrics and nothing else.
+- `src/features/capture/gate-evaluator.ts` — the seam. A simulation today; the native ArUco frame
+  processor emits the same `FrameMetrics` later and **nothing above this file changes**
+  (`03-implementation-plan.md` §P3.3 sanctions the ordering).
+- `src/features/capture/gate-copy.ts` — one instruction per gate, exhaustive by type.
+- `app/capture.tsx` — permission flow, preview, alignment overlay, four gate chips, shutter.
+- `src/features/capture/capture-storage.ts` — captures written to the **document** directory.
+- Dev panel gained the five gate simulations, one per failure mode.
+- 29 new tests, 154 total.
+
+**Three decisions worth knowing**
+
+- **Tilt is three-valued.** It is the angle to the *marker's* plane, so with no marker in frame
+  there is no angle. Reporting "fail" would tell the user to hold the phone flatter when the actual
+  problem is that the reference is out of shot. It blocks capture exactly as a failure does; what
+  differs is what the user is told. Same instinct as CLAUDE.md §3.3.
+- **Mounting the live view is the activation.** `useGates` takes no `active` flag, because a
+  toggled hook has a window between the flag flipping and the effect running where the previous
+  session's metrics are still in state — and the worst case of that window is a shutter enabled by
+  a stale all-green report.
+- **Glare is strictly below 2%.** FR-01 says "below 2%", not "at most". It never decides a real
+  frame, but the requirement is the specification.
+
+**What the tests pin, and what they cannot**
+
+Every threshold, every boundary (blur passes *at* 120, glare fails *at* 0.02, tilt passes *at* 25°),
+that each simulated failure blocks its own gate and no other, and that all four instructions are
+distinct. What no test here can reach: that the preview renders, that the permission prompt appears,
+that `capturePhoto` returns, and that a file lands on disk. **Those need the device.**
 
 **Done when:** the shutter is disabled while any gate fails, each failing gate shows its specific
 instruction, and all four green enables capture.
+**Verified:** lint 0 · tsc clean · 154 tests pass · prettier clean · `expo export --platform
+android` bundles at 4.4 MB with vision-camera imported.
+**Not verified:** anything requiring the camera. Needs the EAS dev client on a physical device —
+see the device checklist below.
+
+**Device checklist for this stage**
+
+1. Scan tab → Start a scan. The permission prompt appears; grant it.
+2. The preview renders and the gate chips settle to green over about two seconds (`converging`).
+3. The shutter is visibly disabled until all four are green, and refuses to fire before then.
+4. Settings → Simulated frame checks → each mode. Each shows its own instruction and re-disables
+   the shutter.
+5. Capture a photo. The thumbnail appears and the count increments.
+6. "Discard last" removes it.
+7. Deny the permission and reopen: the blocked-permission message appears rather than a black
+   preview.
+
+**Deferred, deliberately:** the stage brief said capture "opens a local scan". A scan record needs a
+`profile`, which is Stage 5's context form, so what landed here is the photograph on disk plus
+`listCaptures()` for Stage 6's queue to adopt. A capture abandoned by leaving the screen stays on
+disk rather than being deleted — losing an inspector's photograph is the worse of the two failures —
+and the queue owns that lifecycle from Stage 6.
 
 ### Stage 5 · Product context form ⬜
 
@@ -473,6 +553,19 @@ droppable; nothing before it is.
     has no acceptance tests in the TRD, and Stage 2 was built from `01-architecture.md` §3 and §14
     instead. Worth adding them: org isolation and session handling are the requirements most likely
     to be assumed rather than checked.
+13. **The marker sheet is a repo artefact, not an in-app download.** It prints from
+    `mobile/assets/marker/anupalan-marker-a4.pdf`, which suits the real workflow — print from a
+    laptop. Handing it to a printer *from the phone* would need `expo-asset` (already installed as
+    Expo's own dependency) plus a `metro.config.js` change to bundle `.pdf`, and both need
+    approval. Worth doing if a field user ever has to print without a computer.
+14. **Marker generation lives in two places by necessity.** `mobile/scripts/make-marker-sheet.py`
+    draws the sheet; `backend/scripts/make_chart.py` (P0.1, not yet written) draws the E1 evaluation
+    chart. Both must use `DICT_4X4_50` id 0 at 40.0 mm. If they ever disagree, the measurements are
+    wrong in a way no test on either side would catch — **agree the constants with the backend.**
+15. **Stage 4 is unverified on hardware.** The gate policy is pure and fully tested; the camera,
+    the permission flow and the disk write are not reachable from a test runner. Until the EAS dev
+    client has been run through the device checklist in Stage 4, treat FR-01 as code-complete and
+    not as done.
 
 ---
 
@@ -483,3 +576,5 @@ droppable; nothing before it is.
 | 2026-09-12 | Created. Fourteen stages defined; Stage 0 completed and recorded. |
 | 2026-09-12 | Stage 1 completed. Two API contract gaps recorded as flags 5 and 6. |
 | 2026-09-12 | Stage 2 completed. Settings moved off the tab bar; flags 8–12 added, three of them API contract gaps. Stage 1's MSW deviation and Stage 2's session design recorded in `decisions.md`. |
+| 2026-09-12 | Stage 3 completed. Printable marker sheet generated and detector-verified; flags 13 and 14 added. |
+| 2026-09-12 | Stage 4 completed in code; the camera path awaits a physical-device check. Flag 15 added. |

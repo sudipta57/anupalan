@@ -121,3 +121,56 @@ id changes, which is the only thing stopping cached org-scoped data from crossin
 shared phone. Three contract gaps now need agreeing with the backend, all in `04-frontend-plan.md`:
 no refresh endpoint, no session endpoint, and snake_case in TRD §5 against camelCase in the client.
 **PR:** n/a (Stage 2) · **Requirement:** n/a
+
+### 2026-09-12 — The printable marker is generated from OpenCV's codebook, at 15 px/mm
+**Context:** FR-02 needs a scale reference of an exactly known physical size, and every millimetre
+in every report is derived from it. Two things can go wrong silently: the tag's **bit pattern**
+(the ArUco predefined dictionaries are fixed codebooks, not algorithms, so a hand-drawn tag is
+simply not in the dictionary) and the **print scale** (a printer set to "fit to page" rescales
+every downstream millimetre by a constant factor).
+**Decision:** `mobile/scripts/make-marker-sheet.py` reads the tag from
+`cv2.aruco.DICT_4X4_50` — the same library the backend's detector uses — and renders an A4 page at
+exactly **15 px/mm**, which makes the 40 mm tag exactly 600 px, six cells of 100. The script fails
+rather than writing a bad sheet if anything is printed inside the 5 mm quiet zone, if the footer
+collides with the body, or if a detector round trip does not find exactly one marker, id 0, at
+40 mm. The sheet carries its own 100 mm ruler and an ID-1 outline, so the print scale and the
+user's card can both be checked against the paper itself.
+**Alternatives:** Hardcoding a bit pattern from memory or from a web image — rejected outright; it
+would not be in the dictionary and nothing in the app would say so. Rendering at 300 dpi — rejected
+because 40 mm is then 472.44 px and the six cells do not divide evenly. Shipping the marker as an
+in-app download — deferred: it needs `expo-asset` and a Metro `assetExts` change, and printing from
+a laptop is the actual workflow (flag 13).
+**Consequences:** Regenerating the sheet needs `opencv-contrib-python-headless` and `Pillow`, which
+are script-time tools and in no manifest — the same arrangement as `make-sample-label.py`. The PDF
+is a repo artefact, not bundled into the app; only the preview PNG ships. The sheet's constants are
+now duplicated in spirit with the backend's `make_chart.py` (P0.1, unwritten): both must use
+DICT_4X4_50 id 0 at 40.0 mm, and a disagreement would produce wrong measurements that no test on
+either side would catch (flag 14). A verified-once ruler check is stored with the reference, so the
+store never holds an unverified one.
+**PR:** n/a (Stage 3) · **Requirement:** FR-02
+
+### 2026-09-12 — Capture gates are a pure policy behind an evaluator seam, simulated until the plugin lands
+**Context:** FR-01's four gates decide when the shutter is enabled, and the shutter rule is the
+product: a blurred or angled frame yields a glyph height that is confidently wrong, which is worse
+than one that is missing. The native ArUco frame processor that would supply real metrics is the
+riskiest piece of the mobile work, and `03-implementation-plan.md` §P3.3 explicitly says not to let
+it block the rest of the app.
+**Decision:** `evaluateGates(metrics)` is pure and holds the whole policy, including the thresholds.
+`GateEvaluator` is a one-method interface supplying `FrameMetrics`; today a simulation, later the
+frame processor, with nothing above the seam changing. Tilt is **three-valued** — `pass | fail |
+unknown` — because it is the angle to the marker's plane and there is no angle without a marker.
+`useGates` takes no `active` flag: mounting the live view is the activation.
+**Alternatives:** Computing gates inside the camera screen — rejected because the policy would then
+be untestable without hardware, and hardware is exactly what CI does not have. Treating a missing
+marker as a tilt *failure* — rejected because the instruction it produces ("hold flatter") sends the
+user to fix the wrong thing. An `active` flag on the hook — rejected because the window between the
+flag flipping and the effect running leaves the previous session's metrics in state, and the worst
+case is a shutter enabled by a stale all-green report.
+**Consequences:** The gate policy is fully tested with no device, including every threshold
+boundary. What is **not** tested anywhere is the camera itself — preview, permissions,
+`capturePhoto`, the disk write — so FR-01 is code-complete and not done until the device checklist
+in `04-frontend-plan.md` Stage 4 has been walked (flag 15). Captures are written to the document
+directory, not the cache, because FR-04 requires them to survive a force-close and the system
+deletes caches under storage pressure. An abandoned capture stays on disk until Stage 6's queue
+adopts it; losing an inspector's photograph is the worse of the two failures.
+**PR:** n/a (Stage 4) · **Requirement:** FR-01

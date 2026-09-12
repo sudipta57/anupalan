@@ -5,21 +5,21 @@
     "appVersionSource": "remote"
   },
   "build": {
+    // The profile you need on day one. Expo Go cannot run vision-camera frame processors, so the
+    // FR-01 capture gates only work in a dev client (CLAUDE.md §8).
     "development": {
-      "//": "The profile you need on day one. Expo Go cannot run vision-camera frame processors, so the FR-01 capture gates only work in a dev client (CLAUDE.md §8).",
       "developmentClient": true,
       "distribution": "internal",
       "channel": "development",
       "android": {
-        "buildType": "apk",
-        "gradleCommand": ":app:assembleDebug"
+        "buildType": "apk"
       },
       "env": {
         "APP_ENV": "development"
       }
     },
+    // Internal APK without the dev client - for sharing a build with a pilot user.
     "preview": {
-      "//": "Internal APK without the dev client — for sharing a build with a pilot user.",
       "distribution": "internal",
       "channel": "preview",
       "android": {
@@ -29,8 +29,8 @@
         "APP_ENV": "preview"
       }
     },
+    // Play Store AAB. Distributed via the EAS internal channel first (docs/01-architecture.md §13).
     "production": {
-      "//": "Play Store AAB. Distributed via the EAS internal channel first (docs/01-architecture.md §13).",
       "autoIncrement": true,
       "channel": "production",
       "android": {
