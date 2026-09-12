@@ -55,6 +55,9 @@ Every requirement has an acceptance test. If it has no test, it is not a require
 **FR-10 `[Mode B]` Bulk listing check.** Paste or upload a CSV of marketplace listing URLs or listing text; the system runs presence/format rules on listing fields (metric rules are marked NOT_ASSESSABLE, since a listing has no physical scale).
 *Accept:* a 50-row CSV produces 50 result rows with a summary count; no metric rule ever returns PASS or FAIL from listing text alone.
 
+**FR-11 Ingredient cross-check view.** From a completed scan, request an online ingredient check (FR-31) and show the ingredients that match, those only on the label, those only online, any order or percentage notes, the source page with the date it was read, and the disclaimer that the label is the legal declaration.
+*Accept:* all four outcomes and every reason code render from fixtures; nothing on the screen uses PASS/FAIL wording for this check; tapping a label item highlights its box on the image.
+
 ---
 
 ## 3. Functional requirements — Backend
@@ -91,6 +94,9 @@ Every requirement has an acceptance test. If it has no test, it is not a require
 
 **FR-30 Dashboards.** Aggregate endpoints: violations by rule, by category, by district `[Mode A]`, by brand `[Mode B]`, over time.
 *Accept:* endpoints return in under 1 s on 50,000 seeded findings.
+
+**FR-31 Online ingredient cross-check.** For a completed scan, read the ingredient list from the stored OCR text, find the product's page on a registered official domain for its brand (`ingredients/sources-v1.yaml`), read the list published there, and compare the two. The outcome is one of `CONSISTENT | DIFFERENCES_FOUND | UNCLEAR | NOT_VERIFIABLE` with reason codes — never PASS/FAIL and never a finding, because a website is not the legal declaration (`08-ingredient-crosscheck-plan.md` §2.1). Pages are fetched only through the guarded fetcher, and every page read is snapshotted with its SHA-256.
+*Accept:* no request reaches a host outside the registry or a non-public address (`tests/test_web_fetch_guard.py`); an unconfirmed low-confidence label item never yields `DIFFERENCES_FOUND`; every `NOT_VERIFIABLE` carries a reason. On the E5 set (≥ 30 products with hand-verified lists) the false `DIFFERENCES_FOUND` rate is reported, with its target set after the first run.
 
 ---
 

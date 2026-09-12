@@ -216,6 +216,10 @@ Four of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` (B
 | Mobile | **React Native + Expo dev build**, react-native-vision-camera | Bare RN; Flutter | Team velocity. Vision-camera frame processors work under Expo dev builds; Expo Go does not, so plan for a dev build from day one. |
 | Rules | **Declarative YAML rule pack, versioned** | Hardcoded checks | Gazette amendments; citation integrity; report reproducibility. |
 | BIS corpus | **Public QCO/CRS/FAQ/metadata only** | Full IS standard texts | Standards are priced and copyrighted. |
+| Ingredient cross-check result | **Its own four outcomes — `CONSISTENT / DIFFERENCES_FOUND / UNCLEAR / NOT_VERIFIABLE` — never a finding** | PASS/FAIL in the findings table | The label is the legal declaration and a website is not. A mismatch shown as FAIL is an accusation the system cannot support, and would leak into FR-30 dashboards and E3. See `08-ingredient-crosscheck-plan.md` §2.1. |
+| Which sites the cross-check reads | **A reviewed brand → official-domain registry, `ingredients/sources-v1.yaml`** | Search the web and guess the official site; marketplace pages | Search ranks resellers and marketplaces above brand sites and is spoofable; marketplace text is written by sellers, and scraping it breaks their terms. An unregistered brand is `NOT_VERIFIABLE`, never guessed. |
+| Finding the product page | **The site's own sitemap, ranked by slug words** | A search API | Deterministic, free, no vendor, and it works on-premise. A search-API discoverer can still sit behind `PageDiscoverer` if sitemap coverage proves too thin. |
+| Reading product pages | **Stdlib HTML parsing, no JavaScript** | A headless browser | A browser is a second runtime and executes third-party code on the worker. Pages that need scripts report `page_requires_javascript`. |
 
 ---
 
@@ -246,6 +250,8 @@ Four of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` (B
 | Rate limiter's store unreachable | Requests are admitted and a warning is logged. A limiter that takes the API down when Redis blinks has converted a partial outage into a total one |
 | Corpus ingested but not embedded | Sahayak retrieval runs lexical-only. A narrower assistant, not a broken one |
 | Embedding or reranking runtime absent | Probed once per process; retrieval falls back to the fused order and logs it |
+| Ingredient cross-check cannot produce both lists — brand not in the registry, no candidate page, every fetch refused, or a page that renders only with JavaScript | The check completes as `NOT_VERIFIABLE` with its reason. Nothing is guessed, and nothing about the scan's findings changes |
+| Ingredient cross-check sees a label item read below 0.75 that no one has confirmed | Outcome is `UNCLEAR` (`unconfirmed_label_items`), never `DIFFERENCES_FOUND`; the full diff is still shown |
 
 ---
 
@@ -256,6 +262,7 @@ Four of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` (B
 3. Embossed/blown text on glass and plastic is low-contrast and often fails OCR. The rules have a separate (higher) threshold for it; v1 asks the user to tag the pack as embossed.
 4. The rule pack encodes the general rules. Schedule-specific and commodity-specific exemptions are partially covered in v1 and must be expanded with a legal metrology consultant before any commercial release.
 5. Verdicts are advisory. The product is a pre-audit, not a certification. This must appear on every report.
+6. The ingredient cross-check compares a label with a manufacturer's website, which is not the legal declaration and may describe another batch, region or variant. It covers only brands in the reviewed registry — empty until someone curates it — reads no page that renders with JavaScript, and needs the scan to include the panel that carries the ingredient list.
 
 ---
 

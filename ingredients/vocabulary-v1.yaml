@@ -1,0 +1,130 @@
+# Anupalan ingredient vocabulary — the data the online ingredient cross-check compares with
+# code: ING-VOCAB  version: 1.0
+# status: ENGINEERING DRAFT — NOT REVIEWED
+#
+# This file is DATA, versioned independently of code, on the same terms as rulepacks/ and bis/.
+# Every tolerance, heading word, synonym and ambiguity the comparator uses is here and nowhere in a
+# .py file (CLAUDE.md §3.2). Its version and checksum are stamped on every check, so a check read
+# back next year names the vocabulary that produced it (CLAUDE.md §3.6).
+#
+# What this check is NOT: a compliance verdict. Ingredient lists are required by food and cosmetics
+# labelling law, not by the Legal Metrology rules, and a label that differs from a website is not in
+# itself a violation. See docs/08-ingredient-crosscheck-plan.md §2.1.
+#
+# Editing guidance:
+# - A synonym makes two names count as the SAME ingredient. Add one only when that is true in every
+#   product. "whole wheat flour" and "refined wheat flour" are not synonyms.
+# - An ambiguous pair makes two names count as NEITHER a match NOR a difference — the result is
+#   UNCLEAR. Use it where one name may or may not be the other ("vegetable oil" / "palm oil").
+# - Adding a synonym can only turn a difference into a match. Review it with that in mind: a wrong
+#   synonym hides a real reformulation.
+
+meta:
+  code: ING-VOCAB
+  version: "1.0"
+  as_of: "2026-09-13"
+  disclaimer: >
+    Advisory consistency check, not a certification and not a compliance verdict. The package
+    label is the legal declaration. A manufacturer's website may describe a different batch, region
+    or formulation.
+
+# ---------------------------------------------------------------- finding the list
+
+locate:
+  # Words that introduce an ingredient list. Matched case-insensitively, either followed by a colon
+  # or standing alone on their own line.
+  headings:
+    - ingredients
+    - ingredient
+    - list of ingredients
+    - सामग्री
+    - संघटक
+  # Words that end the list when they appear after it.
+  stop_headings:
+    - nutritional information
+    - nutrition information
+    - nutrition facts
+    - nutrition
+    - allergen information
+    - allergen advice
+    - allergy advice
+    - contains
+    - may contain
+    - manufactured by
+    - mfd by
+    - mfd. by
+    - marketed by
+    - packed by
+    - best before
+    - storage instructions
+    - net quantity
+    - net qty
+    - pack size
+    - how to use
+    - पोषण
+  # Longest stretch of text read as one list. Past this it is a page, not a list.
+  max_block_chars: 2000
+
+# ---------------------------------------------------------------- comparing
+
+compare:
+  # Declared percentages, in percentage points.
+  #   |label - online| <= pct_tolerance_points   -> consistent
+  #   |label - online| <= pct_borderline_points  -> UNCLEAR
+  #   beyond                                     -> DIFFERENCES_FOUND
+  pct_tolerance_points: 0.5
+  pct_borderline_points: 1.5
+
+  synonyms:
+    - canonical: sugar
+      names: [sucrose]
+    - canonical: salt
+      names: [common salt, edible common salt]
+    - canonical: iodised salt
+      names: [iodized salt]
+    - canonical: whole wheat flour
+      names: [atta]
+    - canonical: refined wheat flour
+      names: [maida]
+    - canonical: milk solids
+      names: [milk solid]
+    - canonical: water
+      names: [drinking water, potable water]
+    - canonical: ins:330
+      names: [citric acid]
+    - canonical: ins:296
+      names: [malic acid]
+    - canonical: ins:300
+      names: [ascorbic acid, vitamin c]
+    - canonical: ins:322
+      names: [lecithin]
+    - canonical: ins:500(ii)
+      names: [sodium bicarbonate, sodium hydrogen carbonate]
+    - canonical: ins:503(ii)
+      names: [ammonium bicarbonate, ammonium hydrogen carbonate]
+    - canonical: ins:621
+      names: [monosodium glutamate, msg]
+    - canonical: ins:211
+      names: [sodium benzoate]
+    - canonical: ins:202
+      names: [potassium sorbate]
+
+  ambiguous:
+    - [vegetable oil, palm oil]
+    - [edible vegetable oil, palm oil]
+    - [vegetable fat, palm oil]
+    - [edible vegetable fat, palm oil]
+    - [refined vegetable oil, palm oil]
+    - [spices, chilli powder]
+    - [spices and condiments, chilli powder]
+    - [sugar, invert sugar]
+    - [sugar, liquid glucose]
+    - [flavour, natural flavour]
+
+# ---------------------------------------------------------------- is this page the product?
+
+identify:
+  # Share of the product-name words (brand and stop words removed) that must appear in the page
+  # title or its main headings.
+  name_token_coverage: 0.6
+  stop_words: [with, and, the, of, pack, new, "&", in, for, a, an]

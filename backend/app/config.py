@@ -288,6 +288,35 @@ class Settings(BaseSettings):
     for the same reason rule packs are: "does this product need the ISI mark" is a lookup against
     a published list, and a published list belongs in a file somebody can review and diff."""
 
+    # ------------------------------------------------------------------ ingredient cross-check
+    # docs/08-ingredient-crosscheck-plan.md. Only engineering limits live here. Every comparison
+    # threshold, heading word and synonym is in the vocabulary file, and the hosts the worker may
+    # fetch are in the source registry — both data in ingredients/, never Python (CLAUDE.md §3.2).
+    INGREDIENTS_VOCABULARY_PATH: Path = _REPO_ROOT / "ingredients" / "vocabulary-v1.yaml"
+    INGREDIENTS_SOURCES_PATH: Path = _REPO_ROOT / "ingredients" / "sources-v1.yaml"
+    """The trust anchor: the only hosts the cross-check will contact, per brand."""
+
+    INGREDIENTS_MAX_CANDIDATE_PAGES: int = 3
+    """Product pages fetched per check, best-ranked first."""
+
+    INGREDIENTS_MAX_SITEMAPS: int = 10
+    """Sitemap documents read per check, index files included."""
+
+    INGREDIENTS_MAX_SITEMAP_URLS: int = 20_000
+    """URLs considered for ranking per check. A catalogue is thousands of pages, not millions."""
+
+    WEB_FETCH_TIMEOUT_SECONDS: float = 10.0
+    """Total time allowed for one request, connect to last byte."""
+
+    WEB_FETCH_MAX_BYTES: int = 5 * 1024 * 1024
+    """Largest decoded body read. Counted after decompression, so a compressed bomb stops here."""
+
+    WEB_FETCH_MAX_REDIRECTS: int = 3
+    WEB_FETCH_USER_AGENT: str = "Anupalan/0.1 (ingredient cross-check)"
+    """Sent on every request, and its first token is the agent robots.txt rules are matched against.
+    A deployment should append a contact URL, so a site owner who sees it in their logs can reach
+    the operator."""
+
     # ------------------------------------------------------------------ rule packs
     RULEPACK_PATH: Path = _REPO_ROOT / "rulepacks" / "lm-2011-v1.yaml"
     """Active rule pack. Data, versioned independently of code (CLAUDE.md §2)."""

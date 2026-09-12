@@ -1228,3 +1228,55 @@ points. That is left for review rather than edited, per CLAUDE.md §6. Sahayak s
 question — `bis_documents` is empty, there is no corpus source in `bis/` beyond the applicability
 table, and nothing calls `ingest()`.
 **PR:** n/a · **Requirement:** FR-22, FR-28, FR-29, CLAUDE.md §9
+
+### 2026-09-13 — The ingredient cross-check has its own four outcomes, never a verdict, and its data lives in `ingredients/`
+**Context:** `08-ingredient-crosscheck-plan.md` compares a label's ingredient list with the one on
+the manufacturer's website. Ingredient lists are required by food and cosmetics labelling law, not by
+LM-2011, and a label that differs from a website is not in itself a violation — the label is the
+legal declaration. The check still needs tolerances, heading words, synonyms and a list of trusted
+domains, and CLAUDE.md §3.2 says none of those may live in Python.
+**Decision:** The check reports `CONSISTENT | DIFFERENCES_FOUND | UNCLEAR | NOT_VERIFIABLE` with
+ordered reason codes, and never produces a `Finding` or touches `findings`. `compare()` is pure, and
+any label item below FR-06's 0.75 that a person has not confirmed makes the outcome UNCLEAR, never
+DIFFERENCES_FOUND. Its data is two files in a new top-level `ingredients/` directory — the vocabulary
+and the brand → official-domain registry — validated with line-level errors and checksummed over the
+raw bytes, with both versions stamped on every check. v1 uses no LLM: splitting and same-product
+matching are deterministic. Plan asks 1 and 6 approved.
+**Alternatives:** Reusing the four verdicts and the findings table — rejected: a website mismatch
+rendered as FAIL is an accusation the system cannot support, and it would leak into FR-30 dashboards
+and the E3 false-FAIL rate. The data in `rulepacks/` — rejected, it is not LM rule text and would pass
+through the wrong legal-review gate; in `bis/` — rejected, it is not BIS catalogue metadata. An LLM to
+split noisy OCR lists — deferred (plan ask 7) until E5 shows how often deterministic splitting fails.
+**Consequences:** `ingredients/sources-v1.yaml` ships **empty**. Every entry asserts that a domain is
+a brand's official site, and none has been verified by a person yet, so until one is every check is
+`NOT_VERIFIABLE` / `brand_not_registered`. A class name grouping several INS numbers on one side
+(`Acidity regulators (330, 296)`) against separate items on the other reads as a difference — a
+known gap for E5 to size. One directory added to the CLAUDE.md §2 layout.
+**PR:** n/a (B25–B28, B30) · **Requirement:** FR-31
+
+### 2026-09-13 — Product pages come from the site's sitemap through a guarded fetcher; `httpx` is a core dependency
+**Context:** The cross-check is the first backend code that requests a URL from outside.
+`services/listings.py` refuses to fetch caller-supplied URLs at all and calls the alternative a
+server-side request forgery; this path has to fetch, so it had to be built around that threat.
+**Decision:** `services/ingredients/fetch.py` fetches only hosts in the registry for the brand, over
+`https` on 443. It resolves the name once, refuses the host if **any** address is not public
+(loopback, private, link-local including `169.254.169.254`, CGNAT, multicast, reserved, IPv4-mapped
+and 6to4-wrapped), and connects to the validated address with `Host` and the `sni_hostname` extension
+set, so TLS is still verified against the hostname and a rebinding answer cannot move the connection.
+Redirects are followed by the fetcher and every hop is re-checked; bodies are streamed with a byte cap
+counted after decompression; content types are allow-listed per call; robots.txt is honoured per
+RFC 9309, where a server error means disallow; no cookies, no credentials, `trust_env=False`. Pages
+are found through robots.txt `Sitemap:` lines or `/sitemap.xml`, and a DOCTYPE or entity declaration
+is refused before XML parsing. Every fetched page is snapshotted under the org's prefix by its
+SHA-256. `httpx` moves from dev to core (plan ask 2, also B8's outstanding ask); HTML is parsed with the
+stdlib, so no parsing library comes with it.
+**Alternatives:** A search API — deferred (plan ask 3): a vendor and a cost, it breaks the on-premise
+story, and it ranks marketplaces above brand sites. A headless browser — rejected: a second runtime,
+running third-party JavaScript on the worker. `defusedxml` — not added; refusing DOCTYPE and ENTITY
+closes what it exists for. Letting httpx follow redirects — rejected: a redirect to the metadata
+address would never be re-checked.
+**Consequences:** Pages that render with JavaScript report `page_requires_javascript`, and gzipped
+sitemaps are not read. Per-domain concurrency is only per task for now; B32's task needs a Redis lock
+before several workers can run checks at once. CI never opens a socket — the `no_network` fixture
+in `tests/conftest.py` fails any test that tries to.
+**PR:** n/a (B29) · **Requirement:** FR-31, SR

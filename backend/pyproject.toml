@@ -42,6 +42,12 @@ dependencies = [
     # the same models build a working SQLite schema for the org-isolation suite, which CI runs
     # without any datastore.
     "pgvector",
+    # The LLM adapter (B8) and the ingredient cross-check's guarded fetcher (B29). Promoted from dev:
+    # the adapter already imported it lazily in production code, and the fetcher cannot work without
+    # it. It is also what lets the fetcher connect to a validated IP while verifying the TLS
+    # certificate against the hostname (the `sni_hostname` request extension) — the property that
+    # closes DNS rebinding. HTML is parsed with the stdlib, so no parsing library comes with it.
+    "httpx",
 ]
 
 # Auth (B13) deliberately adds NOTHING here. Access tokens are HS256 signed with stdlib hmac
@@ -80,7 +86,6 @@ bis = [
 dev = [
     "pytest",
     "pytest-asyncio",
-    "httpx",
     "ruff",
     "mypy",
     "types-pyyaml",

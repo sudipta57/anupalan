@@ -92,6 +92,25 @@ def client() -> Iterator[TestClient]:
         yield test_client
 
 
+@pytest.fixture
+def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail any test that tries to resolve a name or open a connection.
+
+    The ingredient cross-check (B29, B30) fetches manufacturer websites, and CI must never do that:
+    a suite that passes only while some brand's site is up is not a suite. Its tests inject a fake
+    resolver and a fake transport, and this fixture proves they did — a code path that quietly fell
+    back to the real network fails here instead of passing on a developer's laptop.
+    """
+    import socket
+
+    def refuse(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("a test tried to use the network; inject a fake resolver/transport")
+
+    monkeypatch.setattr(socket, "getaddrinfo", refuse)
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+
+
 # --------------------------------------------------------------------------- database
 
 

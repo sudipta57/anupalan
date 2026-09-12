@@ -1,0 +1,32 @@
+# Anupalan ingredient sources — which websites count as a brand's official site
+# code: ING-SOURCES  version: 1.0
+# status: EMPTY PENDING CURATION
+#
+# This registry is the trust anchor for the online ingredient cross-check
+# (docs/08-ingredient-crosscheck-plan.md §2.2). The worker fetches ONLY domains listed here, and only
+# for the brand they are listed under. A brand that is not listed gets NOT_VERIFIABLE
+# (brand_not_registered). It is never guessed from a search result.
+#
+# It ships empty on purpose. Every entry asserts "this domain is the brand owner's official site",
+# and a wrong assertion sends the comparison to a reseller or a look-alike domain. Each entry must be
+# verified by a person, for example against the trademark owner's own filings, before it is added,
+# and the verification noted in the entry's comment.
+#
+# Shape:
+#
+#   brands:
+#     - id: example-foods            # stable identifier, lowercase
+#       names: [Example, Example Foods]   # how the brand is written on packs; first is the display name
+#       domains: [example.co.in]     # bare hostnames: no scheme, no path, no port. Subdomains of a
+#                                    # listed domain are included. One domain belongs to one brand.
+#       # verified: <who>, <date>, <how>
+#
+# Marketplaces (Amazon, Flipkart, BigBasket, ...) must never be listed: their text is written by
+# sellers, and fetching them breaks their terms of service.
+
+meta:
+  code: ING-SOURCES
+  version: "1.0"
+  as_of: "2026-09-13"
+
+brands: []

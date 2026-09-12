@@ -28,6 +28,7 @@ anupalan/                         # root
 ├── docs/                         # architecture, TRD, implementation plan, decisions
 ├── rulepacks/                    # versioned YAML rule packs — the legal logic
 ├── bis/                          # versioned QCO/CRS applicability lists — BIS lookup data
+├── ingredients/                  # versioned ingredient vocabulary + official-domain registry
 │
 ├── mobile/                       # FRONTEND — React Native (Expo dev build), Android
 │   ├── app/                      # expo-router screens
@@ -53,6 +54,7 @@ anupalan/                         # root
 │   │   │   ├── rules/            # rule pack loader + deterministic evaluator
 │   │   │   ├── reporting/        # pdf, docx, json
 │   │   │   ├── bis/              # corpus ingest, retrieval, applicability
+│   │   │   ├── ingredients/      # online ingredient cross-check: compare, guarded fetch, discovery
 │   │   │   └── llm/              # provider interface + adapters
 │   │   ├── models/               # SQLAlchemy
 │   │   ├── schemas/              # Pydantic
