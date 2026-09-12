@@ -226,7 +226,8 @@ Four of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` (B
 - Evidence integrity (Mode A): SHA-256 of the raw image recorded at upload; `audit_log` is hash-chained (`hash = H(prev_hash || row)`); reports embed both hashes. Anyone can verify a report was not altered after issue. Because the API never proxies image bytes — it signs an upload URL and the client uploads straight to object storage — the raw hash is **declared by the client at create time and verified by the worker** against the stored object before any processing; a mismatch fails the scan rather than attaching a hash the evidence does not have. The chain is per-org, starting from a fixed genesis value, and `GET /v1/admin/audit/verify` reports the **first broken link** with its entry id and whether the row was edited (`hash_mismatch`) or removed (`broken_link`) — everything before that point is still provably intact. The canonical row rendering the hash covers is versioned and must never be edited in place, since changing it would invalidate every chain already written.
 - Location and device data: collected only in Mode A, disclosed in-app, retention configurable per org.
 - DPDP Act 2023 posture: the data is about products, not people, which is a genuine advantage over most health/fintech entries. The only personal data is user accounts and inspector location. Say this explicitly to judges.
-- Rate limiting per org and per IP; upload size and MIME allow-list; EXIF stripped from anything served publicly.
+- Rate limiting per org **and** per IP (B23, `services/ratelimit.py`): 120 req/min per address, 600 per org, fixed window, Redis-backed so the limit is the limit across every instance. Both axes are needed — per-IP alone lets one org flood from many addresses, per-org alone lets one address sweep many orgs. An unauthenticated flood is charged to its address and never to the org id it claimed, or anyone could exhaust a tenant's quota by sending their id. `/health` is exempt, because a load balancer throttled into declaring the service dead turns a rate limit into an outage. The limiter **fails open** if its own store is unreachable, and refuses the in-memory backend when `ENV` is production, where N workers would each admit the full ceiling.
+- Upload size and MIME allow-list, both enforced when the presigned URL is **issued** rather than after the bytes arrive; EXIF stripped from anything served, fail-closed — if metadata cannot be removed, the bytes are not returned.
 
 ---
 
@@ -242,6 +243,9 @@ Four of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` (B
 | Offline | Scans queue locally, upload and process on reconnect; queue survives app restart |
 | Database suspended (Neon scale-to-zero) | First query pays a cold start; `pool_pre_ping` and `pool_recycle` reconnect transparently. A scan in flight retries rather than failing |
 | Database or broker unreachable | `GET /health` answers 200 with `status: degraded` and names the failed component. The API reports rather than failing closed, so a probe can distinguish a dead process from a dead dependency |
+| Rate limiter's store unreachable | Requests are admitted and a warning is logged. A limiter that takes the API down when Redis blinks has converted a partial outage into a total one |
+| Corpus ingested but not embedded | Sahayak retrieval runs lexical-only. A narrower assistant, not a broken one |
+| Embedding or reranking runtime absent | Probed once per process; retrieval falls back to the fused order and logs it |
 
 ---
 

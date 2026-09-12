@@ -28,6 +28,68 @@ python -m scripts.eval_e4 --set ../eval/e4    # sahayak citations
 Image corpora live under `eval/` and are **not committed** — they are large binaries, and `eval/`
 is gitignored. Keep them backed up out of band; only the numbers live here.
 
+Every run prints the commit sha and the rule pack version, and says `+dirty` when the working tree
+has uncommitted changes. **A `+dirty` run must not be pasted below as a gate result** — it cannot
+be reproduced from the commit it names.
+
+---
+
+## Corpus formats (B22)
+
+The scripts define these. Each one prints the layout it wanted if the corpus is missing, so
+`python -m scripts.eval_e1 --dir ../eval/e1` on an empty tree is a usable spec.
+
+### E1 — `eval/e1/`
+
+```
+eval/e1/
+  truth.csv
+  <phone>_<dist>cm_<angle>deg_<light>.jpg      # conditions parsed for the worst-case line
+```
+
+`truth.csv`, one row per **line of digits** in one image:
+
+```
+image,line,truth_mm,x_mm,y_mm,w_mm,h_mm
+pixel6a_25cm_15deg_bright.jpg,0,0.8,20.0,40.0,60.0,3.0
+```
+
+`truth_mm` is the caliper-measured or PDF-exact cap height. The four `*_mm` region columns locate
+the line **in the rectified plane** and are required: without them the script would have to guess
+which measured glyph belongs to which truth height, and the obvious guess — nearest truth value —
+flatters the result exactly where it matters (see `decisions.md`, 2026-09-12).
+
+### E3 — `eval/e3/`
+
+One JSON file per human-reviewed label:
+
+```json
+{
+  "name": "Iodised salt 250 g",
+  "as_of": "2026-09-12",
+  "profile": {"net_qty_in_g_or_ml": 250, "surface": "printed"},
+  "extractions": [{"field_code": "net_quantity", "value_raw": "250 g"}],
+  "measurements": [{"field_code": "net_quantity", "height_mm": 2.1, "is_numeral": true}],
+  "expected": {"LM-6-1-D-NET-QUANTITY": "PASS", "LM-9-2-TABLE1": "PASS"}
+}
+```
+
+A rule the reviewer did not judge is left out and is not scored — a blank in a review is not a
+PASS. Omit `measurements` entirely for the no-marker case. The script writes a per-rule confusion
+matrix to `eval/e3/confusion.csv`, because a rate without the matrix behind it does not say which
+rule to fix.
+
+### E4 — `eval/e4/questions.jsonl`
+
+```json
+{"id": "q01", "question": "Which standard applies to laptop chargers?", "expect": "answer", "expected_sources": ["crsbis.in"]}
+{"id": "q51", "question": "What is the tensile limit in IS 1786?", "expect": "refuse"}
+```
+
+Include the ten deliberately unanswerable priced-standard questions. With no reachable corpus
+database the script runs **refusal-only** and says so on its own line — that half needs neither a
+database nor a model, because the refusal is decided before retrieval runs.
+
 ---
 
 ## Format
@@ -65,7 +127,15 @@ refusals: 10/10 correct on priced-standard content
 
 <!-- Append below, newest first. -->
 
-**No evaluation has been run yet.** The repository is scaffolded; no pipeline exists to measure.
+**No evaluation has been run yet.** The harness exists (B22) and is tested against synthetic
+corpora; the real corpora of TRD §7 have not been built, so there is nothing yet to measure.
+
+```bash
+make eval-e1    # or: cd backend && python -m scripts.eval_e1 --dir ../eval/e1
+make eval-e3
+make eval-e4
+make loadtest BASE_URL=https://staging.example IMAGE=../eval/e1/sample.jpg PHONE=+919000000001
+```
 
 The first entry here is **E1, from the P0 measurement spike** — the phase that can invalidate the
 concept, which is why it runs before anything else is built. Its decision gate

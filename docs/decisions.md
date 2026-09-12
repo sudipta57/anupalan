@@ -755,3 +755,70 @@ the edge of a label focuses off-centre, which is correct and is documented on `f
 filed as a bug. Pinch smoothness is now a device question rather than a settled one. FR-05 is
 code-complete, not done, until the Stage 8 device checklist has been walked.
 **PR:** n/a (Stage 8) · **Requirement:** FR-05
+
+### 2026-09-12 — A listing check cannot receive a measurement, by signature
+**Context:** FR-10 runs the rules engine over marketplace listing text. A listing is text: no
+photograph, no marker, no homography, no millimetre. Every metric and geometry rule is
+unanswerable, and a PASS there would tell a seller their font size is compliant on the strength of
+the words "500 g" in a product description.
+**Decision:** `services/listings.check_listing` takes **no measurements parameter**. It calls
+`evaluate()` with an empty sequence, which is the documented no-marker case. A test asserts the
+signature as well as the verdicts across a 50-row run.
+**Alternatives:** Passing an empty list at each call site and trusting review — rejected: that is a
+rule that holds until someone adds a keyword argument in a hurry. A runtime assertion over the
+findings — kept as the test, not as production code: the structural guarantee makes it
+unreachable, and an assertion that cannot fire is an assertion that rots.
+**Consequences:** `physical_rule_ids()` walks nested `then`/`rules` bodies, because a metric rule
+inside a `conditional` is still a metric rule and a top-level `kind` check would miss it. The
+endpoint's response carries `"scale": "none"` so a client cannot render these verdicts as though
+they came from a measured photograph. Regex-only extraction on this path: the LLM layer exists to
+repair OCR noise, and a listing has none.
+**PR:** n/a (B21) · **Requirement:** FR-10
+
+### 2026-09-12 — The bulk listing check is gated on PRODUCT_READ, not PRODUCT_WRITE
+**Context:** FR-10 is the flagship Mode B feature and needed a permission. `PRODUCT_WRITE` is held
+by inspector and admin; `analyst` — the desk role an industry org actually staffs — has only
+`PRODUCT_READ`.
+**Decision:** `PRODUCT_READ`. The check persists nothing, creates nothing, and reads only text the
+caller supplied in the request body.
+**Alternatives:** A new `LISTING_CHECK` permission — the most honest modelling, and rejected here
+because the role matrix in `tests/test_auth.py` is deliberately written out rather than derived,
+and extending it is a change to the auth specification that should be made on its own and reviewed
+as one, not folded into a feature. `PRODUCT_WRITE` — rejected: it locks the flagship Mode B feature
+away from the role that exists to run it, for a call that leaves no trace.
+**Consequences:** A viewer can run a bulk check. That is a compute cost, which B23's rate limits
+bound, rather than an access-control concern — there is no data of anyone else's to reach. Revisit
+if an org asks to restrict it, at which point the new permission is the right change.
+**PR:** n/a (B21) · **Requirement:** FR-10
+
+### 2026-09-12 — Rate limiting fails open, and the in-memory backend is refused in production
+**Context:** NFR-01 and architecture §10 want limits per org and per IP. Two failure modes had to
+be chosen deliberately: what happens when the limiter's own store is unreachable, and what happens
+when the cheap backend reaches production.
+**Decision:** An unreachable Redis **admits** the request and logs a warning. The in-memory backend
+**raises** when `ENV` is production, checked against `ENV` rather than trusting the setting.
+**Alternatives:** Failing closed on a backend outage — rejected: a rate limiter that takes the API
+down when Redis blinks has converted a partial outage into a total one, and the actual abuse risk
+here is an inspector's phone retrying an upload, which a hard fail does not protect against.
+Letting the memory backend run in production — rejected: N workers each admit the full ceiling, so
+the configured limit is silently multiplied by the worker count and nobody finds out until load.
+**Consequences:** Fixed window, not a sliding log: it admits up to twice the limit across a
+boundary, which is the right trade for stopping a runaway client rather than metering billing. An
+unauthenticated flood is charged to its address and never to the org id it claimed, or anyone could
+exhaust a tenant's quota by sending their id. `conftest.py` disables the limiter for every suite
+except `test_hardening.py`, because the whole test run comes from one client address.
+**PR:** n/a (B23) · **Requirement:** NFR-01
+
+### 2026-09-12 — E1's truth file names a region per line, not just a height
+**Context:** E1 compares a measured cap height against a caliper-measured one. Something has to
+decide which measured glyph belongs to which truth height.
+**Decision:** `truth.csv` carries the row's region in the rectified plane (`x_mm`, `y_mm`, `w_mm`,
+`h_mm`) and the script measures inside it. Required, not optional.
+**Alternatives:** Assigning each measurement to the nearest truth value — rejected, and this is the
+important one: it flatters the result exactly where accuracy matters. A 0.8 mm line measured at
+0.95 mm would be scored against 1.0 mm and recorded as a 0.05 mm error instead of a 0.15 mm one,
+and P0's decision gate is read off that number.
+**Consequences:** Building the E1 corpus costs one more column, which a generated chart knows by
+construction and a real label needs a ruler once. Captures the script cannot measure — no marker,
+unreadable file — are reported with a count and a reason rather than dropped from the denominator.
+**PR:** n/a (B22) · **Requirement:** FR-23

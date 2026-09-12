@@ -104,6 +104,19 @@ PRICED_CONTENT_PATTERNS: tuple[tuple[str, str], ...] = (
         "like a request for a document",
     ),
     (
+        r"\b(?:limit|tolerance|threshold|requirement|specification|grade)s?\b"
+        r".{0,60}?\bis\s*[:\-]?\s*\d{2,5}\b",
+        "asks for a numeric requirement of a named standard. TRD §7 uses exactly this question — "
+        "'what is the tensile limit in IS 1786?' — as its example of content that must be "
+        "refused, and enumerating properties (tensile, compressive, flexural, ...) would refuse "
+        "the ones somebody thought of and miss the rest",
+    ),
+    (
+        r"\bis\s*[:\-]?\s*\d{2,5}\b.{0,60}?"
+        r"\b(?:limit|tolerance|threshold|requirement|specification)s?\b",
+        "the same request with the standard named first",
+    ),
+    (
         r"\b(?:test\s+(?:limit|method|requirement)s?|tolerance\s+(?:table|limit)s?|acceptance\s+criteri)",
         "asks for the technical requirements a standard specifies",
     ),

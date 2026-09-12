@@ -21,7 +21,7 @@ ALEMBIC    := $(VENV)/bin/alembic
 # The repo targets Python 3.12 (CLAUDE.md §5). Bare `python` may be something else.
 PYTHON312  ?= python3.12
 
-.PHONY: help dev api worker test lint migrate check venv install mobile-install mobile-lint mobile-test clean
+.PHONY: help dev api worker test lint migrate check venv install audit openapi eval-e1 eval-e3 eval-e4 loadtest mobile-install mobile-lint mobile-test clean
 
 help:  ## Show this help
 	@echo "Anupalan — make targets"
@@ -65,8 +65,33 @@ lint:  ## ruff + mypy (strict on app/services), then mobile eslint
 	cd $(BACKEND) && ../$(MYPY) app/services
 	cd mobile && npm run lint
 
-migrate:  ## Apply migrations via Neon's direct endpoint (no migrations exist yet — P2.2)
+migrate:  ## Apply migrations via Neon's direct endpoint (DATABASE_URL_DIRECT)
 	cd $(BACKEND) && ../$(ALEMBIC) upgrade head
+
+openapi:  ## Write the OpenAPI schema to backend/openapi.json (mobile runs gen:api off this)
+	cd $(BACKEND) && ../$(PY) -c 		"import json,pathlib; from app.main import app; 		 pathlib.Path('openapi.json').write_text(json.dumps(app.openapi(), indent=2), encoding='utf-8'); 		 print('wrote backend/openapi.json')"
+
+audit:  ## Dependency audit (B23). pip-audit is dev-only and installed on demand.
+	@echo "--> installed versions"
+	$(PIP) list --format=columns
+	@echo
+	@echo "--> known vulnerabilities (pip-audit)"
+	@$(PY) -m pip_audit --strict 2>/dev/null 		|| echo "pip-audit is not installed. Run: $(PIP) install pip-audit   (dev-only; see docs/06-api-reference.md §Security)"
+
+# ---------------------------------------------------------------- evaluation (B22)
+# Corpora live under eval/, which is gitignored. The scripts commit numbers, never images.
+
+eval-e1:  ## E1 — metrology accuracy
+	cd $(BACKEND) && ../$(PY) -m scripts.eval_e1 --dir ../eval/e1
+
+eval-e3:  ## E3 — rule verdicts and the false-FAIL rate
+	cd $(BACKEND) && ../$(PY) -m scripts.eval_e3 --dir ../eval/e3
+
+eval-e4:  ## E4 — sahayak citations and refusals
+	cd $(BACKEND) && ../$(PY) -m scripts.eval_e4 --set ../eval/e4
+
+loadtest:  ## NFR-01 load test. Needs BASE_URL, IMAGE and PHONE; run it against staging.
+	cd $(BACKEND) && ../$(PY) -m scripts.loadtest 		--base-url "$(BASE_URL)" --image "$(IMAGE)" --phone "$(PHONE)"
 
 # ---------------------------------------------------------------- mobile
 

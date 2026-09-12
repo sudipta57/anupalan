@@ -55,6 +55,32 @@ def pytest_configure(config: pytest.Config) -> None:
 # --------------------------------------------------------------------------- app
 
 
+@pytest.fixture(autouse=True)
+def _rate_limiting_off() -> Iterator[None]:
+    """Disable rate limiting for every suite except the one that tests it.
+
+    The whole suite reaches the app from one client address, so a per-IP ceiling meant for a
+    minute of real traffic is exhausted by a few test files and every later test gets a 429 for
+    reasons that have nothing to do with what it is checking.
+
+    Turning a guard off in conftest is worth being uneasy about, which is why
+    ``tests/test_hardening.py`` turns it back on explicitly and is the only place the limiter's
+    behaviour is asserted. The counter is reset on the way in and out, so no test can inherit
+    another's count.
+    """
+    from app.config import settings
+    from app.services.ratelimit import reset_limiter
+
+    original = settings.RATE_LIMIT_ENABLED
+    settings.RATE_LIMIT_ENABLED = False
+    reset_limiter()
+    try:
+        yield
+    finally:
+        settings.RATE_LIMIT_ENABLED = original
+        reset_limiter()
+
+
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     """A TestClient over the real app, with exception handlers active.

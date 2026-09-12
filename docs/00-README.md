@@ -11,6 +11,8 @@ Compliance engine for packaged commodities in India.
 | `03-implementation-plan.md` | At the start of each phase, and before handing anything to Claude Code (§7 has the handoff template). |
 | `04-backend-implementation-plan.md` | Before starting any `backend/` work. Backend-only sequence B0–B23, one ready-to-paste handoff card per work package, the dependency asks, and the backend release gates. |
 | `05-frontend-plan.md` | Before any mobile work. The fourteen frontend stages, each with its TRD requirement and acceptance criterion, and a live status per stage. |
+| `06-api-reference.md` | When integrating against the API. The schema is generated (`make openapi`); this is what the schema cannot say — why an endpoint behaves as it does, and which failures are deliberate. |
+| `07-rulepack-authoring.md` | Before adding or changing a rule. The seven rule kinds, the four contracts the engine holds you to, and the traps. |
 | `../rulepacks/lm-2011-v1.yaml` | Before touching rule logic. Thresholds live in the pack, never in code. |
 | `decisions.md` | Append a dated line on every architectural change. Create on first change. |
 | `eval-results.md` | Regenerate before every demo. Create at P0. |

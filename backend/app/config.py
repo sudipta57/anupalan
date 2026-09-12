@@ -234,6 +234,30 @@ class Settings(BaseSettings):
     ``services.vision.ocr.get_engine``.
     """
 
+    # ------------------------------------------------------------------ rate limiting
+    # Two axes, both required (B23, NFR-01). Per-IP alone lets one org flood from many addresses;
+    # per-org alone lets one address sweep many orgs. See services/ratelimit.py.
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_BACKEND: str = "memory"
+    """``redis`` in any deployment with more than one worker, ``memory`` for local development,
+    ``off`` to disable. ``memory`` counts per process, so N workers admit N times the ceiling —
+    ``get_limiter`` refuses it when ``ENV`` is production rather than letting a deployment find
+    that out under load."""
+
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+    RATE_LIMIT_PER_IP: int = 120
+    """Requests per minute from one address. An inspector's phone retrying an upload is nowhere
+    near this; a script is."""
+
+    RATE_LIMIT_PER_ORG: int = 600
+    """Requests per minute from one organisation, across every user and device it has."""
+
+    RATE_LIMIT_EXEMPT_PATHS: list[str] = Field(
+        default_factory=lambda: ["/health", "/docs", "/openapi.json", "/redoc"]
+    )
+    """Never limited. ``/health`` in particular: a load balancer polling it must not be throttled
+    into declaring the service dead, which would turn a rate limit into an outage."""
+
     # ------------------------------------------------------------------ sahayak (bis)
     # No model name from a vendor appears here either: an embedder and a reranker are names in a
     # registry, resolved exactly the way OCR_ENGINE and LLM_PROVIDER are, so an on-premise
