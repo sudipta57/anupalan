@@ -32,10 +32,13 @@ If the native marker plugin stalls, ship the interim path — upload a frame eve
 server-side gate checks — and swap the plugin in later behind the same interface. Do not let the
 plugin block the rest of the app (docs/03-implementation-plan.md §P3.3).
 
-### What *does* work without a dev build
+### Expo Go is not a partial fallback either
 
-`npx expo start` brings up Metro and the non-camera screens render. Lint, typecheck and tests all
-run with no device:
+`react-native-mmkv` 4 is a Nitro module as well, and the preferences store reads from it during
+the first render, so Expo Go does not degrade to "the camera screen is broken" — it fails at
+launch. There is exactly one way to run this app on a phone, and it is the dev client.
+
+What runs with no device at all:
 
 ```bash
 npm run lint          # eslint, zero warnings tolerated
@@ -45,32 +48,106 @@ npx tsc --noEmit      # typecheck
 
 ---
 
+## Running it on a physical Android device
+
+One-time setup, then a loop you repeat all day. The cloud build is only rebuilt when **native**
+dependencies change — JavaScript changes reload over Metro in seconds.
+
+### Once: build and install the dev client
+
+```bash
+npm i -g eas-cli            # or prefix every command below with `npx eas-cli@latest`
+eas login                   # free account at expo.dev/signup
+eas init                    # writes extra.eas.projectId into app.json — expected, commit it
+npx expo-doctor             # catches config problems before a 20-minute cloud build
+eas build --profile development --platform android
+```
+
+Then put the APK on the phone, with the phone connected over USB:
+
+```bash
+adb devices                          # must list your phone, not "unauthorized"
+eas build:run -p android --latest    # downloads the APK and installs it
+```
+
+`adb devices` showing nothing means the phone has not enabled **Developer options → USB
+debugging**, or the RSA fingerprint prompt on its screen was never accepted. Some vendors
+(Xiaomi, Oppo, Vivo) also gate a separate **Install via USB** toggle.
+
+### Every day: start Metro and reload
+
+```bash
+npx expo start --dev-client    # then press `a` to launch on the connected device
+```
+
+Press `r` to reload, `j` to open the debugger. The phone may instead be on the same Wi-Fi and scan
+the QR from the dev client's own launcher screen — but USB is the one that does not depend on the
+network letting devices talk to each other. If Metro is unreachable over Wi-Fi, forward the port
+instead of debugging the network:
+
+```bash
+adb reverse tcp:8081 tcp:8081
+```
+
+### What you should see
+
+Four tabs — Scan, History, Sahayak, Settings — rendering against fixtures, because
+`EXPO_PUBLIC_API_MODE` defaults to `mock`. Settings is where to look first: it switches
+English/Hindi and light/dark/system, reports the live API mode, and in a dev build carries a
+**Mock backend** panel that forces the failure modes from the architecture's degradation table
+(no marker, low confidence, LLM unavailable, offline, server error). Those paths are acceptance
+criteria, so they are reachable without editing code.
+
+### A local build instead of the cloud
+
+`npx expo run:android` works, but it needs the Android SDK installed and a JDK that the Gradle
+plugin supports. Neither is set up on this machine, and a cloud build needs neither, so the EAS
+`development` profile is the shorter path until there is a reason to build natively.
+
+---
+
 ## Layout
 
 Per CLAUDE.md §2:
 
 ```
 mobile/
-├── app/              # expo-router screens (currently the Expo default)
+├── app/              # expo-router screens
+│   ├── (auth)/       # phone → otp, shown only when signed out
+│   ├── (tabs)/       # the mode-aware tab shell
+│   ├── settings.tsx  # root route behind the header gear, not a tab
+│   └── +not-found.tsx
 ├── src/
 │   ├── api/          # generated client + TanStack Query hooks — no `any`
 │   ├── domain/       # types shared with backend schemas — no `any`
-│   ├── features/     # capture, findings, sahayak, history, reports
-│   ├── components/
+│   ├── features/     # auth, navigation, capture, findings, sahayak, history, reports
+│   ├── components/   # shared primitives — Button, Card, VerdictBadge, AdvisoryDisclaimer
 │   ├── db/           # SQLite offline queue
 │   ├── native/       # vision-camera frame processor plugin
-│   ├── constants/    # theme (Expo default)
-│   └── hooks/        # (Expo default)
+│   ├── theme/        # design tokens, light and dark
+│   ├── i18n/         # t() plus en and hi bundles
+│   ├── store/        # zustand — preferences and the session
+│   ├── providers/    # app providers and the root error boundary
+│   └── lib/          # storage and other small utilities
 ├── assets/
+├── test-utils/       # render() helper wrapping providers
 └── __tests__/
 ```
+
+**One build, two shells.** The org's mode comes off the session and the tab bar composes from it
+(`src/features/navigation/tabs.ts`): enforcement sees Scan · Inspections · Sahayak, industry sees
+Scan · Bulk · History · Sahayak. Mode A has no History tab because Inspections _is_ its history.
+The other mode's route is removed from the navigator by `Tabs.Protected`, not merely hidden.
 
 > The Expo template generates routes into `src/app/`. They live at `mobile/app/` here, because
 > CLAUDE.md §2 is the authoritative layout. expo-router resolves either.
 
-Each `src/` folder carries an `index.ts` naming the TRD requirements it will implement. No screen
-beyond the Expo default exists yet — screens land in P3, in this order: Capture → Context form →
-Processing → Findings → Report → History → Sahayak.
+Each `src/` folder carries an `index.ts` naming the TRD requirements it will implement. The tab
+shell, theme, i18n and shared primitives landed in Stage 0; domain types and the dummy-data engine
+in Stage 1. The feature screens arrive in this order: Capture → Context form → Processing →
+Findings → Report → History → Sahayak. Status per stage lives in
+[docs/04-frontend-plan.md](../docs/04-frontend-plan.md), which is updated in the same change that
+completes a stage.
 
 ---
 
@@ -107,21 +184,32 @@ Today this snapshots the schema to `src/api/openapi.json`. Generating the typed 
 hooks needs a generator dependency, which needs approval before it is added (CLAUDE.md §7) — see
 [scripts/gen-api.mjs](scripts/gen-api.mjs).
 
-Until the real API exists, mobile builds against an MSW mock generated from the same schema, so it
-never waits on the backend (docs/03-implementation-plan.md §P3.6).
+Until the real API exists, screens read through one seam and never wait on the backend:
+
+```
+screens → hooks (TanStack Query) → src/api/transport.ts → mock | live
+```
+
+`EXPO_PUBLIC_API_MODE` picks the implementation and defaults to `mock`. The live HTTP transport is
+already written against the TRD §5 contract, so the fixtures were built to satisfy a real
+interface rather than the interface being shaped around the fixtures. Cutover at Stage 13 is
+setting the flag to `live` and deleting `src/api/mock/` — no screen changes
+(docs/03-implementation-plan.md §P3.6).
 
 ---
 
 ## Scripts
 
-| Script | What it does |
-|---|---|
-| `npm start` | Metro with `--dev-client` |
-| `npm run android` | Metro and launch on a connected Android device |
-| `npm run lint` | eslint, `--max-warnings=0` |
-| `npm test` | jest |
-| `npm run gen:api` | refresh the OpenAPI schema from the backend |
-| `npm run format` | prettier write |
+| Script                 | What it does                                    |
+| ---------------------- | ----------------------------------------------- |
+| `npm start`            | Metro with `--dev-client`                       |
+| `npm run android`      | Metro and launch on a connected Android device  |
+| `npm run lint`         | eslint, `--max-warnings=0`                      |
+| `npm test`             | jest                                            |
+| `npm run typecheck`    | regenerate route types, then `tsc --noEmit`     |
+| `npm run types:routes` | rewrite `.expo/types/router.d.ts` without Metro |
+| `npm run gen:api`      | refresh the OpenAPI schema from the backend     |
+| `npm run format`       | prettier write                                  |
 
 ---
 
@@ -131,9 +219,16 @@ never waits on the backend (docs/03-implementation-plan.md §P3.6).
 - **The marker must print at exactly 100% scale.** If the printer scales the page, every
   millimetre downstream is wrong and the bug looks like a code bug for days. Verify printed
   markers with a ruler.
-- **`expo-env.d.ts` and `.expo/types/` are generated** by `expo start` and are gitignored. On a
-  fresh clone, `npx tsc --noEmit` reports missing CSS-module and router types until you have
-  started Metro once.
+- **There is no web target.** MMKV has no web implementation, so `expo start --web` would crash
+  at the first preference read. The `web` script was removed rather than left to mislead.
+- **React Native Testing Library 14 is async.** `render()` and `unmount()` both return promises;
+  forgetting to await them gives you "`render` function has not been called", which reads like a
+  setup problem and is not. Use the helper in `test-utils/render.tsx`.
+- **`expo-env.d.ts` and `.expo/types/` are generated** and gitignored. The typed-route
+  declarations are normally written by the **dev server's** file watcher, so on a fresh clone or in
+  CI `tsc` would check against a stale route union — ours still listed a route deleted two stages
+  earlier, which went unnoticed only because nothing navigated anywhere yet. Use
+  `npm run typecheck`, which regenerates them first. `npx expo export` does **not** write them.
 - **`react-native-vision-camera` 5.x is not a config plugin.** It ships no `app.plugin.js`, so
   listing it in `app.json` `plugins` makes `expo config` and `expo prebuild` fail with
   `PluginError`. It also declares no permission in its own manifest, so the camera permission is

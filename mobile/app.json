@@ -19,9 +19,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "in.anupalan.app",
-      "permissions": [
-        "android.permission.CAMERA"
-      ]
+      "permissions": ["android.permission.CAMERA"]
     },
     "web": {
       "output": "static",
@@ -38,7 +36,9 @@
         }
       ],
       "expo-sqlite",
-      "expo-dev-client"
+      "expo-dev-client",
+      "expo-sharing",
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true,
