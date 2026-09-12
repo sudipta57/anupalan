@@ -17,7 +17,7 @@ import Constants from 'expo-constants';
 import { API_MODE } from '@/api';
 // Dev-only imports. This whole section, and these imports, are deleted at Stage 13 along with the
 // rest of the mock backend.
-import { FIXTURE_ACCOUNTS, FIXTURE_OTP } from '@/api/mock';
+import { FIXTURE_ACCOUNTS, FIXTURE_OTP, HERO_SCAN_ID } from '@/api/mock';
 import {
   SCENARIOS,
   SCENARIO_LABELS,
@@ -243,6 +243,29 @@ function MockScenarioPanel() {
   );
 }
 
+/**
+ * A way into the sample inspection without photographing anything.
+ *
+ * The findings viewer is otherwise only reachable by completing a whole scan, which makes it slow to
+ * check and impossible to check at all until the camera path works. This scan is also the only
+ * fixture with a report issued over it, so it is the one that shows Mode A's editing lock.
+ */
+function SampleInspectionPanel() {
+  return (
+    <Card>
+      <Text variant="heading">Sample inspection</Text>
+      <Text variant="caption" tone="muted">
+        Dev only. The hero fixture, complete, with a report already issued over it.
+      </Text>
+      <Button
+        label="Open sample findings"
+        variant="secondary"
+        onPress={() => router.push(`/scan/${HERO_SCAN_ID}/findings`)}
+      />
+    </Card>
+  );
+}
+
 export default function SettingsScreen() {
   const t = useT();
   const locale = usePreferences((s) => s.locale);
@@ -292,6 +315,7 @@ export default function SettingsScreen() {
       {__DEV__ ? <GateSimulationPanel /> : null}
       {__DEV__ ? <FixtureAccountPanel /> : null}
       {__DEV__ ? <MockScenarioPanel /> : null}
+      {__DEV__ ? <SampleInspectionPanel /> : null}
 
       <View style={styles.about}>
         <Text variant="label" tone="muted">

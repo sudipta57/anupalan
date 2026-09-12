@@ -29,6 +29,35 @@ export type ScanStatus = 'captured' | 'queued' | 'uploading' | 'processing' | 'c
 export type ScanIssue =
   'no_marker' | 'low_confidence_fields' | 'reduced_extraction' | 'upload_failed';
 
+/**
+ * Which stage of the server pipeline a scan is in (`01-architecture.md` §5).
+ *
+ * S1 is on the device and S9 is the BIS handoff, so neither appears here — these are the eight the
+ * worker moves through and the only ones a progress screen can honestly report.
+ *
+ * **Null is a real answer.** A backend that does not publish its stage leaves this null, and the
+ * progress screen then says "processing" rather than naming a stage it cannot know. Inventing a
+ * plausible stage from elapsed time would be a progress bar that lies, and the first thing it would
+ * hide is a worker stuck on OCR.
+ */
+export type PipelineStage =
+  /** S2 — the image is going to object storage. */
+  | 'upload'
+  /** S3 — marker homography, warp to 20 px/mm. */
+  | 'rectify'
+  /** S4 — PaddleOCR detection and recognition. */
+  | 'ocr'
+  /** S5 — connected components, cap heights, uncertainty bands. */
+  | 'metrology'
+  /** S6 — regex, then the LLM for what regex missed. */
+  | 'extraction'
+  /** S7 — the deterministic rule pack evaluator. */
+  | 'rules'
+  /** S8 — findings assembled with citations and boxes. */
+  | 'findings'
+  /** S10 — PDF, DOCX, JSON, hashes. */
+  | 'report';
+
 export type AssetKind = 'raw' | 'rectified' | 'annotated';
 
 export interface ScanAsset {
@@ -59,6 +88,11 @@ export interface Scan {
   productId: string | null;
   userId: string;
   status: ScanStatus;
+  /**
+   * Where in the pipeline, while `status` is `processing`. Null when the server does not say — see
+   * `PipelineStage` and flag 19 in `docs/04-frontend-plan.md`.
+   */
+  pipelineStage: PipelineStage | null;
   profile: ProductProfile;
   markerType: MarkerType;
   markerMm: number;
@@ -66,6 +100,14 @@ export interface Scan {
   /** Mode A only. Collected with disclosure, never in Mode B (architecture §10). */
   geo: GeoPoint | null;
   district: string | null;
+  /**
+   * When a report was issued over this scan, or null if none has been.
+   *
+   * Mode A locks editing once it is set: after issue the findings are the evidence record, and a
+   * value corrected afterwards would leave a report in circulation that its own source no longer
+   * agrees with (`01-architecture.md` §10, and flag 22 in `docs/04-frontend-plan.md`).
+   */
+  reportIssuedAt: IsoDateTime | null;
   issues: ScanIssue[];
   assets: ScanAsset[];
 }

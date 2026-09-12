@@ -12,12 +12,18 @@
  *
  * Screens beyond the tab shell are pushed onto this stack — capture, findings, reports, settings —
  * so the tab bar stays out of the way during a scan.
+ *
+ * **The upload queue runs while signed in, and only while signed in.** Starting it here rather than
+ * at module scope ties it to the session: a signed-out app holds no tokens, so a drain would fail
+ * every scan and burn its five attempts on nothing. Stopping it on sign-out leaves the rows exactly
+ * where they are — they belong to the device, and they resume on the next sign-in (FR-04).
  */
 
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 
+import { startQueue, stopQueue } from '@/features/queue';
 import { useT } from '@/i18n';
 import { AppProviders } from '@/providers/app-providers';
 import { useIsAuthenticated } from '@/store/session';
@@ -29,6 +35,13 @@ function RootNavigator() {
   const { colors, scheme } = useTheme();
   const isAuthenticated = useIsAuthenticated();
   const t = useT();
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    startQueue();
+    return stopQueue;
+  }, [isAuthenticated]);
 
   const navigationTheme = useMemo(() => {
     const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
@@ -63,6 +76,15 @@ function RootNavigator() {
           <Stack.Screen name="settings" options={{ title: t('settings.title') }} />
           <Stack.Screen name="marker" options={{ title: t('marker.title') }} />
           <Stack.Screen name="capture" options={{ title: t('capture.title') }} />
+          <Stack.Screen name="scan-context" options={{ title: t('context.title') }} />
+          <Stack.Screen name="queue" options={{ title: t('queue.title') }} />
+          <Stack.Screen name="scan/[id]/index" options={{ title: t('processing.title') }} />
+          <Stack.Screen name="scan/[id]/findings" options={{ title: t('findings.title') }} />
+          {/* A sheet, so the scan stays behind it — the verdicts being confirmed are the context. */}
+          <Stack.Screen
+            name="scan/[id]/confirm"
+            options={{ title: t('confirm.title'), presentation: 'modal' }}
+          />
         </Stack.Protected>
 
         <Stack.Protected guard={!isAuthenticated}>

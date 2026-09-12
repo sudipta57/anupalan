@@ -6,13 +6,16 @@
  * is not offered: it is replaced by the setup step. `markerFieldsForScan` is the same rule for
  * code, and between them a scan without `markerType` and `markerMm` cannot be created.
  *
- * Stage 4 replaces the start button with the guided camera and its four gates (FR-01).
+ * It also surfaces the two things an inspector needs to see without hunting for them: a scan left
+ * half-finished, and how many are still waiting to upload. Both read from SQLite, so both survive a
+ * force-close (FR-04).
  */
 
 import { router } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
 import { AdvisoryDisclaimer, Banner, Button, Card, Screen, Text } from '@/components';
+import { useOpenCapture, useQueueCounts } from '@/features/queue';
 import { useT } from '@/i18n';
 import { useMarkerStore } from '@/store/marker';
 import { spacing } from '@/theme';
@@ -27,6 +30,14 @@ export default function ScanScreen() {
   const t = useT();
   const reference = useMarkerStore((s) => s.reference);
   const verifiedAt = useMarkerStore((s) => s.verifiedAt);
+
+  const open = useOpenCapture();
+  const openPhotos = open?.assets.length ?? 0;
+  const counts = useQueueCounts();
+
+  // `captured` scans are the card above; this counts only what the queue itself is working on, so
+  // the two numbers never describe the same scan twice.
+  const waiting = counts.pending - counts.captured;
 
   const referenceName =
     reference?.type === 'aruco_40mm'
@@ -46,13 +57,56 @@ export default function ScanScreen() {
 
       {reference ? (
         <>
-          <Card>
-            <Text variant="heading">{t('scan.start')}</Text>
-            <Text variant="body" tone="muted">
-              {t('scan.subtitle')}
-            </Text>
-            <Button label={t('scan.start')} size="lg" onPress={() => router.push('/capture')} />
-          </Card>
+          {/* An unfinished scan comes first. Its photographs are an inspector's only record of a
+              pack they have already put down, so it must not be something they have to go looking
+              for. */}
+          {openPhotos > 0 ? (
+            <Card>
+              <Text variant="heading">{t('scan.openTitle')}</Text>
+              <Text variant="body" tone="borderline">
+                {openPhotos === 1
+                  ? t('scan.openBody', { count: openPhotos })
+                  : t('scan.openBodyPlural', { count: openPhotos })}
+              </Text>
+              <Button
+                label={t('scan.openContinue')}
+                size="lg"
+                onPress={() => router.push('/scan-context')}
+              />
+              <Button
+                label={t('scan.openMore')}
+                variant="secondary"
+                onPress={() => router.push('/capture')}
+              />
+            </Card>
+          ) : (
+            <Card>
+              <Text variant="heading">{t('scan.start')}</Text>
+              <Text variant="body" tone="muted">
+                {t('scan.subtitle')}
+              </Text>
+              <Button label={t('scan.start')} size="lg" onPress={() => router.push('/capture')} />
+            </Card>
+          )}
+
+          {waiting > 0 ? (
+            <Card>
+              <Text variant="heading">{t('queue.title')}</Text>
+              <Text variant="body" tone="muted">
+                {waiting === 1
+                  ? t('queue.pending', { count: waiting })
+                  : t('queue.pendingPlural', { count: waiting })}
+              </Text>
+              {counts.failed > 0 ? (
+                <Banner tone="warning" title={t('queue.statusFailed')} body={t('queue.subtitle')} />
+              ) : null}
+              <Button
+                label={t('queue.open')}
+                variant="secondary"
+                onPress={() => router.push('/queue')}
+              />
+            </Card>
+          ) : null}
 
           <Card>
             <Text variant="label" tone="muted">

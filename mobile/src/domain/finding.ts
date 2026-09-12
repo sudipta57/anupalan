@@ -114,6 +114,14 @@ export interface FindingsSummary {
 export interface FindingsResult {
   scanId: string;
   rulepackVersion: string;
+  /**
+   * SHA-256 over the findings blob, as embedded in a report (`01-architecture.md` §10).
+   *
+   * Present on the findings themselves, not only on a generated report, because Mode A's evidence
+   * panel has to show it **before** anyone asks for a PDF — that is the point at which an inspector
+   * decides whether to issue one. See flag 21 in `docs/04-frontend-plan.md`.
+   */
+  findingsSha256: string;
   summary: FindingsSummary;
   findings: Finding[];
   extractions: Extraction[];

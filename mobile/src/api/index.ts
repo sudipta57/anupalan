@@ -17,6 +17,7 @@ export { createQueryClient } from './query-client';
 export { API_MODE, API_BASE_URL } from './config';
 export type { ApiMode } from './config';
 export { api } from './endpoints';
+export { imageSourceFor } from './asset-source';
 export { queryKeys } from './keys';
 export { transport } from './transport';
 export type { RequestSpec, Transport } from './transport';

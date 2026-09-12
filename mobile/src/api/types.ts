@@ -11,6 +11,8 @@ import type {
   BisApplicability,
   FieldCode,
   FindingsResult,
+  GeoPoint,
+  IsoDateTime,
   MarkerType,
   Page,
   Product,
@@ -68,12 +70,32 @@ export type ListProductsResponse = Page<Product>;
 
 // ---------------------------------------------------------------- scans
 
+/**
+ * Creating a scan.
+ *
+ * `capturedAt`, `geo` and `district` are **not in the TRD §5 contract** — see flag 16 in
+ * `docs/04-frontend-plan.md`. All three are fields of `Scan`, so the server has to learn them from
+ * somewhere, and the client is the only party that knows them:
+ *
+ * - `capturedAt` is when the shutter fired, not when the request arrived. On a queued scan those
+ *   differ by however long the phone was offline, and the evidence trail needs the former.
+ * - `geo` is collected in Mode A only and is null in Mode B by construction (`geoForScan`).
+ * - `district` likewise, for the Mode A reporting rollups.
+ *
+ * Agree the names with the backend before Stage 13. If it prefers them nested under an `evidence`
+ * object, this file changes and nothing above it does.
+ */
 export interface CreateScanBody {
   productId?: string;
   profile: ProductProfile;
   markerType: MarkerType;
   markerMm: number;
   assetCount: number;
+  /** When the first photograph was taken, not when this request was sent. */
+  capturedAt: IsoDateTime;
+  /** Mode A only. Always null in Mode B — the client never collects it there. */
+  geo: GeoPoint | null;
+  district: string | null;
 }
 
 export interface UploadTarget {

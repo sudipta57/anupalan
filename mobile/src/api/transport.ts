@@ -26,8 +26,27 @@ export interface RequestSpec {
   signal?: AbortSignal;
 }
 
+/**
+ * Putting one captured image at a presigned URL.
+ *
+ * Separate from `request` because it is not a JSON API call: it is a raw `PUT` of file bytes to
+ * object storage, at a URL the API handed out, with no envelope and no auth header of ours. Routing
+ * it through `request` would mean the JSON transport growing a binary branch, an `Authorization`
+ * header leaking to a third-party host, and the mock having to pretend a presigned URL exists.
+ */
+export interface UploadSpec {
+  /** The presigned target from `POST /scans`. */
+  url: string;
+  headers: Record<string, string>;
+  /** `file://` URI of the local image. */
+  fileUri: string;
+  signal?: AbortSignal;
+}
+
 export interface Transport {
   request<T>(spec: RequestSpec): Promise<T>;
+  /** Resolves on success; rejects with an `ApiError` otherwise, so the queue's retry policy sees one shape. */
+  upload(spec: UploadSpec): Promise<void>;
 }
 
 export const transport: Transport =

@@ -14,6 +14,19 @@
  * - **The instructions.** `gate-copy.ts` maps each gate and state to its own, so "reduce glare"
  *   cannot degrade into a generic "adjust the camera".
  *
+ * The photographs go straight into **SQLite** (`src/db/queue-repo.ts`) rather than this screen's
+ * state. Two reasons, and the second is the important one:
+ *
+ * - the context form needs them, so they cannot live in this component; and
+ * - the row **freezes the scale reference that was in frame**. The saved reference is a device
+ *   setting and Settings is two taps away: shoot against the 40 mm tag, switch to the ID-1 card,
+ *   submit, and the scan would claim 85.6 mm. Every millimetre is then wrong by a factor of 2.14
+ *   while the image genuinely contains a marker and nothing downstream looks wrong.
+ *
+ * Writing the row on the first shutter press rather than at submit also means a force-close here
+ * costs an inspector nothing — the photographs *and* what they were measured against are already
+ * durable (FR-04).
+ *
  * **Expo Go cannot run this screen.** vision-camera is a Nitro module; it needs the EAS dev client
  * (CLAUDE.md §8).
  */
@@ -37,12 +50,13 @@ import {
   markerFieldsForScan,
   saveCapture,
   useGates,
-  type CapturedPhoto,
   type GateState,
   type MarkerReference,
 } from '@/features/capture';
 import { deleteCapture } from '@/features/capture/capture-storage';
 import { useT } from '@/i18n';
+import * as repo from '@/db/queue-repo';
+import { kick, useOpenCapture } from '@/features/queue';
 import { useMarkerReference } from '@/store/marker';
 import { MIN_TOUCH_TARGET, radius, spacing, useTheme } from '@/theme';
 
@@ -63,7 +77,9 @@ function LiveCapture({ device, reference }: { device: CameraDevice; reference: M
 
   const photoOutput = usePhotoOutput({ qualityPrioritization: 'quality' });
 
-  const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
+  const open = useOpenCapture();
+  const photos = open?.assets ?? [];
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,7 +101,15 @@ function LiveCapture({ device, reference }: { device: CameraDevice; reference: M
 
     try {
       const saved = await saveCapture(photo);
-      setPhotos((current) => [...current, saved]);
+
+      // The row is created by the first photograph, with the reference that was in frame for it.
+      // Through `markerFieldsForScan`, so a scan still cannot come into existence without one.
+      const scanId = open ? open.id : repo.beginCapture(markerFieldsForScan(reference));
+      repo.addAsset(scanId, {
+        localUri: saved.uri,
+        widthPx: saved.widthPx,
+        heightPx: saved.heightPx,
+      });
     } catch {
       setError(t('capture.saveFailed'));
     } finally {
@@ -93,15 +117,17 @@ function LiveCapture({ device, reference }: { device: CameraDevice; reference: M
       photo.dispose();
       setBusy(false);
     }
-  }, [busy, photoOutput, report.canCapture, t]);
+  }, [busy, open, photoOutput, reference, report.canCapture, t]);
 
   const discardLast = useCallback(() => {
-    setPhotos((current) => {
-      const last = current.at(-1);
-      if (last) deleteCapture(last.uri);
-      return current.slice(0, -1);
-    });
-  }, []);
+    if (!open) return;
+
+    const removed = repo.removeLastAsset(open.id);
+    // The row is the index; the file is the evidence. Discard means discard, so both go — but the
+    // order matters: the row first, so a failure to delete the file cannot leave a row pointing at
+    // nothing.
+    if (removed) deleteCapture(removed);
+  }, [open]);
 
   const { markerMm } = markerFieldsForScan(reference);
 
@@ -182,7 +208,7 @@ function LiveCapture({ device, reference }: { device: CameraDevice; reference: M
           <View style={styles.captured}>
             {photos.length > 0 ? (
               <>
-                <Image source={{ uri: photos[photos.length - 1].uri }} style={styles.thumb} />
+                <Image source={{ uri: photos[photos.length - 1].localUri }} style={styles.thumb} />
                 <Text variant="caption" tone="muted">
                   {photos.length === 1
                     ? t('capture.capturedCount', { count: photos.length })
@@ -196,9 +222,17 @@ function LiveCapture({ device, reference }: { device: CameraDevice; reference: M
 
         {photos.length > 0 ? (
           <>
-            <Button label={t('capture.continueLabel')} disabled />
+            <Button
+              label={t('capture.continueLabel')}
+              onPress={() => {
+                // Wakes the runner early so a scan completed here starts uploading at once rather
+                // than on the next idle tick.
+                kick();
+                router.push('/scan-context');
+              }}
+            />
             <Text variant="caption" tone="subtle">
-              {t('capture.continuePending')}
+              {t('capture.continueHint')}
             </Text>
           </>
         ) : null}
@@ -210,9 +244,17 @@ function LiveCapture({ device, reference }: { device: CameraDevice; reference: M
 export default function CaptureScreen() {
   const t = useT();
 
-  const reference = useMarkerReference();
+  const saved = useMarkerReference();
+  const open = useOpenCapture();
+
   const { hasPermission, requestPermission, canRequestPermission } = useCameraPermission();
   const device = useCameraDevice('back');
+
+  // An open scan's own reference wins. These photographs belong to whatever was in frame when the
+  // first of them was taken, even if the device setting has been changed since.
+  const reference: MarkerReference | null = open
+    ? { type: open.markerType, mm: open.markerMm }
+    : saved;
 
   if (!reference) {
     // The Scan tab does not offer capture without a reference; this is the direct-link case.

@@ -32,6 +32,32 @@ import { RULES, RULEPACK_VERSION } from './rules';
 
 export const HERO_SCAN_ID = 'scn_hero_atta';
 
+/** SHA-256 over the findings blob. Shared with the report fixture — see `HERO_FINDINGS_RESULT`. */
+export const FINDINGS_SHA256 = 'b71c0e4d92a58f3610cd2e7b4498a0f5d63c81927ae4f0b5c3d829617fa4e0d2';
+
+/**
+ * The photograph as it came off the camera.
+ *
+ * Here because Mode A's evidence panel shows the hash of the **raw** upload, never the rectified
+ * image's: the rectified image is derived by a homography, so its hash verifies a computation rather
+ * than a photograph (`01-architecture.md` §10). A fixture with only the rectified asset would have let
+ * the panel quietly present the wrong hash and still look right.
+ *
+ * Its `uri` resolves to nothing on purpose — the raw frame is not bundled, nothing displays it, and
+ * `imageSourceFor` returns null for an unknown fixture path rather than a broken image.
+ */
+const RAW_ASSET: ScanAsset = {
+  id: 'ast_hero_raw',
+  scanId: HERO_SCAN_ID,
+  kind: 'raw',
+  uri: 'fixture://raw-label',
+  widthPx: 3024,
+  heightPx: 4032,
+  // Null: nothing is measured off a raw frame. Millimetres come from the rectified plane only.
+  pxPerMm: null,
+  sha256: '4c1d9b06e7a32f85d40b7c1e6938af250d71c84b93e6052af18d7c4b6e2039aa',
+};
+
 const RECTIFIED_ASSET: ScanAsset = {
   id: 'ast_hero_rectified',
   scanId: HERO_SCAN_ID,
@@ -49,14 +75,20 @@ export const HERO_SCAN: Scan = {
   productId: 'prd_atta_1kg',
   userId: INSPECTOR.id,
   status: 'complete',
+  // Complete, so nothing is in flight. Null here is also what a backend that publishes no stage
+  // looks like, which the progress screen has to render honestly (see `PipelineStage`).
+  pipelineStage: null,
   profile: PRODUCTS_BY_ID.prd_atta_1kg.profile,
   markerType: 'aruco_40mm',
   markerMm: 40,
   capturedAt: '2026-09-11T09:42:18Z',
   geo: { latitude: 22.975, longitude: 88.4345, accuracyM: 8 },
   district: 'Nadia',
+  // A past inspection whose report has been issued — which is what makes it the scan that
+  // demonstrates Mode A's editing lock. Locally created scans carry null.
+  reportIssuedAt: '2026-09-11T10:05:41Z',
   issues: [],
-  assets: [RECTIFIED_ASSET],
+  assets: [RAW_ASSET, RECTIFIED_ASSET],
 };
 
 function finding(
@@ -334,6 +366,10 @@ export const HERO_MEASUREMENTS: Measurement[] = [
 export const HERO_FINDINGS_RESULT: FindingsResult = {
   scanId: HERO_SCAN_ID,
   rulepackVersion: RULEPACK_VERSION,
+  // The same value `POST /scans/{id}/report` returns below, because a report's findings hash and the
+  // findings' own hash are a hash of the same blob. Two different fixture values would make the
+  // evidence panel and the report disagree for no reason a reader could diagnose.
+  findingsSha256: FINDINGS_SHA256,
   summary: {
     pass: HERO_FINDINGS.filter((f) => f.verdict === 'PASS').length,
     fail: HERO_FINDINGS.filter((f) => f.verdict === 'FAIL').length,

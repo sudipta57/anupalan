@@ -17,6 +17,8 @@ export { EmptyState } from './empty-state';
 export type { EmptyStateProps } from './empty-state';
 export { Field } from './field';
 export type { FieldProps } from './field';
+export { FindingsOverlay } from './findings-overlay';
+export type { FindingsOverlayProps } from './findings-overlay';
 export {
   AlertIcon,
   BulkIcon,
@@ -27,6 +29,8 @@ export {
   SettingsIcon,
 } from './icons';
 export type { IconProps } from './icons';
+export { RegionCrop } from './region-crop';
+export type { RegionCropProps } from './region-crop';
 export { Screen } from './screen';
 export type { ScreenProps } from './screen';
 export { SegmentedControl } from './segmented-control';

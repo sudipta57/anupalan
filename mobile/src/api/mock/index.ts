@@ -37,15 +37,32 @@ import type {
   SahayakAskResponse,
   SubmitScanResponse,
 } from '../types';
-import type { AuthTokens, Finding, Scan, ScanListItem, ScanStatus, Verdict } from '@/domain';
+import type {
+  AuthTokens,
+  Finding,
+  PipelineStage,
+  Scan,
+  ScanIssue,
+  ScanListItem,
+  ScanStatus,
+  Verdict,
+} from '@/domain';
 
 import { BIS_APPLICABILITY, SAHAYAK_ANSWERS } from './fixtures/sahayak';
-import { HERO_FINDINGS_RESULT, HERO_SCAN, HERO_SCAN_ID } from './fixtures/hero-scan';
+import {
+  FINDINGS_SHA256,
+  HERO_FINDINGS_RESULT,
+  HERO_SCAN,
+  HERO_SCAN_ID,
+} from './fixtures/hero-scan';
 import { PRODUCTS, PRODUCTS_BY_ID } from './fixtures/products';
 import { RULEPACK_VERSION } from './fixtures/rules';
 import { SCAN_LIST } from './fixtures/scans';
 import { FIXTURE_OTP, accountForPhone } from './accounts';
 import { getScenario } from './scenario';
+// The file, not the barrel: this module is deleted at Stage 13 and its import surface should be
+// as small as the one thing it needs.
+import { PIPELINE_STAGES } from '@/features/processing/stages';
 
 const PAGE_SIZE = 30;
 
@@ -93,6 +110,48 @@ function statusFor(submittedAt: number): ScanStatus {
   if (elapsed < QUEUED_MS) return 'queued';
   if (elapsed < QUEUED_MS + PROCESSING_MS) return 'processing';
   return 'complete';
+}
+
+/**
+ * Which pipeline stage a processing scan is in.
+ *
+ * A function of elapsed time, like `statusFor`, so there are no timers to leak and a re-mounted
+ * progress screen cannot resume mid-sequence. The real worker will publish this; the shape is what
+ * matters here, not the timing.
+ *
+ * Returns null once the scan is no longer processing — nothing is in flight, and the progress screen
+ * must not keep a stage highlighted on a finished scan.
+ */
+function stageFor(submittedAt: number): PipelineStage | null {
+  const elapsed = Date.now() - submittedAt - QUEUED_MS;
+  if (elapsed < 0 || elapsed >= PROCESSING_MS) return null;
+
+  const index = Math.min(
+    PIPELINE_STAGES.length - 1,
+    Math.floor((elapsed / PROCESSING_MS) * PIPELINE_STAGES.length)
+  );
+
+  return PIPELINE_STAGES[index];
+}
+
+/**
+ * What the current scenario means for a scan's issue list.
+ *
+ * Set on the scan rather than only on the findings, because the degradation banners are read off
+ * `Scan.issues` (architecture §11) and a scan whose findings say "no marker" while its issue list is
+ * empty would show a clean header above a page of NOT_ASSESSABLE rows.
+ */
+function issuesForScenario(): ScanIssue[] {
+  switch (getScenario()) {
+    case 'no-marker':
+      return ['no_marker'];
+    case 'low-confidence':
+      return ['low_confidence_fields'];
+    case 'llm-unavailable':
+      return ['reduced_extraction'];
+    default:
+      return [];
+  }
 }
 
 /**
@@ -152,6 +211,17 @@ function findingsFor(scanId: string): GetFindingsResponse {
     };
   }
 
+  if (scenario === 'llm-unavailable') {
+    // Architecture §11: extraction falls back to regex-only, every rule still runs, and the report is
+    // issued flagged. So the LLM-sourced fields are simply absent — not present with a low
+    // confidence, which would wrongly send them to the confirmation sheet as misreads.
+    return {
+      ...base,
+      scanId,
+      extractions: base.extractions.filter((e) => e.source !== 'llm'),
+    };
+  }
+
   return { ...base, scanId };
 }
 
@@ -183,7 +253,14 @@ function scanFor(id: string): Scan {
   if (id === HERO_SCAN_ID) return HERO_SCAN;
 
   const local = created.get(id);
-  if (local) return { ...local.scan, status: statusFor(local.submittedAt) };
+  if (local) {
+    return {
+      ...local.scan,
+      status: statusFor(local.submittedAt),
+      pipelineStage: stageFor(local.submittedAt),
+      issues: issuesForScenario(),
+    };
+  }
 
   const listed = SCAN_LIST.find((s) => s.id === id);
   if (!listed) {
@@ -197,6 +274,10 @@ function scanFor(id: string): Scan {
     orgId: listed.orgId,
     status: listed.status,
     capturedAt: listed.capturedAt,
+    // A scan still in the pipeline cannot have a report over it; one that finished, in this fixture
+    // set, does. Inheriting the hero scan's value unconditionally would have claimed a report over a
+    // scan that is still uploading.
+    reportIssuedAt: listed.status === 'complete' ? HERO_SCAN.reportIssuedAt : null,
   };
 }
 
@@ -299,7 +380,16 @@ function route(spec: RequestSpec): unknown {
         profile: created_body.profile,
         markerType: created_body.markerType,
         markerMm: created_body.markerMm,
-        capturedAt: new Date().toISOString(),
+        // The client's capture time, not the server's receive time — on a queued scan those differ
+        // by however long the phone was offline, and the evidence trail needs the former.
+        capturedAt: created_body.capturedAt,
+        // Echoed rather than defaulted, so a Mode B scan arriving with a coordinate would be
+        // visible in the app instead of being quietly normalised away.
+        geo: created_body.geo,
+        district: created_body.district,
+        // Nothing has been issued over a scan that was created a moment ago, so Mode A's editing
+        // lock is open and the confirmation sheet is reachable.
+        reportIssuedAt: null,
         issues: getScenario() === 'no-marker' ? ['no_marker'] : [],
       },
     });
@@ -353,8 +443,10 @@ function route(spec: RequestSpec): unknown {
         uri: `fixture://report/${scanMatch[1]}.${format}`,
         sizeBytes: format === 'pdf' ? 184_320 : 42_110,
       })),
-      imageSha256: HERO_SCAN.assets[0].sha256 ?? '',
-      findingsSha256: 'b71c0e4d92a58f3610cd2e7b4498a0f5d63c81927ae4f0b5c3d829617fa4e0d2',
+      // The raw upload's hash, found by kind rather than by position: §10 records the hash of the
+      // photograph, and the rectified asset's hash would verify a computation instead.
+      imageSha256: HERO_SCAN.assets.find((asset) => asset.kind === 'raw')?.sha256 ?? '',
+      findingsSha256: FINDINGS_SHA256,
       generatedAt: new Date().toISOString(),
     } satisfies CreateReportResponse;
   }
@@ -390,6 +482,14 @@ function route(spec: RequestSpec): unknown {
   });
 }
 
+/**
+ * How long a fixture "upload" takes.
+ *
+ * Long enough that the queue's `uploading` state is visible on screen rather than a flicker — the
+ * per-item state list is an FR-04 deliverable and a state nobody can see is a state nobody reviews.
+ */
+const UPLOAD_MS = 900;
+
 export function createMockTransport(): Transport {
   return {
     async request<T>(spec: RequestSpec): Promise<T> {
@@ -397,9 +497,24 @@ export function createMockTransport(): Transport {
       guardScenario();
       return route(spec) as T;
     },
+
+    /**
+     * Pretend to put an image at its presigned URL.
+     *
+     * Nothing is read from disk and nothing leaves the phone, but the **scenario is honoured** — so
+     * forcing Offline mid-queue exercises the real retry-and-backoff path rather than a path that
+     * only exists in theory. That is the whole reason the scenario switch exists
+     * (`01-architecture.md` §11).
+     */
+    async upload(): Promise<void> {
+      if (!IS_TEST) await new Promise((resolve) => setTimeout(resolve, UPLOAD_MS));
+      guardScenario();
+    },
   };
 }
 
 export { PRODUCTS_BY_ID };
+// So a dev-only screen can open the sample inspection without reaching into the fixtures folder.
+export { HERO_SCAN_ID } from './fixtures/hero-scan';
 export { FIXTURE_ACCOUNTS, FIXTURE_OTP, accountForMode } from './accounts';
 export type { FixtureAccount } from './accounts';

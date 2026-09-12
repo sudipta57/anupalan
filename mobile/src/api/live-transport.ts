@@ -17,12 +17,14 @@
  *    tunnel, and the session they lose is the queued scan they were about to upload.
  */
 
+import { File, UploadType, type UploadResult } from 'expo-file-system';
+
 import type { AuthTokens } from '@/domain';
 
 import { getAuthBridge } from './auth-bridge';
 import { API_BASE_URL, API_PREFIX } from './config';
 import { ApiError } from './errors';
-import type { RequestSpec, Transport } from './transport';
+import type { RequestSpec, Transport, UploadSpec } from './transport';
 
 const REFRESH_PATH = '/auth/refresh';
 
@@ -139,6 +141,50 @@ function refreshOnce(): Promise<boolean> {
   return refreshInFlight;
 }
 
+/**
+ * Put one image at its presigned URL.
+ *
+ * `File.upload` streams from disk natively, which matters: reading a 4 MB JPEG into JS to hand to
+ * `fetch` costs the memory twice over, and an inspector's phone is doing this for several photographs
+ * in a row.
+ *
+ * It **resolves on a non-2xx response** rather than rejecting, so the status has to be checked here.
+ * A presigned URL that has expired comes back 403, and treating that as success would mark an asset
+ * uploaded that never arrived — a scan that then processes against a missing image.
+ *
+ * No `Authorization` header: the URL carries its own signature, and the host is object storage
+ * rather than our API.
+ */
+async function putFile(spec: UploadSpec): Promise<void> {
+  let result: UploadResult;
+
+  try {
+    result = await new File(spec.fileUri).upload(spec.url, {
+      httpMethod: 'PUT',
+      uploadType: UploadType.BINARY_CONTENT,
+      headers: { 'Content-Type': 'image/jpeg', ...spec.headers },
+      mimeType: 'image/jpeg',
+      signal: spec.signal,
+    });
+  } catch (cause) {
+    throw new ApiError({
+      code: 'network_unavailable',
+      message: 'Could not reach the storage endpoint.',
+      status: 0,
+      details: cause,
+    });
+  }
+
+  if (result.status < 200 || result.status >= 300) {
+    throw new ApiError({
+      code: 'upload_failed',
+      message: `Storage rejected the upload (${result.status}).`,
+      status: result.status,
+      details: result.body,
+    });
+  }
+}
+
 export function createLiveTransport(): Transport {
   return {
     async request<T>(spec: RequestSpec): Promise<T> {
@@ -150,5 +196,7 @@ export function createLiveTransport(): Transport {
 
       return parse<T>(response);
     },
+
+    upload: putFile,
   };
 }
