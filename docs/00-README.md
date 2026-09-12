@@ -10,6 +10,7 @@ Compliance engine for packaged commodities in India.
 | `02-trd.md` | Before implementing any feature. Every FR/NFR has an acceptance test; the test is the definition of done. |
 | `03-implementation-plan.md` | At the start of each phase, and before handing anything to Claude Code (§7 has the handoff template). |
 | `04-backend-implementation-plan.md` | Before starting any `backend/` work. Backend-only sequence B0–B23, one ready-to-paste handoff card per work package, the dependency asks, and the backend release gates. |
+| `05-frontend-plan.md` | Before any mobile work. The fourteen frontend stages, each with its TRD requirement and acceptance criterion, and a live status per stage. |
 | `../rulepacks/lm-2011-v1.yaml` | Before touching rule logic. Thresholds live in the pack, never in code. |
 | `decisions.md` | Append a dated line on every architectural change. Create on first change. |
 | `eval-results.md` | Regenerate before every demo. Create at P0. |

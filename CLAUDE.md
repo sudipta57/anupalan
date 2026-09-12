@@ -221,6 +221,7 @@ Non-LLM models in use, all self-hosted: PaddleOCR PP-OCRv4 (text detection + rec
 | `docs/02-trd.md` | Before implementing a feature — every FR/NFR has an acceptance test | When a requirement changes |
 | `docs/03-implementation-plan.md` | At the start of each phase | When phase scope changes |
 | `docs/04-backend-implementation-plan.md` | Before starting any `backend/` work — it carries the B0–B23 sequence and one handoff card per work package | When a backend package is finished, re-sequenced or its dependency ask is answered |
+| `docs/05-frontend-plan.md` | Before any mobile work — the fourteen frontend stages and their status | In the same change that completes a stage |
 | `docs/decisions.md` | When a decision looks odd | Append a dated line on every architectural change |
 | `docs/eval-results.md` | Before any demo | After every evaluation run |
 | `rulepacks/lm-2011-v1.yaml` | Before touching rule logic | Only with review — see §7 |
