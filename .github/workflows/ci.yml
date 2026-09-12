@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A new push to a branch cancels the run still in flight for it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend (ruff, mypy, pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: ruff check
+        run: ruff check .
+
+      - name: mypy (strict on app/services)
+        run: mypy app/services
+
+      # No database or Redis here. Postgres (Neon), Redis (Redis Cloud) and storage (R2) are
+      # managed services, and CI holds no credentials for them. /health answers 200 with a
+      # degraded status when a dependency is unreachable, and the health test asserts the rule
+      # pack version rather than connectivity. Integration tests that need real datastores get
+      # their own job, against a Neon branch, when the data layer lands (P2.2).
+      - name: pytest
+        run: pytest
+
+  mobile:
+    name: mobile (lint, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: eslint
+        run: npm run lint
+
+      - name: jest
+        run: npm test

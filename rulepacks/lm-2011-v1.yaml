@@ -1,0 +1,226 @@
+# Anupalan rule pack — Legal Metrology (Packaged Commodities) Rules, 2011
+# code: LM-2011  version: 1.0  status: ENGINEERING TRANSCRIPTION — NOT LEGALLY REVIEWED
+#
+# Every rule must carry: id, kind, citation, severity, and a message template.
+# The engine never hardcodes a threshold; thresholds live here.
+
+meta:
+  code: LM-2011
+  version: "1.0"
+  effective_from: "2011-04-01"
+  jurisdiction: IN
+  source_notes: >
+    Transcribed from the Legal Metrology (Packaged Commodities) Rules, 2011 as amended,
+    including G.S.R. 629(E) dated 23.06.2017 (rule 9 substitution), G.S.R. 128(E) dated
+    13.02.2026 (rule 6(10A)) and the Second Amendment Rules, 2026 dated 27.04.2026
+    (6(10A) effective 01.07.2027). MUST be reviewed clause-by-clause by a legal metrology
+    practitioner before any commercial use.
+  measurement:
+    px_per_mm: 20
+    default_uncertainty_mm: 0.25
+    borderline_policy: "if |observed - required| <= uncertainty then BORDERLINE"
+
+# ---------------------------------------------------------------- lookup tables
+
+tables:
+  numeral_height_by_weight_volume:      # Rule 9, Table-I
+    unit_basis: weight_or_volume
+    rows:
+      - { max_qty_g_or_ml: 200,   min_mm_normal: 1, min_mm_embossed: 2 }
+      - { max_qty_g_or_ml: 500,   min_mm_normal: 2, min_mm_embossed: 4 }
+      - { max_qty_g_or_ml: null,  min_mm_normal: 4, min_mm_embossed: 6 }   # above 500
+
+  numeral_height_by_pdp_area:           # Rule 9, Table-II
+    unit_basis: length_area_or_number
+    rows:
+      - { max_pdp_cm2: 100,   min_mm_normal: 1, min_mm_embossed: 2 }
+      - { max_pdp_cm2: 500,   min_mm_normal: 2, min_mm_embossed: 4 }
+      - { max_pdp_cm2: 2500,  min_mm_normal: 4, min_mm_embossed: 6 }
+      - { max_pdp_cm2: null,  min_mm_normal: 6, min_mm_embossed: 6 }       # above 2500
+
+  unit_symbols:
+    mass:   [g, kg]
+    volume: [ml, l, L]
+    length: [mm, cm, m]
+    number: [N, U]
+    rejected_variants:
+      gms: g
+      Gms: g
+      gm: g
+      GM: g
+      ltr: l
+      Ltr: l
+      LTR: l
+      lts: l
+
+# ---------------------------------------------------------------- rules
+
+rules:
+
+  # ---- presence, Rule 6(1)
+
+  - id: LM-6-1-A-MANUFACTURER
+    kind: presence
+    fields: [manufacturer_name, manufacturer_address]
+    severity: major
+    citation: "Rule 6(1)(a), Legal Metrology (Packaged Commodities) Rules, 2011"
+    message: "Name and complete address of the manufacturer/packer must appear on the package."
+
+  - id: LM-6-1-IMPORTER
+    kind: conditional
+    when: { profile.is_imported: true }
+    then:
+      kind: presence
+      fields: [importer_name, importer_address]
+    severity: major
+    citation: "Rule 6(1)(a) proviso, LMPC Rules, 2011"
+    message: "Imported packages must declare the name and complete address of the importer in India."
+
+  - id: LM-6-1-B-COMMON-NAME
+    kind: presence
+    fields: [common_name]
+    severity: major
+    citation: "Rule 6(1)(b), LMPC Rules, 2011"
+    message: "The common or generic name of the commodity must be declared."
+
+  - id: LM-6-1-D-NET-QUANTITY
+    kind: presence
+    fields: [net_quantity]
+    severity: critical
+    citation: "Rule 6(1)(d), LMPC Rules, 2011"
+    message: "Net quantity must be declared in standard units."
+
+  - id: LM-6-1-C-MFG-DATE
+    kind: presence
+    fields: [mfg_month_year]
+    severity: major
+    citation: "Rule 6(1)(c), LMPC Rules, 2011"
+    message: "Month and year of manufacture/packing/import must be declared."
+
+  - id: LM-6-1-E-MRP
+    kind: presence
+    fields: [mrp]
+    severity: critical
+    citation: "Rule 6(1)(e), LMPC Rules, 2011"
+    message: "Retail sale price must be declared."
+
+  - id: LM-6-1-F-CONSUMER-CARE
+    kind: composite
+    operator: AND
+    of:
+      - { kind: presence, fields: [consumer_care_name] }
+      - { kind: any_of,   fields: [consumer_care_phone, consumer_care_email] }
+    severity: major
+    citation: "Rule 6(1)(f), LMPC Rules, 2011"
+    message: "Consumer care details, including a name and at least one contact channel, must be declared."
+
+  # ---- format
+
+  - id: LM-MRP-INCLUSIVE-WORDING
+    kind: format
+    field: mrp
+    pattern: "(?i)(incl(usive)?\\.?\\s*of\\s*all\\s*taxes|M\\.?R\\.?P\\.?\\s*\\(incl)"
+    severity: major
+    citation: "Rule 6(1)(e) read with Rule 18, LMPC Rules, 2011"
+    message: "Retail sale price must be expressed as inclusive of all taxes."
+
+  - id: LM-QTY-UNIT-SYMBOL
+    kind: format
+    field: net_quantity
+    validator: unit_symbol_in_table      # engine checks against tables.unit_symbols
+    severity: minor
+    citation: "Rule 8 read with the Second Schedule, LMPC Rules, 2011"
+    message: "Net quantity must use the prescribed unit symbol (e.g. 'g', not 'gms')."
+
+  - id: LM-MFG-DATE-FORMAT
+    kind: format
+    field: mfg_month_year
+    validator: resolvable_month_year
+    severity: minor
+    citation: "Rule 6(1)(c), LMPC Rules, 2011"
+    message: "Month and year of manufacture must be resolvable (e.g. '03/2026' or 'MAR 2026')."
+
+  # ---- metric, Rule 9
+
+  - id: LM-9-2-TABLE1
+    kind: metric
+    applies_when: { profile.qty_basis: weight_or_volume }
+    measure: numeral_cap_height_mm
+    of_field: net_quantity
+    table: numeral_height_by_weight_volume
+    key: profile.net_qty_in_g_or_ml
+    threshold_column:
+      normal: min_mm_normal
+      embossed: min_mm_embossed
+    surface_from: profile.surface
+    comparator: gte
+    severity: major
+    citation: "Rule 9(2)(i) read with Table-I, LMPC Rules, 2011 (as substituted by G.S.R. 629(E) dated 23.06.2017)"
+    message: "Numeral height in the net quantity declaration is {observed} mm; Table-I requires at least {required} mm for {qty} {unit} on a {surface} surface."
+
+  - id: LM-9-2-TABLE2
+    kind: metric
+    applies_when: { profile.qty_basis: length_area_or_number }
+    measure: numeral_cap_height_mm
+    of_field: net_quantity
+    table: numeral_height_by_pdp_area
+    key: profile.pdp_area_cm2
+    threshold_column:
+      normal: min_mm_normal
+      embossed: min_mm_embossed
+    surface_from: profile.surface
+    comparator: gte
+    severity: major
+    citation: "Rule 9(2)(ii) read with Table-II, LMPC Rules, 2011"
+    message: "Numeral height is {observed} mm; Table-II requires at least {required} mm for a principal display panel area of {pdp} cm²."
+
+  - id: LM-9-LETTER-HEIGHT
+    kind: metric
+    measure: letter_cap_height_mm
+    of_field: any_declaration
+    threshold:
+      normal: 1.0
+      embossed: 2.0
+    surface_from: profile.surface
+    comparator: gte
+    severity: major
+    citation: "Rule 9(3), LMPC Rules, 2011 (as substituted by G.S.R. 629(E) dated 23.06.2017)"
+    message: "Letter height is {observed} mm; at least {required} mm is required."
+
+  - id: LM-9-3-WIDTH
+    kind: metric
+    measure: glyph_width_to_height_ratio
+    of_field: any_declaration
+    threshold: 0.3333
+    comparator: gte
+    exclude_glyphs: ["1", "i", "I", "l"]
+    severity: minor
+    citation: "Rule 9(3) proviso, LMPC Rules, 2011"
+    message: "Glyph width is {observed} of its height; the proviso requires at least one third."
+
+  # ---- placement
+
+  - id: LM-9-QTY-CLEAR-SPACE
+    kind: geometry
+    measure: clear_space_around_declaration
+    of_field: net_quantity
+    threshold_rule: "area surrounding the quantity declaration must be free from printed information"
+    severity: minor
+    confidence_policy: prefer_borderline     # geometry is noisy; do not accuse on a close call
+    citation: "Rule 9(1) proviso, LMPC Rules, 2011"
+    message: "Printed information appears within the clear space around the net quantity declaration."
+
+  # ---- e-commerce, with a future effective date
+
+  - id: LM-6-10A-COO-FILTER
+    kind: conditional
+    effective_from: "2027-07-01"
+    when:
+      profile.channel: ecommerce
+      profile.is_imported: true
+    then:
+      kind: presence
+      fields: [coo_searchable_filter, coo_sortable_filter]
+    severity: major
+    citation: "Rule 6(10A), LMPC Rules, 2011 (G.S.R. 128(E) dated 13.02.2026, as substituted by the Second Amendment Rules, 2026; effective 01.07.2027)"
+    message: "E-commerce listings of imported products must provide a searchable and sortable country-of-origin filter."

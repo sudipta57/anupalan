@@ -1,0 +1,108 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anupalan-backend"
+version = "0.1.0"
+description = "Anupalan — compliance engine for packaged commodities in India (API + worker)"
+requires-python = ">=3.12"
+license = { text = "TODO-licence-not-yet-chosen" }
+
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic-settings",
+    "sqlalchemy",
+    "alembic",
+    "psycopg[binary]",
+    "celery",
+    "redis",
+    "python-multipart",
+    # Rule packs are YAML. uvicorn[standard] happens to pull PyYAML in today, but
+    # services/rules/loader.py must not depend on another package's extras.
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "ruff",
+    "mypy",
+    "types-pyyaml",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+# ---------------------------------------------------------------------------- ruff
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [".venv", "alembic/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "BLE",    # flake8-blind-except
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "N",      # pep8-naming
+    "ANN",    # flake8-annotations — CLAUDE.md §5: annotate every public function
+    "ASYNC",  # flake8-async
+    "S",      # flake8-bandit
+    "T20",    # flake8-print — no stray print() in services
+    "SIM",    # flake8-simplify
+    "PTH",    # flake8-use-pathlib
+    "RUF",
+]
+ignore = [
+    "ANN401",  # Any is sometimes the honest annotation for **kwargs
+    "B008",    # FastAPI's Depends()/File() in defaults is the framework idiom
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert, which bandit flags, and need no annotation ceremony.
+"tests/**/*.py" = ["S101", "ANN", "T20"]
+# Alembic's generated env.py is framework boilerplate.
+"alembic/env.py" = ["ANN", "T20"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# ---------------------------------------------------------------------------- mypy
+
+[tool.mypy]
+python_version = "3.12"
+# Baseline for the whole backend. The strict gate below is scoped to app/services,
+# because that is where a wrong millimetre is indistinguishable from a right one.
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+exclude = ["^\\.venv/", "^alembic/versions/", "^build/"]
+
+[[tool.mypy.overrides]]
+# CLAUDE.md §5: mypy --strict on app/services/.
+module = "app.services.*"
+strict = true
+disallow_untyped_defs = true
+disallow_any_unimported = true
+warn_return_any = true
+no_implicit_reexport = true
+
+# ---------------------------------------------------------------------------- pytest
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers --strict-config"
+filterwarnings = ["error::DeprecationWarning:app.*"]

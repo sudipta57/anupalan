@@ -1,0 +1,51 @@
+# Dependency updates. Weekly, so review is a scheduled task rather than a stream of noise.
+#
+# A dependabot PR is still a dependency change and still needs a human to agree to it
+# (CLAUDE.md §7). Version bumps are fine to merge on green CI; a major bump gets read first.
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+    labels: [dependencies, backend]
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      backend-dev:
+        dependency-type: development
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /mobile
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+    labels: [dependencies, mobile]
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    # Expo pins the React Native stack to the SDK version. Let `npx expo install --check`
+    # drive those, not dependabot, or you get PRs that break the build.
+    ignore:
+      - dependency-name: expo
+      - dependency-name: expo-*
+      - dependency-name: react
+      - dependency-name: react-dom
+      - dependency-name: react-native
+      - dependency-name: react-native-*
+      - dependency-name: "@expo/*"
+    groups:
+      mobile-dev:
+        dependency-type: development
+        patterns: ["*"]
+

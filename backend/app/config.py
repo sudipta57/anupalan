@@ -1,0 +1,140 @@
+"""Application settings, loaded from the environment via pydantic-settings.
+
+Every tunable lives here. Two values in particular must never be written at a call site:
+
+``PX_PER_MM``
+    The rectified-image scale, 20 px/mm (docs/01-architecture.md §5 S3). CLAUDE.md §8 names
+    hardcoding ``20`` as a gotcha that has already cost time: a literal at a call site is
+    invisible when the scale changes, and every millimetre downstream is then silently wrong.
+
+``RULEPACK_PATH``
+    Rule packs are data in ``rulepacks/``, never inside ``app/`` (CLAUDE.md §2). Thresholds,
+    table rows and effective dates are read from the loaded pack, never from Python
+    (CLAUDE.md §3.2).
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Repository root, i.e. the directory above backend/. Used only to resolve default paths.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+class Settings(BaseSettings):
+    """Runtime configuration. Override any field with an environment variable."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    # ------------------------------------------------------------------ app
+    APP_NAME: str = "anupalan"
+    ENV: str = Field(default="local", description="local | ci | staging | production")
+    DEBUG: bool = False
+    LOG_LEVEL: str = "INFO"
+    API_V1_PREFIX: str = "/v1"
+
+    # CORS origins for the mobile dev client and any local tooling.
+    CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:8081"])
+
+    # ------------------------------------------------------------------ datastores
+    # Managed services — Neon for Postgres, Redis Cloud for the broker. There are deliberately
+    # NO localhost defaults: a fallback would silently connect to whatever unrelated Postgres or
+    # Redis happens to be running on a developer's machine, and writing scans into someone
+    # else's database is a failure you discover late. Unset means /health reports "error".
+    DATABASE_URL: str = ""
+    """Neon **pooled** connection string. Host contains `-pooler`. Required.
+
+    Scheme must be ``postgresql+psycopg://`` and the URL must carry ``?sslmode=require``.
+    """
+
+    DATABASE_URL_DIRECT: str = ""
+    """Neon **direct** (non-pooled) connection string, used only for Alembic DDL.
+
+    Falls back to ``DATABASE_URL`` when unset, which works but is not recommended: the pooled
+    endpoint is pgbouncer in transaction mode and cannot run migrations reliably.
+    """
+
+    DB_POOL_RECYCLE: int = 280
+    """Recycle connections below Neon's idle timeout, so a suspended branch never hands back a
+    dead connection."""
+
+    DB_CONNECT_TIMEOUT: int = 10
+    """Seconds. Covers a Neon cold start after scale-to-zero."""
+
+    REDIS_URL: str = ""
+    """Redis Cloud URL. Use ``rediss://`` — the scheme switches Celery's TLS on (see worker.py)."""
+
+    # Celery reuses Redis for both broker and results; see docs/01-architecture.md §9.
+    CELERY_BROKER_URL: str | None = None
+    CELERY_RESULT_BACKEND: str | None = None
+
+    # ------------------------------------------------------------------ object storage
+    # Cloudflare R2, addressed through the S3 API.
+    #
+    # Named S3_* rather than R2_* on purpose: the client speaks S3, and any S3-compatible store
+    # — MinIO on-premise, AWS S3 — works by changing the endpoint and the keys. A government
+    # deployment may have to run wholly on-premise, and object storage is the easiest piece to
+    # move (docs/01-architecture.md §9).
+    S3_ENDPOINT_URL: str = ""
+    """``https://<account_id>.r2.cloudflarestorage.com`` for R2."""
+
+    S3_REGION: str = "auto"
+    """R2 has no regions and requires the literal string ``auto``."""
+
+    S3_BUCKET: str = ""
+    S3_ACCESS_KEY_ID: str = ""
+    S3_SECRET_ACCESS_KEY: str = ""
+    S3_USE_PATH_STYLE: bool = True
+    S3_PRESIGN_EXPIRY_SECONDS: int = 900
+
+    S3_PUBLIC_BASE_URL: str = ""
+    """Optional custom domain for public reads. Buckets stay private; access is by presigned URL
+    (docs/01-architecture.md §10). R2 rejects per-object ACLs, so there is no public-read flag."""
+
+    # ------------------------------------------------------------------ metrology
+    PX_PER_MM: int = 20
+    """Pixels per millimetre in the rectified plane. Never write this number at a call site."""
+
+    # ------------------------------------------------------------------ rule packs
+    RULEPACK_PATH: Path = _REPO_ROOT / "rulepacks" / "lm-2011-v1.yaml"
+    """Active rule pack. Data, versioned independently of code (CLAUDE.md §2)."""
+
+    RULEPACK_DIR: Path = _REPO_ROOT / "rulepacks"
+
+    @property
+    def alembic_url(self) -> str:
+        """Connection string for migrations: the direct endpoint when available."""
+        return self.DATABASE_URL_DIRECT or self.DATABASE_URL
+
+    @property
+    def redis_is_tls(self) -> bool:
+        """True when the Redis URL is TLS, which Celery must be told about explicitly."""
+        return self.celery_broker.startswith("rediss://")
+
+    @property
+    def celery_broker(self) -> str:
+        """Broker URL, defaulting to ``REDIS_URL`` when not set explicitly."""
+        return self.CELERY_BROKER_URL or self.REDIS_URL
+
+    @property
+    def celery_backend(self) -> str:
+        """Result backend URL, defaulting to ``REDIS_URL`` when not set explicitly."""
+        return self.CELERY_RESULT_BACKEND or self.REDIS_URL
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Return the process-wide settings singleton."""
+    return Settings()
+
+
+settings = get_settings()
