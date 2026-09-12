@@ -14,7 +14,14 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 
-import type { BisApplicability, FindingsResult, Report, SahayakAnswer, Scan } from '@/domain';
+import type {
+  BisApplicability,
+  FindingsResult,
+  ListingCheck,
+  Report,
+  SahayakAnswer,
+  Scan,
+} from '@/domain';
 import { pollIntervalFor } from '@/features/reports/status';
 
 import { api } from './endpoints';
@@ -24,6 +31,7 @@ import type {
   CreateReportBody,
   CreateScanBody,
   CreateScanResponse,
+  ListingCheckBody,
   ListProductsResponse,
   ListScansQuery,
   ListScansResponse,
@@ -158,6 +166,26 @@ export function useReport(reportId: string | undefined, scanId?: string): UseQue
     },
     enabled: Boolean(reportId),
     refetchInterval: (query) => pollIntervalFor(query.state.data),
+  });
+}
+
+/**
+ * Run a bulk listing check (FR-10).
+ *
+ * The result is seeded into the cache under its own id rather than only returned, so the results
+ * table survives a re-mount — a fifty-row check is not something to re-run because the user
+ * backgrounded the app to look at a listing.
+ */
+export function useCheckListings(): UseMutationResult<
+  ListingCheck,
+  Error,
+  { body: ListingCheckBody; idempotencyKey: string }
+> {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ body, idempotencyKey }) => api.checkListings(body, idempotencyKey),
+    onSuccess: (check) => client.setQueryData(queryKeys.listingCheck(check.id), check),
   });
 }
 

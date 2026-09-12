@@ -15,7 +15,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { ApiError } from '@/api';
 // Dev-only import, deleted at Stage 13 with the rest of the mock backend.
-import { FIXTURE_ACCOUNTS } from '@/api/mock';
+import { dev } from '@/api/dev';
 import { Button, Card, Chip, Field, Screen, Text } from '@/components';
 import { InvalidPhoneError, formatPhone, useRequestOtp } from '@/features/auth';
 import { useT } from '@/i18n';
@@ -92,7 +92,7 @@ export default function PhoneScreen() {
             {t('auth.fixtureHint')}
           </Text>
           <View style={styles.fixtures}>
-            {FIXTURE_ACCOUNTS.map((account) => (
+            {(dev?.fixtureAccounts ?? []).map((account) => (
               <Chip
                 key={account.mode}
                 label={`${account.org.name} · ${formatPhone(account.phone)}`}

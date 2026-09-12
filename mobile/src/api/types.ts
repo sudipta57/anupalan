@@ -13,6 +13,8 @@ import type {
   FindingsResult,
   GeoPoint,
   IsoDateTime,
+  ListingCheck,
+  ListingSourceKind,
   MarkerType,
   Page,
   Product,
@@ -164,6 +166,26 @@ export type CreateReportResponse = Report;
  * returning the same shape until `status` leaves `pending`. See flag 23.
  */
 export type GetReportResponse = Report;
+
+// ---------------------------------------------------------------- listings
+
+/**
+ * The bulk listing check (FR-10).
+ *
+ * **Not in the TRD §5 contract at all** — §5 has no listing endpoint, although FR-10 is a numbered
+ * requirement with its own acceptance criterion. See flag 30. Stage 12 assumes
+ * `POST /v1/listings/check` taking up to `MAX_ROWS` rows and returning one result per row, with the
+ * whole batch stamped with the rule pack version.
+ *
+ * It is a POST that creates a durable record, so it carries an `Idempotency-Key` like `POST /scans`:
+ * a retry after a dropped response must not re-run fifty listings through the rules engine and bill
+ * for them twice.
+ */
+export interface ListingCheckBody {
+  rows: { lineNumber: number; kind: ListingSourceKind; source: string }[];
+}
+
+export type ListingCheckResponse = ListingCheck;
 
 // ---------------------------------------------------------------- sahayak
 

@@ -18,6 +18,8 @@ import type {
   GetFindingsResponse,
   GetReportResponse,
   GetScanResponse,
+  ListingCheckBody,
+  ListingCheckResponse,
   ListProductsQuery,
   ListProductsResponse,
   ListScansQuery,
@@ -77,6 +79,14 @@ export const api = {
 
   getReport: (reportId: string) =>
     transport.request<GetReportResponse>({ method: 'GET', path: `/reports/${reportId}` }),
+
+  checkListings: (body: ListingCheckBody, idempotencyKey: string) =>
+    transport.request<ListingCheckResponse>({
+      method: 'POST',
+      path: '/listings/check',
+      body,
+      idempotencyKey,
+    }),
 
   askSahayak: (body: SahayakAskBody) =>
     transport.request<SahayakAskResponse>({ method: 'POST', path: '/sahayak/ask', body }),

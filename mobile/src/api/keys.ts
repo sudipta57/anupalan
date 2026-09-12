@@ -14,5 +14,6 @@ export const queryKeys = {
   findings: (scanId: string) => ['scan', scanId, 'findings'] as const,
   report: (reportId: string) => ['report', reportId] as const,
   sahayak: (question: string) => ['sahayak', question] as const,
+  listingCheck: (checkId: string) => ['listing-check', checkId] as const,
   bisApplicability: (productId: string) => ['bis-applicability', productId] as const,
 } as const;

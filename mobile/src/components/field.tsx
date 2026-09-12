@@ -7,7 +7,7 @@
  */
 
 import { useId } from 'react';
-import { StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
+import { StyleSheet, TextInput, View, type TextInputProps, type TextStyle } from 'react-native';
 
 import { MIN_TOUCH_TARGET, radius, spacing, useTheme } from '@/theme';
 
@@ -18,9 +18,25 @@ export interface FieldProps extends Omit<TextInputProps, 'style'> {
   hint?: string;
   error?: string;
   required?: boolean;
+  /**
+   * Extra style for the input itself, applied over the themed base.
+   *
+   * Narrow on purpose: `style` stays omitted from the props so a caller cannot replace the border,
+   * the radius or the error colour — those are the parts that have to look the same on every screen.
+   * This exists for the one thing a caller legitimately knows better, which is how tall the box
+   * should be: a phone number is one line and a paste of fifty listing URLs is not.
+   */
+  inputStyle?: TextStyle;
 }
 
-export function Field({ label, hint, error, required = false, ...inputProps }: FieldProps) {
+export function Field({
+  label,
+  hint,
+  error,
+  required = false,
+  inputStyle,
+  ...inputProps
+}: FieldProps) {
   const { colors, typography } = useTheme();
   const id = useId();
   const invalid = Boolean(error);
@@ -49,6 +65,8 @@ export function Field({ label, hint, error, required = false, ...inputProps }: F
             borderColor: invalid ? colors.fail : colors.borderStrong,
             color: colors.text,
           },
+          // Last, so a caller's height wins over the base minimum.
+          inputStyle,
         ]}
         {...inputProps}
       />

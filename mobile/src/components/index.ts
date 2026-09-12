@@ -39,6 +39,8 @@ export { SegmentedControl } from './segmented-control';
 export type { SegmentedControlProps, SegmentedOption } from './segmented-control';
 export { Skeleton } from './skeleton';
 export type { SkeletonProps } from './skeleton';
+export { SourceChip } from './source-chip';
+export type { SourceChipProps } from './source-chip';
 export { Text } from './text';
 export type { TextProps, TextTone } from './text';
 export { VerdictBadge } from './verdict-badge';

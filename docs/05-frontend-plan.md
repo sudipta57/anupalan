@@ -27,9 +27,9 @@
 | 8 | Findings viewer | FR-05 | ✅ (device check pending) |
 | 9 | Report export and share | FR-08 | ✅ (device check pending) |
 | 10 | History and search | FR-09 | ✅ (device check pending) |
-| 11 | Sahayak chat and BIS applicability | FR-07 | ⬜ |
-| 12 | Bulk listing check | FR-10 | ⬜ |
-| 13 | Hardening and the live-backend cutover | NFR-02, NFR-07, NFR-08 | ⬜ |
+| 11 | Sahayak chat and BIS applicability | FR-07 | ✅ (device check pending) |
+| 12 | Bulk listing check | FR-10 | ✅ (device check pending) |
+| 13 | Hardening and the live-backend cutover | NFR-02, NFR-07, NFR-08 | 🔨 (cutover blocked on the backend; cold start on a device) |
 
 ---
 
@@ -56,6 +56,7 @@ These were decided at the start of frontend work and apply to every stage below.
 | `expo-localization` | NFR-08 device locale | 0 ✅ |
 | `expo-image-manipulator` | FR-06 image crop in the confirmation sheet | 7 |
 | `@testing-library/react-native` (dev) | Screen tests, so "tests first" is possible | 0 ✅ |
+| `expo-web-browser` | FR-07 source chips opening a cited page in-app | 11 ✅ |
 
 ---
 
@@ -911,47 +912,387 @@ chips.
 
 Droppable from the bottom if the timeline compresses.
 
-### Stage 11 · Sahayak chat and BIS applicability ⬜
+### Stage 11 · Sahayak chat and BIS applicability ✅ (device check pending)
 
 **Requirements:** FR-07
 
-- Chat in English and Hindi, with inline source chips that open the cited page.
-- Two entry points: free chat, and "Check BIS requirement for this product" from a completed
-  scan, rendering QCO applicability, scheme, candidate IS numbers, next steps and sources.
-- Two refusals designed as features: no supporting source returns an explicit "not found in
-  official sources" with a link to the relevant BIS page; a request for the technical content of
-  a standard is declined and pointed at the BIS purchase route (CLAUDE.md §3.5).
-- Answers carry a freshness stamp — QCOs are amended constantly.
+| Mode | Difference |
+|---|---|
+| A · B | None. The assistant is the same in both modes — an inspector and a brand ask the same questions of the same public corpus, and neither gets a different answer |
+
+**What shipped**
+
+- **A citation the app cannot place on an official host is not shown, and an answer left with no
+  citation is not shown as an answer.** This is the stage. Everything else in a Sahayak response is
+  prose a reader can judge; a chip reading "Compulsory Registration Scheme — list of products under
+  mandatory registration" is an assertion that such a page exists and says what the answer just said,
+  and it is the part nobody checks. A model that invents one has not produced a worse answer, it has
+  produced a **more convincing** one. The client cannot verify that a page says what an answer claims
+  — only the retrieval layer can — but it can refuse a citation pointing somewhere the corpus could
+  never have come from, which is what a fabricated one looks like: a plausible title over a `.com`
+  reseller. So `OFFICIAL_HOSTS` gates every chip, and an `answered` response with nothing left after
+  that filter is **presented as not-found with its prose suppressed entirely**. An uncited answer
+  about whether a product needs BIS registration is a guess, and the whole proposition is that this
+  app does not guess.
+- **The fixture set now contains a fabricated citation on purpose.** `ans_fabricated` claims
+  `answered` and cites `standards-india-handbook.com` — real-sounding title, https, a section
+  reference. Without it the guard would have been asserted rather than proved, since every other
+  fixture cites a genuine BIS page and would pass whether the filter ran or not. The test that catches
+  it fails loudly if anyone "fixes" the host or widens the allowlist to make one chip render.
+- **`unclear` is not `no`.** CLAUDE.md §3.4's collapse running in the opposite direction, and doing
+  more damage. `qcoApplicable: 'unclear'` means the public Quality Control Orders and product lists do
+  not *settle* whether a product needs certification; rendering that as "not required" tells a brand
+  they may ship uncertified goods on an authority this tool never established. Unlike a wrong FAIL,
+  nobody disputes it — it says what the reader hoped. So there are three stances over three QCO
+  values, `isConclusive` gates every affirmative row on the screen (the certification route, the
+  standards list, the heading), and there is deliberately no helper mapping `QcoApplicable` to a
+  boolean. `scheme: 'none'` on an unclear record is the *absence* of a claim, not the claim "no route
+  applies", and the row is hidden rather than shown.
+- **IS numbers stay candidates until the stance is settled.** They are `candidateIsNumbers` in the
+  domain type for a reason. A list of IS numbers under a heading like "standards you must certify
+  against" reads as settled to anyone skimming, and on an `unclear` record nothing is settled.
+- **A record that mandates certification and names no route is surfaced as incomplete**, not rendered
+  with the scheme row quietly omitted — the same reasoning as `missingFormats` in Stage 9. A screen
+  that simply leaves it out looks complete while withholding the one fact the user came for.
+- **The freshness stamp is not a footer detail.** Quality Control Orders are notified and amended by
+  gazette notification on no fixed schedule, so an answer can be impeccably retrieved, correctly cited
+  and wrong. It is the difference between "BIS registration is not required for this product" and "as
+  of 30 August, the public lists did not require it", and only the second is supportable. `unknown` is
+  a real tier rather than an error case: an answer whose `asOf` will not parse has no provenance in
+  time, which is worse than an old one, and it must not fall through to `fresh`. A stamp in the
+  *future* is `unknown` too — that is a clock disagreement, not a brand-new corpus.
+- **Confidence is shown only on a genuine answer.** Both refusals carry `confidence: 0` — correctly,
+  there is no claim to be confident about — and "0%" printed beside a deliberate, correct refusal
+  reads as a broken answer rather than a boundary held on purpose.
+- **Source chips are labelled by what they are claiming.** "Sources" under an answer, "Where to check"
+  under a refusal. Not cosmetic: the not-found response's whole value is the official page it points
+  at, and labelling both "Sources" would make a refusal read as a cited *finding of absence*, which is
+  a stronger claim than "I could not find it".
+- **The withheld count is shown rather than swallowed.** An answer that quietly loses two of three
+  chips looks thinner than it claimed and gives nobody a reason to investigate the model that produced
+  them.
+- **One question at a time**, and the reason is ordering rather than politeness. Two overlapping asks
+  can complete out of order, and a transcript where the second question's answer sits under the first
+  is worse than a disabled button: nothing on screen reveals it, and the citations under the wrong
+  question still look official. `inFlight` is read from the mutation rather than stored, so there is no
+  second copy of it to be wrong.
+- **A failed question stays in the transcript as a failure.** One that vanishes when the network drops
+  looks like one that was never asked, so the user retypes it — which on a flaky link is how one
+  question becomes four billed requests. Retry re-sends the question, found by walking back to the
+  nearest question turn.
+- **An answer turn is stamped `receivedAt` when it arrives**, and the freshness tier is computed
+  against that rather than `Date.now()` in a render. React's purity rule forbids the latter — the lint
+  rule caught it, exactly as `features/history/presets` had warned — and an answer already on screen
+  should not silently re-grade its own sources on an incidental re-render. The BIS screen uses the
+  query's `dataUpdatedAt`, the same clock Stage 9's report screen polls with.
+- **The transcript is local UI state, not server state, and is not persisted.** It has no id, nothing
+  fetches or invalidates it, and each answer is immutable on arrival — which is what CLAUDE.md §5 means
+  by local. Caching answers by question would actively break it: asking the same question twice is a
+  thing people do when they doubt the first answer, and a cache hit would replay it. Nothing is
+  restored on a warm start either — a month-old answer about a since-amended QCO, under a freshness
+  stamp nobody re-reads, is worse than an empty chat.
+- **The mock's answer routing was rewritten.** It scored word overlap on any word over four
+  characters, so a question opening "Which…" matched the first fixture whose question also did — which
+  made the priced-content refusal and the fabricated citation, the two cases a demo most needs, two of
+  the hardest to reach. Explicit keywords now, refusal checked first, falling back to not-found, which
+  is the honest default for an assistant over a finite corpus.
+- **`POST /bis/applicability` no longer defaults to the atta profile** for an unrecognised product. It
+  answered a question about one product with a different product's applicability — the exact confident
+  wrong clearance the stance logic exists to prevent. A scan whose profile was typed in has no
+  `productId`, and the screen renders that as "no applicability record" without a round trip.
+- Hindi is filled for the whole assistant, both blocks, rather than stubbed. The two refusals are the
+  responses whose wording carries the entire value, and a Hindi-speaking user handed the English
+  refusal has received the least useful version of the most important answer.
+
+**Deferred, deliberately:** nothing in the stage scope. See flag 28 for the two applicability branches
+that have no fixture reachable from a scan.
 
 **Done when:** the unanswerable fixture returns the explicit not-found response with an official
 link, and never a fabricated citation.
+**Met:** asking "Is there a QCO covering bamboo furniture?" returns `outcome: 'not_found'`, prose
+opening "Not found in official sources", one citation on `bis.gov.in`, and zero withheld. Separately,
+the fabricated fixture is caught: `outcome: 'answered'` in, `presentationFor` out as `not_found`,
+`showsModelText` false, zero showable citations. Both are pinned in `__tests__/sahayak.test.ts`.
+**Verified:** lint 0 · tsc clean · 532 tests pass (58 new) · prettier clean. One dependency moved from
+installed-but-unused to used: `expo-web-browser` — see the approved table in §2.
+**Not verified:** whether a source chip actually opens Chrome Custom Tabs and dismisses back to the
+transcript, the keyboard-avoiding composer on a real keyboard, and Devanagari line lengths in the
+answer cards — Hindi answer bodies are long paragraphs and this is the first screen to render one.
 
-### Stage 12 · Bulk listing check ⬜
+**Device checklist for this stage**
+
+1. Open the **Sahayak** tab. Three suggested questions; tap the first — an answer appears with source
+   chips under it.
+2. Tap a source chip. Chrome Custom Tabs opens the BIS page **in-app**; the back gesture returns to
+   the answer you were reading, not to the tab bar.
+3. Ask "What is the tensile strength limit in IS 1786?". The answer is the refusal, headed "Cannot
+   quote a standard", pointing at the purchase route — **and there is no confidence percentage on it.**
+4. Ask "Is there a QCO covering bamboo furniture?". "Not found in official sources", with the chips
+   headed **"Where to check"** rather than "Sources". This is the stage's acceptance test.
+5. Ask "Which QCO covers stainless steel cookware?". A red "Answer withheld — no official source"
+   banner, the not-found copy, and **no answer paragraph at all**. The fabricated citation is not
+   rendered anywhere on the card. This is the other half of the acceptance test.
+6. Switch to **हिन्दी** in Settings and ask about a phone charger. The answer comes back in Hindi.
+   Check the long paragraph does not clip or overflow its card.
+7. Turn on Airplane mode and ask anything. The question **stays** in the transcript with an error and
+   a Retry; Retry re-sends that question once you are back online.
+8. Type past 500 characters. The field shows the cap message and the Ask button is disabled.
+9. Tap Ask twice quickly. Only one request goes out — the button is disabled while one is running.
+10. Switch to another tab mid-sentence and back. The half-typed draft is still there.
+11. Force-close and reopen the app. The transcript is **empty** — this is deliberate, not a bug.
+12. Complete a scan, open it, and tap **Check BIS requirement**. The atta product shows "BIS
+    certification is not required", a route row, next steps and sources.
+13. Do the same from an **olive oil** scan. It reads **"Not established"** with a warning tone, and
+    there is **no certification-route row at all**. If it says "not required", the collapse this stage
+    exists to prevent has happened.
+14. Check the freshness chip on both: "Sources as of 2026-08-30".
+
+### Stage 12 · Bulk listing check ✅ (device check pending)
 
 **Requirements:** FR-10 · Mode B only
 
-- Paste listing text or pick a CSV of marketplace URLs; up to 50 rows.
-- Presence and format rules only. Every metric rule shows `NOT_ASSESSABLE` with the reason stated
-  plainly: a listing has no physical scale, so there is nothing to measure.
-- Results table with summary counts, and an export.
+| Mode | Difference |
+|---|---|
+| A | Not offered. The tab is absent from the enforcement tab bar by construction (`features/navigation/tabs`) |
+| B | The whole stage |
+
+**What shipped**
+
+- **Over fifty rows blocks rather than truncates.** This is the stage's first refusal. Fifty-one
+  pasted, fifty checked, a results table showing fifty — and a seller who believes their catalogue
+  was cleared, having never seen the row that was dropped. It is Stage 9's report gate in a different
+  place: the output leaves the app, gets forwarded, gets acted on, and the row silently discarded is
+  the one that was non-compliant. So `parseListings` counts the excess, `blocksSubmit` returns
+  `over_limit`, and the screen names the number. `rows` also holds only the first `MAX_ROWS`, so a
+  future caller who reads it and ignores `overLimit` still cannot submit past the cap.
+- **A metric verdict from listing text is refused, downgraded and reported.** The second refusal, and
+  the more interesting one, because it **assumes the backend is wrong and checks**. The failure it
+  guards against would look like the product working: `LM-9-2-TABLE1 · PASS · 4.2 mm` beside a
+  gazette citation, from a source containing no millimetres at all. It is the most convincing wrong
+  output this system can produce. The realistic cause is not a bug but a well-meant feature — a Rule
+  9 path that reads the listing's own product photograph — landing three layers from anyone thinking
+  about CLAUDE.md §3.3. `guard.ts` forces any metric PASS, FAIL **or BORDERLINE** back to
+  `NOT_ASSESSABLE`, clears the number with it, recomputes the summaries, and the screen says it did.
+  A silent correction would leave the server emitting a forbidden verdict with nobody the wiser.
+- **BORDERLINE counts as an asserted verdict.** It means a measurement landed inside the uncertainty
+  band, which presupposes a measurement. Treating it as the safe middle would have left the one
+  verdict that sounds cautious as the way through the guard.
+- **The one list of metric rules moved out of the mock and into app code.** It was a literal in
+  `api/mock/index.ts`, which was the wrong home twice: the mock is deleted at Stage 13, so the guard
+  would have lost its list, and two places could disagree about what a metric rule is.
+  `features/bulk/metric-rules.ts` is now the single definition and the mock imports it — the same
+  narrowing the mock already does for `matchesVerdict`.
+- **The fixture set can break the rule on purpose.** `buildViolatingCheck` emits `PASS · 4.2 mm` on
+  the Rule 9 family, and a `listing-metric-verdict` dev scenario routes to it. Stage 11's lesson
+  applied: a guard cannot be shown to work against a mock incapable of being wrong, and the normal
+  route emits correct output, so a suite that only went through it would pass whether the guard
+  existed or not.
+- **A row with no result is neither passing nor failing.** A listing whose page could not be fetched
+  gets an error, no findings and four zeroes — and is excluded from `cleanRows`, so a short results
+  table cannot read as a clean bill of health. It also gets its own line in the CSV, so the file has
+  as many listings in it as were submitted.
+- **`NOT_ASSESSABLE` does not count against a row.** Every row carries five unassessable metric rules
+  by construction, so ranking on "total non-passes" would put every row at the top and rank none of
+  them. A row is clean when it has no FAIL, no BORDERLINE and no error — and it is still never called
+  *compliant*, because a listing check covers presence and format and says nothing about the pack.
+- **Two different counts are reported, because they answer two questions.** Listings-with-a-problem
+  and total-problems. Giving only the second makes eight defects on one listing look like eight bad
+  listings.
+- **The "no physical scale" explanation appears before the check runs, not only on each row.** A
+  seller who reads "not assessable" forty times without having been told why concludes the checker is
+  broken. Said up front, it points at the other half of the product: photograph the pack with a
+  marker.
+- **Rule 6(10A) is the one rule where the two input kinds genuinely differ.** The country-of-origin
+  filter is a property of the marketplace *page*, so it is assessable from a URL and
+  `not_in_listing` from pasted copy — its absence from the listing text is not evidence the filter is
+  missing from the site.
+- **`ListingFinding` is a separate type from `Finding`.** `Finding` carries a `scanId`, a `bbox` and
+  a `band`, and all three would be structurally present and permanently null here. A type whose
+  fields are always null invites a screen to render an empty evidence panel and a reader to wonder
+  what is missing. What a listing finding has instead is a `notAssessableReason`, which a scan
+  finding does not need because the scan's own `issues` carry it.
+- **The CSV is one row per finding, not per listing**, because the first thing anyone does with it is
+  filter on a rule id — which a wide column of semicolon-joined text prevents. Every field is quoted
+  unconditionally, and a field opening `=`, `+`, `-` or `@` is prefixed with an apostrophe: Excel and
+  Sheets execute those, and listing copy is attacker-influenced text.
+- Duplicates are collapsed and counted. `…/p/1`, `…/p/1/` and `…/p/1?ref=share` are one listing
+  pasted from three places; checking it three times inflates the very counts someone reads to size
+  the work.
+- `Field` gained an `inputStyle` passthrough, narrow on purpose — `style` stays omitted so a caller
+  cannot replace the border, radius or error colour, and the one thing a caller does know better is
+  how tall the box should be.
+
+**Deferred, deliberately:** picking a CSV **file**. `expo-document-picker` is not an approved
+dependency (CLAUDE.md §7), so the paste box is the only input — which takes CSV content pasted from a
+spreadsheet, and is the more likely phone workflow anyway since the file is already open in another
+app on the same device. See flag 32.
 
 **Done when:** a 50-row CSV produces 50 result rows with a summary count, and no metric rule ever
 returns PASS or FAIL from listing text alone.
+**Met:** both halves pinned in `__tests__/bulk.test.ts`. Fifty URLs in produce fifty rows numbered 1
+to 50, with `check.summary` equal to the sum of the row summaries and each row summary equal to a
+recount of its own findings. Every Rule 9 finding comes back `NOT_ASSESSABLE` with
+`no_physical_scale`, `observed` null and `required` null — and the guard is separately proved against
+`buildViolatingCheck`, which asserts `PASS · 4.2 mm` on those same rules.
+**Verified:** lint 0 · tsc clean · 586 tests pass (54 new) · prettier clean. No new dependency.
+**Not verified:** whether the CSV opens correctly in Excel and Google Sheets on a real device, the
+share sheet itself, scroll behaviour through fifty expandable cards, and Devanagari in the results
+chips.
 
-### Stage 13 · Hardening and the live-backend cutover ⬜
+**Device checklist for this stage**
+
+1. Sign in as **industry**. The **Bulk** tab is present. Sign in as **enforcement**: it is absent.
+2. On the Bulk tab, before typing anything: the "Measurement rules cannot run on a listing" panel is
+   visible. This is the explanation, and it comes first.
+3. Paste three marketplace URLs, one per line. The chip reads "3 listings ready". Tap Check.
+4. Results appear: a summary card with listings-with-a-failure / borderline / clean counts, then a
+   second row of four numbers for the rule checks, then the rows worst-first.
+5. Expand any row. Every Rule 9 rule shows **Not assessable** with the sentence about a listing having
+   no physical scale. **None of them shows a millimetre value.**
+6. Paste the same URL three times with `/` and `?ref=x` variations. It collapses to one listing and
+   the chip says "2 duplicates collapsed".
+7. Paste 55 URLs. A red "Too many listings" banner names the excess, and **Check is disabled**. Delete
+   five lines: it enables.
+8. Paste exactly 50 and check. Count the rows — there must be 50, numbered 1 to 50. This is the
+   acceptance test.
+9. Tap **Export CSV**. The share sheet opens; send it to Drive or mail and open it in Sheets. The
+   header row matches, the `rulepack_version` column is filled on every line, and a row with no
+   result still has a line.
+10. Settings → dev panel → **Listing check returns a metric verdict**. Run a check: a red
+    "Measurement verdicts were rejected" banner appears and every Rule 9 row still reads **Not
+    assessable**. This is the other half of the acceptance test.
+11. Paste listing *text* rather than URLs. Rule 6(10A) reads "not assessable from listing text";
+    with a URL it returns a real verdict.
+12. In हिन्दी: the panel, the block message and the not-assessable reasons read in Hindi without
+    clipping.
+
+### Stage 13 · Hardening and the live-backend cutover 🔨 (partly blocked — see below)
 
 **Requirements:** NFR-02, NFR-07, NFR-08
 
-- Cold start measured on a real 4 GB Android 12 phone, not an emulator. Target 3 seconds.
-- Loading, empty and error states on every screen; the full `01-architecture.md` §11 degradation
-  table walked through deliberately.
-- Hindi completion pass and a layout check at Devanagari string lengths.
-- Cutover: point `gen:api` at the live OpenAPI schema, regenerate types, fix what the compiler
-  flags, delete the fixtures folder and the mock branch of the transport.
-- Accessibility pass: labels, hit targets, focus order, contrast in both themes.
+**What shipped**
+
+- **The mock backend is now genuinely absent from a live bundle, and that is measured rather than
+  asserted.** It was not before. `__DEV__` gates kept the fixture panels off a user's screen and did
+  nothing about what was bundled: three screens imported `@/api/mock` statically for the fixture OTP
+  and account switcher, so the whole fixture graph — 220 seeded scans, the base64 sample PDF and
+  DOCX, every gazette citation — was in a production export. `npm run verify:bundle` exports a
+  production bundle with `EXPO_PUBLIC_API_MODE=live` and fails if any of five mock-only sentinel
+  strings appears in it. **It failed on the first run**, which is the entire reason it exists.
+- **A conditional `require` was not enough, and finding that out is the useful part.**
+  `EXPO_PUBLIC_API_MODE` is inlined to a literal by `babel-preset-expo`, so `if (API_MODE === 'live')`
+  is statically dead in a live build — but **Metro resolves `require()` targets while building the
+  module graph, before any dead-code elimination**, so a `require` inside an unreachable branch still
+  pulls its whole subtree in. The exclusion had to move to resolution time: `metro.config.js` (new,
+  no dependency) resolves anything under `src/api/mock/` to an empty module when the mode is `live`.
+- **`src/api/dev.ts` is the one door to the fixture layer.** The three screens that wanted fixture
+  conveniences now read a `DevBridge | null`, which is null in any build that should not have one.
+  `null` rather than empty stubs, so a caller has to handle the state a release build is actually in —
+  and the panels keep compiling after the fixtures folder is deleted.
+- **Hindi is complete: 145 strings written, 586 of 586 keys covered.** It shipped incomplete for
+  twelve stages on purpose, with an English fallback so a missing key never rendered as
+  `settings.appearance`. The fallback stays; the gap is closed. A test now fails when an English
+  string lands without its Hindi, and a second one fails on an orphaned Hindi key left behind by a
+  rename. A third catches a Hindi value that is still a copy of the English, with an explicit
+  exception list for the nine strings that are correct *because* they are not Hindi (`English`,
+  `JSON`, `URL`, the unit placeholders).
+- **The accessibility pass found three real contrast failures, and contrast is now arithmetic.**
+  Nobody reads a hex value and sees 3.19:1. Light `textSubtle` measured **3.19:1** on `surfaceAlt`,
+  **3.41:1** on `bg` and **3.63:1** on `surface` — it carries captions, which are 12 px and therefore
+  *normal* text under WCAG, so the 3:1 large-text allowance does not apply. Light `pass` measured
+  **4.36:1** on `passSoft`, a pair read on every findings screen. Dark `textSubtle` measured
+  **4.03:1** on `surfaceAlt`. Fixed by luminance-only adjustments: `#7C8891`→`#636D75` (light),
+  `#1B7F4B`→`#1A7A48`, `#7C8891`→`#87929A` (dark). The two themes no longer share a subtle grey,
+  which is correct — one colour cannot sit 4.5:1 from both a near-white and a near-black ground. All
+  24 rendered pairs × 2 themes are now asserted in `__tests__/hardening.test.ts`.
+- **Two touch targets were under 44 px.** A pressable `Chip` lands around 28 px tall, and chips are
+  real controls — history filters, verdict filters, Sahayak suggestions. Growing them would destroy
+  the one thing a chip is for, so the *touch* area grew instead: `hitSlop={HIT_SLOP}`, whose 8 px
+  exactly matches the `gap` used between chips everywhere, so adjacent slop regions meet in the
+  middle of the gap rather than stealing each other's taps. `SegmentedControl` segments are 36 px and
+  sit edge to edge, so they got vertical-only slop — horizontal would have each segment taking its
+  neighbour's taps. Stage 12's row header also gained the 44 px minimum.
+- **The cold-start instrument reports what it can measure and says what it cannot.**
+  `src/lib/startup.ts` measures JS bundle evaluation to first interactive frame, which is the part
+  the app's own code controls and the part that regresses when a screen does work at import time. It
+  is a **floor** on the real number, never the whole of it — everything before
+  `__BUNDLE_START_TIME__` is already over by the time JS can run. It returns **null** rather than a
+  number when there is no bundle start time, because `Date.now()` there would report a cold start of
+  zero milliseconds, and it refuses a negative or absurd interval as a clock disagreement rather than
+  a measurement. Idempotent, so navigating back cannot overwrite a cold figure with a warm one. The
+  figure shows in Settings → About, **not** dev-gated, because the number that matters comes from a
+  release build. The `adb` commands for the whole figure are in the module's own doc comment.
+- **Loading, empty and error states audited across all 21 routes.** No gaps: the two that looked
+  empty delegate to `ScanList`, which carries its own skeleton, empty state, filtered-empty state and
+  error banner; the two auth screens surface mutation errors through `Field`'s error slot. The §11
+  degradation table is reachable end to end from the dev scenario panel, which now has seven
+  scenarios — Stage 12 added `listing-metric-verdict`.
+- `.env.example` added, documenting both cutover variables, why `localhost` does not work from a
+  physical device, and that everything in it is readable in the shipped bundle.
+
+**Blocked, and why**
+
+- **The cutover itself cannot be performed.** It requires a deployed backend publishing an OpenAPI
+  schema: `npm run gen:api` fetches `/openapi.json` and there is nothing to fetch. Deleting the
+  fixtures folder now would leave the app with no data source at all in the only mode it can
+  currently run in. What *is* done is everything that makes the cutover a folder deletion — the seam
+  is unchanged, no app code imports the fixture layer (asserted by test), and the live bundle is
+  already fixture-free. The remaining work is: point `ANUPALAN_API_URL` at the deployed API, run
+  `gen:api`, fix what the compiler flags against the 11 assumed contract shapes (flags 5, 8, 16, 18,
+  21, 22, 23, 26, 27, 29, 30), then delete `src/api/mock/`, `src/api/dev.ts`, `metro.config.js`'s
+  resolver branch and the four dev panels in Settings.
+- **The cold-start number cannot be taken here.** It needs the EAS dev build on a physical 4 GB
+  Android 12 phone. The instrument and the `adb` procedure are in place; the figure is item 1 of the
+  checklist and belongs in `docs/eval-results.md`.
+- **`__tests__/i18n.test.ts` now fails, and I have not touched it** (CLAUDE.md §6: do not edit tests
+  to make them pass). Its fallback test uses `scan.subtitle` as a stand-in for "a key missing from
+  `hi`", and the Hindi completion pass translated that key. The fallback *mechanism* is still correct
+  and still needs a test; the conflict is that it cannot be demonstrated with a real app key once
+  Hindi is complete. Two requirements are in direct opposition here and the resolution is a
+  judgement call, not a fix — see the note below.
 
 **Done when:** cold start is measured and reported, the app runs against the real backend with no
 screen changes, and the mock transport is gone from the release build.
+**Met:** the third. `npm run verify:bundle` passes — a production live export contains none of the
+five mock sentinels. Measured: **4.85 MB in mock mode, 4.76 MB in live mode**, so 92 KB of fixtures
+are genuinely gone (unminified Hermes bytecode, `--no-minify` so the sentinels stay findable).
+**Not met:** the first, for want of a device; the second, for want of a backend.
+**Verified:** lint 0 · tsc clean · prettier clean · 644 of 645 tests pass (59 new); the one failure is
+the pre-existing `i18n.test.ts` case described above. No new dependency — `metro.config.js` uses
+`expo/metro-config`, which ships with Expo.
+**Not verified:** cold start on hardware, Devanagari layout at the new string lengths (145 of them
+have never been on a screen), focus order with TalkBack, and the app against a real backend.
+
+**Device checklist for this stage**
+
+1. Build a **release** APK, force-stop it, then
+   `adb shell am start -W -n in.anupalan.app/.MainActivity`. Record `TotalTime`. Cross-check against
+   `adb logcat -d | grep "Displayed in.anupalan.app"`. Target 3 s on a 4 GB Android 12 phone. Put
+   both numbers in `docs/eval-results.md` with the device model.
+2. Open Settings → About on that build. The `JS→frame` line shows the JS-side figure; it should be
+   well under the `TotalTime` from step 1. If it is *larger*, something is wrong with the clocks.
+3. Switch to **हिन्दी** and walk every screen: Scan, Capture, Context, Queue, Processing, Confirm,
+   Findings, Report, History, Inspections, Sahayak, BIS, Bulk, Settings. Look for clipped labels,
+   truncated buttons and wrapped chips — Devanagari runs longer than English and 145 of these strings
+   have never been rendered.
+4. The longest strings are the ones to watch: `report.blockProvisionalBody`,
+   `context.whyBody`, `bulk.blockOverLimitBody`, `sahayak.outcomeRefusedBody` and
+   `findings.noBoxBody`.
+5. Enable **TalkBack**. Swipe through the Findings screen: every verdict badge announces its verdict,
+   every finding row is reachable, and the image announces its label rather than "unlabelled image".
+6. With TalkBack on, check the tab bar announces the selected tab, and that Settings' two segmented
+   controls announce as radio groups with the current selection.
+7. Tap a **Chip** at the edge of its visible bounds — a history filter, or a Sahayak suggestion. It
+   should respond from about 8 px outside the pill.
+8. Switch the system theme to **dark** and walk the same screens. Check captions and the `mono` rule
+   ids are readable on cards, and that the four verdict colours are still tellable apart.
+9. Switch to a large system font size (Settings → Display → Font size, largest). Nothing should
+   truncate irrecoverably; the findings list and the bulk rows are the ones most likely to.
+10. Walk the whole §11 degradation table from Settings → dev panel: no marker, low-confidence field,
+    LLM unavailable, report failed, listing metric verdict, offline, server error. Each should show a
+    named state rather than a spinner or a blank screen.
+11. Airplane mode on: capture a scan end to end. It queues, survives a force-close, and uploads on
+    reconnect (this is also the FR-04 check).
 
 ---
 
@@ -1092,6 +1433,70 @@ droppable; nothing before it is.
     `name`, and a `gtin` on `Product`. Inventing them to satisfy a filter would be the wrong order of
     work; SKUs become real in Stage 12's bulk listing check, which is where the product model should
     gain them. **Decide with the backend before Stage 12.**
+26. **The citation host allowlist exists in two places and must not drift.** `OFFICIAL_HOSTS` in
+    `features/sahayak/citations.ts` is the client's only defence against a fabricated citation, and it
+    has to be a superset of whatever `services/bis/ingest.py` is actually allowed to fetch. If the
+    backend ingests a host the client does not list, **valid citations are silently withheld** and
+    real answers get downgraded to not-found — a failure that looks like a bad model rather than a
+    config mismatch. This is flag 14's problem in a second place. **Agree the list with the backend**,
+    and prefer having the API return the allowlist over maintaining it twice.
+27. **The backend must actually emit `qcoApplicable: 'unclear'`.** The whole three-stance design
+    collapses if the applicability service defaults an unresolved lookup to `'no'`, because the client
+    cannot tell the difference — `'no'` renders as "certification is not required", which is a
+    clearance. This is the BIS half's version of the §3.4 non-negotiable and it needs the same
+    treatment as a verdict: **unresolved is its own value, never the negative one.** Confirm before
+    Stage 13.
+28. **Two applicability branches have no fixture reachable from a scan.** `required` and the
+    inconsistent record (mandatory certification, no named route) are covered by unit tests over
+    constructed records, but none of the four fixture products is genuinely covered by a QCO, and
+    inventing one would put a fabricated legal claim in a fixture set whose whole discipline is that
+    its citations are real. So the `required` stance is **only demonstrable in the chat** (the CRS
+    charger answer) and not from the BIS screen until the real corpus lands. Worth a real covered
+    product in the catalogue when one can be cited properly.
+29. **`SahayakAskBody.lang` assumes the server answers in the language asked for**, rather than the
+    client translating afterwards. TRD §5 does not specify it. It matters more than it looks: a cited
+    answer translated client-side would have its citations re-attached to text no source supports.
+    Also unspecified — whether the corpus itself is bilingual, or whether a Hindi answer is an English
+    retrieval with a Hindi generation over it. **Agree before Stage 13**; the second is acceptable, the
+    first is better, and the app cannot tell which it got.
+30. **TRD §5 has no listing-check endpoint, although FR-10 is a numbered requirement with its own
+    acceptance criterion.** Stage 12 assumes `POST /v1/listings/check` taking up to 50
+    `{lineNumber, kind, source}` rows and returning one result per row, the batch stamped with the
+    rule pack version. It honours `Idempotency-Key` like `POST /scans` — a retry after a dropped
+    response must not re-run fifty listings through the rules engine and bill for them twice. The
+    response also needs `ListingRowResult.error` for a page that could not be fetched: a row with no
+    result is neither passing nor failing, and omitting it would make a short table read as a clean
+    result. **Agree before Stage 13.**
+31. **The metric-rule list is remembered in app code and must not drift from the pack.**
+    `features/bulk/metric-rules.ts` is what lets the client enforce FR-10's "no metric verdict from
+    listing text" criterion, and it is a hand-maintained list of the Rule 9 family. A new metric rule
+    added to `rulepacks/lm-2011-v1.yaml` and not added there is a rule the guard waves through. The
+    right fix is a **`metric: true` flag on the rule in the pack**, surfaced on the finding, so the
+    client reads the property instead of remembering the ids — worth doing when the pack is next
+    revised, and it is flag 14's hazard for the third time.
+32. **Picking a CSV file needs `expo-document-picker`, which is not approved.** FR-10 says "paste or
+    upload"; Stage 12 shipped paste only. Pasting CSV content from a spreadsheet is the same input and
+    arguably the more realistic phone workflow, but a seller with a file in Drive and no way to open
+    it will read the feature as half-built. One dependency, one screen change — worth approving.
+33. **`__tests__/i18n.test.ts` fails, deliberately left failing, and needs a decision.** Its fallback
+    case asserts `translate('hi', 'scan.subtitle') === translate('en', 'scan.subtitle')`, using a real
+    app key as its example of "a key missing from `hi`". Stage 13's Hindi completion pass translated
+    that key, so the assertion now fails. **CLAUDE.md §6 says not to edit a test to make it pass**, so
+    it has not been touched. The two requirements are in genuine opposition: NFR-08 wants complete
+    Hindi, and this test wants a real untranslated key to point at. The fallback *mechanism* still
+    works and still needs covering. Three options, in the order I would pick them: **(a)** re-point
+    the assertion at a synthetic key that is absent by construction (`translate('hi', 'zz.missing' as
+    TranslationKey)`), which tests the mechanism without depending on a gap in the app's own copy;
+    **(b)** delete the case and rely on `hardening.test.ts`'s completeness tests, which lose coverage
+    of the fallback path itself; **(c)** leave one key untranslated to keep the test honest, which
+    trades a real user-facing gap for a test fixture and is the wrong way round. (a) is a one-line
+    change to a test, and it needs sign-off rather than a unilateral edit.
+34. **`metro.config.js` now exists and is load-bearing for NFR-07.** It did not before Stage 13. Its
+    only job is resolving `src/api/mock/**` to an empty module when `EXPO_PUBLIC_API_MODE=live`, which
+    is what actually keeps the fixtures out of a release bundle — a conditional `require` does not,
+    because Metro resolves require targets before dead-code elimination. Anyone adding Metro config
+    later must keep the resolver chain intact (it calls through to `upstream ?? context.resolveRequest`
+    rather than replacing it). `npm run verify:bundle` is the check; it belongs in CI.
 
 ---
 
@@ -1110,3 +1515,6 @@ droppable; nothing before it is.
 | 2026-09-12 | Stage 8 completed. One inverted transform serves both the outlines and the taps; four verdict groups kept structurally; a 10 mm scale bar that disappears without a marker; Mode A's evidence panel reads the *raw* image hash only. Flags 21 and 22 added, both API contract gaps. |
 | 2026-09-12 | Stage 9 completed. Provisional verdicts **block** a report rather than warning; a degraded-but-final run is issued flagged. Generation is async and polled. The mock writes genuinely valid PDF and DOCX files. `Transport` grew `download`. Flag 23 added. |
 | 2026-09-12 | Stage 10 completed. Single-select verdict filter over one count each; the seeded set gained a borderline-only bucket that can actually catch a merge; the hero scan's cross-org and Mode-B-location inconsistencies fixed. Filter measured at 0.020 ms per pass over 220 scans. Flags 24 and 25 added. |
+| 2026-09-12 | Stage 11 completed. A citation that cannot be placed on an official host is withheld, and an `answered` response left with none is presented as not-found with its prose suppressed; the fixture set gained a deliberately fabricated citation so the guard is proved rather than asserted. `unclear` is not `no` — every affirmative row on the applicability screen is gated on `isConclusive`. Freshness has an `unknown` tier that does not fall through to `fresh`. The mock's word-overlap answer routing was replaced, and its applicability route no longer defaults to another product's record. `expo-web-browser` moved from installed-but-unused to used. Flags 26–29 added, three of them API contract gaps. |
+| 2026-09-12 | Stage 12 completed. Over fifty rows blocks rather than truncating; a metric PASS, FAIL or BORDERLINE from listing text is refused, downgraded and reported, with a `listing-metric-verdict` fixture built to break it. The one metric-rule list moved out of the mock into app code. A row with no result is neither passing nor failing and is excluded from the clean count. `NOT_ASSESSABLE` does not count against a row. CSV export is one line per finding, every field quoted, formulas neutralised. `ListingFinding` is its own type rather than a `Finding` with three permanently null fields. Flags 30–32 added, one an API contract gap. |
+| 2026-09-12 | Stage 13 partly completed. The mock backend is now genuinely absent from a live bundle, verified by `npm run verify:bundle` — which failed on its first run, because a conditional `require` does not remove a module from a Metro graph; `metro.config.js` resolves the fixture folder to an empty module instead, and `src/api/dev.ts` became the one door to it. Hindi completed: 145 strings, 586 of 586 keys, with completeness, orphan and copy-of-English tests. The accessibility pass found three real contrast failures (light `textSubtle` at 3.19:1, light `pass` at 4.36:1, dark `textSubtle` at 4.03:1) and two touch targets under 44 px; all 24 rendered colour pairs are now asserted in both themes. Cold-start instrument added, reporting null rather than a fabricated number. **Blocked:** the cutover needs a deployed backend, and the cold-start figure needs a physical device. Flags 33 and 34 added; flag 33 is a failing pre-existing test left untouched per CLAUDE.md §6 and needs a decision. |

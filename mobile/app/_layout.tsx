@@ -24,6 +24,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo } from 'react';
 
 import { startQueue, stopQueue } from '@/features/queue';
+import { markFirstFrame } from '@/lib/startup';
 import { useT } from '@/i18n';
 import { AppProviders } from '@/providers/app-providers';
 import { useIsAuthenticated } from '@/store/session';
@@ -42,6 +43,20 @@ function RootNavigator() {
     startQueue();
     return stopQueue;
   }, [isAuthenticated]);
+
+  /**
+   * Mark the first interactive frame for the NFR-02 cold-start figure.
+   *
+   * In an effect on the root navigator, which runs after the first commit — the earliest point at
+   * which something is actually on screen. `markFirstFrame` is idempotent, so a re-render or a
+   * navigation back here cannot overwrite a cold-start number with a warm one.
+   *
+   * Deliberately not gated on `__DEV__`: the number is wanted from a release build on a real phone,
+   * which is the only build whose timing means anything. It costs one subtraction.
+   */
+  useEffect(() => {
+    markFirstFrame();
+  }, []);
 
   const navigationTheme = useMemo(() => {
     const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
@@ -81,6 +96,7 @@ function RootNavigator() {
           <Stack.Screen name="scan/[id]/index" options={{ title: t('processing.title') }} />
           <Stack.Screen name="scan/[id]/findings" options={{ title: t('findings.title') }} />
           <Stack.Screen name="scan/[id]/report" options={{ title: t('report.title') }} />
+          <Stack.Screen name="scan/[id]/bis" options={{ title: t('bis.title') }} />
           {/* A sheet, so the scan stays behind it — the verdicts being confirmed are the context. */}
           <Stack.Screen
             name="scan/[id]/confirm"

@@ -65,13 +65,19 @@ const light: Palette = {
 
   text: '#10171A',
   textMuted: '#54626A',
-  textSubtle: '#7C8891',
+  // Darkened from #7C8891 at the Stage 13 accessibility pass. `textSubtle` carries captions, which
+  // are 12 px and therefore *normal* text under WCAG — 4.5:1, not the 3:1 large-text allowance. The
+  // old value measured 3.19:1 on `surfaceAlt`, which is the ground most captions sit on.
+  textSubtle: '#636D75',
   onBrand: '#FFFFFF',
 
   brand: '#0B5F73',
   brandSoft: '#E0EDF1',
 
-  pass: '#1B7F4B',
+  // Darkened from #1B7F4B at the Stage 13 accessibility pass: 4.36:1 on `passSoft`, just under the
+  // threshold. The verdict badges draw their own colour on their own soft ground, so this pair is
+  // read on every findings screen.
+  pass: '#1A7A48',
   passSoft: '#E2F3EA',
   fail: '#B3261E',
   failSoft: '#FBE7E5',
@@ -97,7 +103,10 @@ const dark: Palette = {
 
   text: '#E6ECEE',
   textMuted: '#9FADB4',
-  textSubtle: '#7C8891',
+  // Lightened from #7C8891, which measured 4.03:1 on `surfaceAlt`. The two themes no longer share a
+  // subtle grey, which is correct — the same colour cannot sit 4.5:1 from both a near-white and a
+  // near-black ground.
+  textSubtle: '#87929A',
   onBrand: '#052029',
 
   brand: '#4BC5DA',

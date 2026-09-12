@@ -41,3 +41,7 @@ example
 # generated native folders
 /ios
 /android
+
+# Production bundle exported by `npm run verify:bundle` (NFR-07 check). Transient.
+.bundle-check/
+.bundle-mock/

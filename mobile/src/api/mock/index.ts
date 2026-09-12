@@ -19,6 +19,8 @@ import type {
   BisApplicabilityBody,
   BisApplicabilityResponse,
   ConfirmFieldsBody,
+  ListingCheckBody,
+  ListingCheckResponse,
   CreateReportBody,
   CreateReportResponse,
   GetReportResponse,
@@ -44,6 +46,7 @@ import type {
   Report,
   ReportFormat,
   PipelineStage,
+  SahayakAnswer,
   Scan,
   ScanIssue,
   ScanListItem,
@@ -51,7 +54,8 @@ import type {
   Verdict,
 } from '@/domain';
 
-import { BIS_APPLICABILITY, SAHAYAK_ANSWERS } from './fixtures/sahayak';
+import { BIS_APPLICABILITY, SAHAYAK_ANSWERS, SAHAYAK_ANSWERS_HI } from './fixtures/sahayak';
+import { buildListingCheck, buildViolatingCheck } from './fixtures/listings';
 import {
   FINDINGS_SHA256,
   HERO_FINDINGS_RESULT,
@@ -74,6 +78,7 @@ import { File } from 'expo-file-system';
 // as small as the one thing it needs.
 import { PIPELINE_STAGES } from '@/features/processing/stages';
 import { matchesVerdict } from '@/features/history/filters';
+import { METRIC_RULE_IDS } from '@/features/bulk/metric-rules';
 
 const PAGE_SIZE = 30;
 
@@ -260,14 +265,12 @@ function issuesForScenario(): ScanIssue[] {
  * The no-marker path (architecture §11): metric rules cannot be evaluated without a physical
  * reference, so they return NOT_ASSESSABLE rather than a guessed millimetre value. Presence and
  * format rules still run — that is the whole point of offering a no-measurement mode.
+ *
+ * The set comes from `features/bulk/metric-rules`, which is app code and survives Stage 13. It used
+ * to be a literal here, which meant the one list of metric rules lived in the layer that gets
+ * deleted — and that two places could disagree about what a metric rule is.
  */
-const METRIC_RULES = new Set([
-  'LM-9-2-TABLE1',
-  'LM-9-2-TABLE2',
-  'LM-9-LETTER-HEIGHT',
-  'LM-9-3-WIDTH',
-  'LM-9-QTY-CLEAR-SPACE',
-]);
+const METRIC_RULES = new Set(METRIC_RULE_IDS);
 
 function withoutMeasurement(findings: Finding[]): Finding[] {
   return findings.map((f) =>
@@ -378,6 +381,43 @@ function scanFor(id: string): Scan {
     // set, does. Inheriting the hero scan's value unconditionally would have claimed a report over a
     // scan that is still uploading.
     reportIssuedAt: listed.status === 'complete' ? HERO_SCAN.reportIssuedAt : null,
+  };
+}
+
+/**
+ * Which fixture answers a question.
+ *
+ * Explicit keywords rather than word-overlap scoring. The overlap version matched on any word over
+ * four characters, so a question opening "Which…" matched the first fixture whose question also did —
+ * which made the two cases a demo most needs to reach, the priced-content refusal and the fabricated
+ * citation, two of the hardest to reach. Order matters here: the refusal is checked first, because a
+ * question can ask for clause content *about* a product that would otherwise match on its name.
+ *
+ * The fallback is not-found, which is the right default for an assistant over a finite corpus: the
+ * honest answer to an unrecognised question is that it was not found.
+ */
+const ANSWER_KEYWORDS: readonly { id: string; words: readonly string[] }[] = [
+  { id: 'ans_refused', words: ['tensile', 'clause', 'test limit', 'tolerance', 'is 1786'] },
+  { id: 'ans_fabricated', words: ['stainless', 'cookware', 'utensil'] },
+  { id: 'ans_crs_applicability', words: ['charger', 'adaptor', 'adapter', 'crs', 'registration'] },
+  { id: 'ans_hallmarking', words: ['hallmark', 'gold', 'jewel', 'purit'] },
+  { id: 'ans_not_found', words: ['bamboo', 'furniture'] },
+];
+
+function answerFor(question: string, lang: 'en' | 'hi'): SahayakAnswer {
+  const lower = question.toLowerCase();
+  const hit = ANSWER_KEYWORDS.find((entry) => entry.words.some((word) => lower.includes(word)));
+  const matched =
+    SAHAYAK_ANSWERS.find((answer) => answer.id === (hit?.id ?? 'ans_not_found')) ??
+    SAHAYAK_ANSWERS[0];
+
+  return {
+    ...matched,
+    // Echoed so the transcript shows what was actually asked rather than the fixture's phrasing.
+    question,
+    // The server answers in one language. A missing Hindi body falls back to English rather than
+    // to the key — the same rule the app's own i18n follows.
+    answer: lang === 'hi' ? (SAHAYAK_ANSWERS_HI[matched.id] ?? matched.answer) : matched.answer,
   };
 }
 
@@ -555,24 +595,33 @@ function route(spec: RequestSpec): unknown {
     return reportFor(reportMatch[1]) satisfies GetReportResponse;
   }
 
+  if (method === 'POST' && path === '/listings/check') {
+    const { rows } = body as ListingCheckBody;
+
+    // The org is hard-coded to the industry fixture org: FR-10 is Mode B only, and the tab is not
+    // in the enforcement tab bar (`features/navigation/tabs`). A real backend reads it off the token.
+    const orgId = 'org_annapurna';
+
+    if (getScenario() === 'listing-metric-verdict') {
+      return buildViolatingCheck(orgId) satisfies ListingCheckResponse;
+    }
+
+    return buildListingCheck(rows, orgId) satisfies ListingCheckResponse;
+  }
+
   if (method === 'POST' && path === '/sahayak/ask') {
-    const { question } = body as SahayakAskBody;
-    const lower = question.toLowerCase();
-    const matched =
-      SAHAYAK_ANSWERS.find((a) =>
-        lower.includes('tensile') || lower.includes('clause')
-          ? a.outcome === 'refused_priced_content'
-          : a.question
-              .toLowerCase()
-              .split(' ')
-              .some((w) => w.length > 4 && lower.includes(w))
-      ) ?? SAHAYAK_ANSWERS[2];
-    return { ...matched, question } satisfies SahayakAskResponse;
+    const { question, lang } = body as SahayakAskBody;
+    return answerFor(question, lang) satisfies SahayakAskResponse;
   }
 
   if (method === 'POST' && path === '/bis/applicability') {
     const { productId } = body as BisApplicabilityBody;
-    const applicability = BIS_APPLICABILITY[productId ?? 'prd_atta_1kg'];
+    // No default record. This previously fell back to the atta profile for any unknown product,
+    // which answered a question about one product with another product's applicability — the exact
+    // kind of confident wrong clearance `features/sahayak/applicability` exists to prevent. A scan
+    // whose profile was typed in has no `productId`, and the honest response is that there is no
+    // record, which the screen renders as such.
+    const applicability = productId ? BIS_APPLICABILITY[productId] : undefined;
     if (!applicability) {
       throw new ApiError({ code: 'http_404', message: 'No applicability record', status: 404 });
     }

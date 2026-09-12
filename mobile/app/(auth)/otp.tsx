@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { ApiError } from '@/api';
-import { FIXTURE_OTP } from '@/api/mock';
+import { dev } from '@/api/dev';
 import { Button, Card, Field, Screen, Text } from '@/components';
 import { OTP_LENGTH, formatPhone, isCompleteOtp, useVerifyOtp } from '@/features/auth';
 import { useT } from '@/i18n';
@@ -83,7 +83,7 @@ export default function OtpScreen() {
 
         {__DEV__ ? (
           <Text variant="caption" tone="subtle">
-            Mock backend: the code is {FIXTURE_OTP}.
+            Mock backend: the code is {dev?.fixtureOtp}.
           </Text>
         ) : null}
       </Card>

@@ -540,6 +540,107 @@ export const en = {
     title: 'Sahayak',
     subtitle: 'Questions about Indian Standards and BIS certification.',
     empty: 'Ask about a Quality Control Order, a scheme, fees, or which lab to use.',
+    emptyHint:
+      'Answers come from public BIS material and are cited. Sahayak does not quote the text of a standard.',
+
+    suggestion1: 'Does a phone charger need BIS registration?',
+    suggestion2: 'Which purities can be hallmarked?',
+    suggestion3: 'What is the difference between ISI and CRS?',
+
+    inputLabel: 'Your question',
+    inputPlaceholder: 'Ask about a QCO, a scheme, or a certification route',
+    send: 'Ask',
+    sending: 'Asking…',
+    charactersLeft: '{count} characters left',
+    tooLong:
+      'Shorten the question to {max} characters. A truncated question gets answered accurately — but it is not the question you asked.',
+    clear: 'Clear conversation',
+    you: 'You',
+
+    outcomeAnswered: 'From official sources',
+    outcomeAnsweredBody: 'Cited below. Check the sources before relying on this.',
+    outcomeNotFound: 'Not found in official sources',
+    outcomeNotFoundBody:
+      'The public Quality Control Orders and product lists available to Sahayak do not cover this, and it will not infer one that may not exist. Check the official page below — these orders are notified and amended frequently.',
+    outcomeRefused: 'Cannot quote a standard',
+    outcomeRefusedBody:
+      'The full texts of Indian Standards are copyrighted and sold by BIS, so clause text, test limits and tolerance tables are outside what Sahayak will quote. It can tell you whether a Quality Control Order makes a standard mandatory, which route applies, and where to buy the standard.',
+
+    downgradedTitle: 'Answer withheld — no official source',
+    downgradedBody:
+      'Sahayak produced an answer but cited nothing that could be traced to an official BIS or gazette page, so the answer is not shown. An uncited answer about certification is a guess, and this tool does not guess.',
+
+    sourcesSupport: 'Sources',
+    sourcesSignpost: 'Where to check',
+    sourceQco: 'Quality Control Order',
+    sourceIsiList: 'ISI mark product list',
+    sourceCrsList: 'CRS product list',
+    sourceSchemeGuide: 'Scheme guide',
+    sourceFaq: 'BIS FAQ',
+    sourceHallmarking: 'Hallmarking',
+    sourceLabDirectory: 'Laboratory directory',
+    sourceCatalogue: 'Standards catalogue',
+    openHint: 'Opens the official page',
+    openFailed: 'Could not open that page. No browser on this device would take the link.',
+    withheld: '{count} source could not be traced to an official page and is not shown.',
+    withheldPlural: '{count} sources could not be traced to official pages and are not shown.',
+
+    asOf: 'Sources as of {date}',
+    freshnessFresh: 'Current',
+    freshnessAgeing: 'Sources over {days} days old',
+    freshnessStale: 'Sources over a year old',
+    freshnessUnknown: 'Source date unknown',
+    recheck:
+      'Quality Control Orders are amended constantly. Check the official page before acting on this.',
+    confidence: 'Retrieval confidence {percent}%',
+
+    askFailed: 'Could not reach Sahayak',
+  },
+
+  bis: {
+    title: 'BIS requirement',
+    subtitle: 'Whether this product needs BIS certification, and by which route.',
+    cta: 'Check BIS requirement',
+    ctaHint: 'Uses this scan\u2019s product details',
+    product: 'Product',
+    pending: 'Checking the public lists…',
+
+    stanceRequired: 'BIS certification is required',
+    stanceRequiredBody:
+      'A Quality Control Order covers this product, so certification is mandatory before it is sold in India.',
+    stanceNotRequired: 'BIS certification is not required',
+    stanceNotRequiredBody:
+      'No Quality Control Order in the public lists covers this product. Other regulators may still apply.',
+    stanceUndetermined: 'Not established',
+    stanceUndeterminedBody:
+      'The public Quality Control Orders and product lists do not settle whether this product needs certification. This is not a finding that it is exempt — treat it as unanswered and confirm against the current list before relying on it.',
+
+    schemeLabel: 'Certification route',
+    schemeIsi: 'ISI mark',
+    schemeIsiBody:
+      'Certification against an Indian Standard, with a factory audit and ongoing surveillance.',
+    schemeCrs: 'Compulsory Registration Scheme',
+    schemeCrsBody:
+      'Registration on a test report from a BIS-recognised laboratory. No factory audit, which is what separates CRS from the ISI mark scheme.',
+    schemeFmcs: 'Foreign Manufacturers Certification Scheme',
+    schemeFmcsBody: 'The ISI mark route for a manufacturer outside India.',
+    schemeNone: 'No route applies',
+    schemeNoneBody:
+      'No certification route applies, because no Quality Control Order covers this product.',
+
+    isNumbersRequired: 'Standards to certify against',
+    isNumbersCandidate: 'Possibly relevant standards',
+    isNumbersHint: 'Sahayak cannot quote the content of these standards. Buy them from BIS.',
+    nextSteps: 'Next steps',
+    sources: 'Sources',
+
+    inconsistentTitle: 'Incomplete record',
+    inconsistentBody:
+      'This record says certification is mandatory but names no route to obtain it. That is a gap in the source data rather than an answer — confirm against the current list before acting.',
+
+    notFoundTitle: 'No applicability record',
+    notFoundBody:
+      'Sahayak has no BIS applicability record for this product category. Ask about it in the chat, or check the official list of products under compulsory certification.',
   },
 
   auth: {
@@ -596,6 +697,70 @@ export const en = {
     empty: 'Nothing checked yet',
     emptyBody:
       'Paste or upload a CSV of listing URLs or listing text. Metric rules stay Not assessable — a listing carries no physical scale.',
+
+    inputLabel: 'Listings',
+    inputPlaceholder:
+      'One listing per line — a marketplace URL, or the listing text itself. CSV pasted from a spreadsheet works.',
+    inputHint: 'Up to {max} listings. One per line.',
+    check: 'Check {count} listing',
+    checkPlural: 'Check {count} listings',
+    checking: 'Checking…',
+    clear: 'Clear',
+
+    parsedRows: '{count} listing ready',
+    parsedRowsPlural: '{count} listings ready',
+    parsedBlank: '{count} blank line skipped',
+    parsedBlankPlural: '{count} blank lines skipped',
+    parsedDuplicates: '{count} duplicate collapsed',
+    parsedDuplicatesPlural: '{count} duplicates collapsed',
+    parsedTooLong: '{count} line was too long and was dropped',
+    parsedTooLongPlural: '{count} lines were too long and were dropped',
+
+    blockOverLimit: 'Too many listings',
+    blockOverLimitBody:
+      '{over} more than the limit of {max}. Nothing is checked until you trim the list — checking the first {max} and showing a table of {max} would read as a clean result for all {total}.',
+    blockNothing: 'Nothing to check',
+    blockNothingBody: 'Paste at least one marketplace URL or one line of listing text.',
+
+    scaleTitle: 'Measurement rules cannot run on a listing',
+    scaleBody:
+      'A listing carries no physical scale, so every Rule 9 millimetre check comes back Not assessable. To check letter and numeral heights, photograph the pack with a printed marker.',
+
+    resultsTitle: 'Results',
+    resultsSummary: '{rows} listings · {findings} rule checks',
+    listingsWithFail: '{count} with a failure',
+    listingsWithBorderline: '{count} borderline',
+    listingsClean: '{count} with nothing against them',
+    listingsErrored: '{count} with no result',
+    findingCounts: 'Rule checks across all listings',
+
+    rowLabel: 'Line {line}',
+    rowHint: 'Show the rule checks for this listing',
+    rowErrorTitle: 'No result for this listing',
+    kindUrl: 'URL',
+    kindText: 'Listing text',
+    observed: 'Listing says: {value}',
+
+    reasonNoScale:
+      'Not assessable — a listing carries no physical scale, so no millimetre can be measured.',
+    reasonNotInListing:
+      'Not assessable from listing text — this rule is about the marketplace page, not the listing copy. Submit the URL to check it.',
+    reasonRowUnreadable: 'Not assessable — this listing could not be read.',
+
+    guardTitle: 'Measurement verdicts were rejected',
+    guardBody:
+      '{count} rule check came back with a measured verdict on a listing, which is not possible — a listing has no physical scale. They have been forced to Not assessable and should be reported as a server fault.',
+    guardBodyPlural:
+      '{count} rule checks came back with measured verdicts on listings, which is not possible — a listing has no physical scale. They have been forced to Not assessable and should be reported as a server fault.',
+
+    export: 'Export CSV',
+    exporting: 'Preparing…',
+    exportFailed: 'Could not export the results.',
+    exportDialog: 'Share listing check results',
+
+    checkFailed: 'The listing check could not be completed',
+    pickFileUnavailable:
+      'Picking a CSV file needs a capability this build does not have yet. Paste the file contents instead — a CSV copied from a spreadsheet works.',
   },
 
   settings: {
