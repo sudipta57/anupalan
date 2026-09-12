@@ -14,7 +14,15 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 
-import type { BisApplicability, FindingsResult, Report, SahayakAnswer, Scan } from '@/domain';
+import type {
+  BisApplicability,
+  FindingsResult,
+  ListingCheck,
+  Report,
+  SahayakAnswer,
+  Scan,
+} from '@/domain';
+import { pollIntervalFor } from '@/features/reports/status';
 
 import { api } from './endpoints';
 import { queryKeys } from './keys';
@@ -23,6 +31,7 @@ import type {
   CreateReportBody,
   CreateScanBody,
   CreateScanResponse,
+  ListingCheckBody,
   ListProductsResponse,
   ListScansQuery,
   ListScansResponse,
@@ -120,8 +129,63 @@ export function useConfirmFields(
 export function useCreateReport(
   scanId: string
 ): UseMutationResult<Report, Error, CreateReportBody> {
+  const client = useQueryClient();
+
   return useMutation({
     mutationFn: (body: CreateReportBody) => api.createReport(scanId, body),
+    // The report comes back `pending`; seeding the cache means `useReport` starts from what the POST
+    // already told us instead of showing an empty state for one poll interval.
+    onSuccess: (report) => client.setQueryData(queryKeys.report(report.id), report),
+  });
+}
+
+/**
+ * Poll one report until it is ready or has failed (FR-08).
+ *
+ * `scanId` is optional and does one thing: when the report becomes ready, the scan it belongs to has
+ * changed — `reportIssuedAt` is now set, and Mode A's editing lock reads it (`features/findings`).
+ * Invalidating here rather than in the screen keeps cache orchestration in the hook layer, which is
+ * the rule this file opens with.
+ *
+ * The invalidation can fire once more than strictly necessary if the query is remounted after the
+ * report is already ready. That costs one scan fetch and is preferable to tracking a transition.
+ */
+export function useReport(reportId: string | undefined, scanId?: string): UseQueryResult<Report> {
+  const client = useQueryClient();
+
+  return useQuery({
+    queryKey: queryKeys.report(reportId ?? ''),
+    queryFn: async () => {
+      const report = await api.getReport(reportId as string);
+
+      if (report.status === 'ready' && scanId) {
+        void client.invalidateQueries({ queryKey: queryKeys.scan(scanId) });
+      }
+
+      return report;
+    },
+    enabled: Boolean(reportId),
+    refetchInterval: (query) => pollIntervalFor(query.state.data),
+  });
+}
+
+/**
+ * Run a bulk listing check (FR-10).
+ *
+ * The result is seeded into the cache under its own id rather than only returned, so the results
+ * table survives a re-mount — a fifty-row check is not something to re-run because the user
+ * backgrounded the app to look at a listing.
+ */
+export function useCheckListings(): UseMutationResult<
+  ListingCheck,
+  Error,
+  { body: ListingCheckBody; idempotencyKey: string }
+> {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ body, idempotencyKey }) => api.checkListings(body, idempotencyKey),
+    onSuccess: (check) => client.setQueryData(queryKeys.listingCheck(check.id), check),
   });
 }
 

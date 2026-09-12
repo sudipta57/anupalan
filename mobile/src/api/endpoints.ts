@@ -16,7 +16,10 @@ import type {
   CreateScanBody,
   CreateScanResponse,
   GetFindingsResponse,
+  GetReportResponse,
   GetScanResponse,
+  ListingCheckBody,
+  ListingCheckResponse,
   ListProductsQuery,
   ListProductsResponse,
   ListScansQuery,
@@ -72,6 +75,17 @@ export const api = {
       method: 'POST',
       path: `/scans/${scanId}/report`,
       body,
+    }),
+
+  getReport: (reportId: string) =>
+    transport.request<GetReportResponse>({ method: 'GET', path: `/reports/${reportId}` }),
+
+  checkListings: (body: ListingCheckBody, idempotencyKey: string) =>
+    transport.request<ListingCheckResponse>({
+      method: 'POST',
+      path: '/listings/check',
+      body,
+      idempotencyKey,
     }),
 
   askSahayak: (body: SahayakAskBody) =>

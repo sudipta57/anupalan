@@ -7,7 +7,7 @@
 
 import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 
-import { radius, spacing, useTheme } from '@/theme';
+import { HIT_SLOP, radius, spacing, useTheme } from '@/theme';
 
 import { Text } from './text';
 
@@ -71,6 +71,12 @@ export function Chip({
       accessibilityHint={accessibilityHint}
       disabled={disabled}
       onPress={onPress}
+      // A chip is caption-sized and lands around 28 px tall — well under the 44 px target. Growing
+      // it would wreck the one thing a chip is for, which is being compact enough that eight of them
+      // fit in a filter row, so the *touch* area grows instead. The 8 px slop exactly matches the
+      // `gap` used between chips everywhere they appear, so adjacent slop regions meet in the middle
+      // of the gap rather than overlapping and stealing each other's taps.
+      hitSlop={HIT_SLOP}
       style={({ pressed }) => (pressed ? styles.pressed : null)}
     >
       {body}

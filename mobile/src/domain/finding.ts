@@ -119,7 +119,7 @@ export interface FindingsResult {
    *
    * Present on the findings themselves, not only on a generated report, because Mode A's evidence
    * panel has to show it **before** anyone asks for a PDF — that is the point at which an inspector
-   * decides whether to issue one. See flag 21 in `docs/04-frontend-plan.md`.
+   * decides whether to issue one. See flag 21 in `docs/05-frontend-plan.md`.
    */
   findingsSha256: string;
   summary: FindingsSummary;

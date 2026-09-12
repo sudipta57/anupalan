@@ -63,7 +63,8 @@
     "test:watch": "jest --watch",
     "types:routes": "node ./scripts/generate-route-types.mjs",
     "typecheck": "npm run types:routes && tsc --noEmit",
-    "gen:api": "node ./scripts/gen-api.mjs"
+    "gen:api": "node ./scripts/gen-api.mjs",
+    "verify:bundle": "node ./scripts/verify-bundle.mjs"
   },
   "private": true,
   "jest": {

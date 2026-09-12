@@ -49,6 +49,10 @@ export function SegmentedControl<T extends string>({
             accessibilityRole="radio"
             accessibilityState={{ selected }}
             accessibilityLabel={option.label}
+            // Vertical only. The segments are 36 px tall and sit edge to edge, so horizontal slop
+            // would have each one stealing taps from its neighbour; 4 px top and bottom reaches the
+            // 44 px target without touching the layout.
+            hitSlop={{ top: 4, bottom: 4 }}
             onPress={() => onChange(option.value)}
             style={({ pressed }) => [
               styles.segment,

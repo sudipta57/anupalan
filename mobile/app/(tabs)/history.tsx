@@ -1,19 +1,18 @@
 /**
  * History — past scans, filterable by date, product and verdict (FR-09).
  *
- * Stage 10 brings the list, the filters and the 500 ms acceptance criterion. The empty state is
- * real from day one, because on a first run it is the only thing a user sees.
+ * Mode B's half of the same list Mode A reaches through Inspections. The difference is framing and
+ * one filter: no district, because Mode B never collects a location (`01-architecture.md` §10).
  */
 
-import { EmptyState, Screen } from '@/components';
-import { useT } from '@/i18n';
+import { ScanList } from '@/features/history/scan-list';
 
 export default function HistoryScreen() {
-  const t = useT();
-
   return (
-    <Screen>
-      <EmptyState title={t('history.empty')} body={t('history.emptyBody')} />
-    </Screen>
+    <ScanList
+      subtitleKey="history.subtitle"
+      emptyKey="history.empty"
+      emptyBodyKey="history.emptyBody"
+    />
   );
 }

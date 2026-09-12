@@ -565,9 +565,9 @@ of `Protected` — rejected because the screen mounts and fetches first. Setting
 rejected because Android truncates labels at five.
 **Consequences:** Two MMKV instances, so signing out cannot take preferences with it. The refresh
 token sits in unencrypted MMKV until `expo-secure-store` is approved — recorded as flag 11 in
-`04-frontend-plan.md`. One subscription in `AppProviders` empties the query cache whenever the org
+`05-frontend-plan.md`. One subscription in `AppProviders` empties the query cache whenever the org
 id changes, which is the only thing stopping cached org-scoped data from crossing accounts on a
-shared phone. Three contract gaps now need agreeing with the backend, all in `04-frontend-plan.md`:
+shared phone. Three contract gaps now need agreeing with the backend, all in `05-frontend-plan.md`:
 no refresh endpoint, no session endpoint, and snake_case in TRD §5 against camelCase in the client.
 **PR:** n/a (Stage 2) · **Requirement:** n/a
 
@@ -618,7 +618,7 @@ case is a shutter enabled by a stale all-green report.
 **Consequences:** The gate policy is fully tested with no device, including every threshold
 boundary. What is **not** tested anywhere is the camera itself — preview, permissions,
 `capturePhoto`, the disk write — so FR-01 is code-complete and not done until the device checklist
-in `04-frontend-plan.md` Stage 4 has been walked (flag 15). Captures are written to the document
+in `05-frontend-plan.md` Stage 4 has been walked (flag 15). Captures are written to the document
 directory, not the cache, because FR-04 requires them to survive a force-close and the system
 deletes caches under storage pressure. An abandoned capture stays on disk until Stage 6's queue
 adopts it; losing an inspector's photograph is the worse of the two failures.
@@ -822,3 +822,219 @@ and P0's decision gate is read off that number.
 construction and a real label needs a ruler once. Captures the script cannot measure — no marker,
 unreadable file — are reported with a count and a reason rather than dropped from the denominator.
 **PR:** n/a (B22) · **Requirement:** FR-23
+### 2026-09-12 — A provisional verdict blocks a report rather than warning on one, and the mock writes real files
+
+**Context:** FR-08 asks for PDF and DOCX generated from a completed scan and handed to the share
+sheet. Two questions sat underneath it. First: what should happen when the scan's verdicts are still
+provisional? Stage 7 already makes an unconfirmed low-confidence field mark every verdict on a scan
+provisional, and Stage 8's findings screen carries that as a banner. Second: what should the mock hand
+to the share sheet, given that bundling a `.pdf` needs a `metro.config.js` asset extension and
+approval (flag 13)?
+**Decision:** `blocksReport` refuses. A findings *screen* may show provisional verdicts behind a
+caveat, because the reader is holding the phone and the next scan replaces it; a PDF leaves the
+device, embeds a findings hash, quotes gazette citations beside a millimetre and cannot be retracted
+from an inbox, so a report over a misread MRP is CLAUDE.md §3.4's failure mode made permanent and
+distributable. A **degraded-but-final** run is not blocked: `01-architecture.md` §11 issues those
+flagged, and withholding one would leave an inspector with no record of an inspection they made — so
+no-marker and reduced-extraction warn and travel with the document. Generation is asynchronous:
+`Report` gained `status`, `formats`, `requestedAt`, `generatedAt | null` and `error | null`, and the
+app polls `GET /reports/{id}`. `Transport` grew a `download`, the mirror of Stage 6's `upload`, because
+a share sheet needs a file rather than an https URL. `scripts/make-sample-report.py` generates a real
+PDF 1.4 with the annotated label embedded as a JPEG and a real OOXML package whose findings table is a
+`<w:tbl>`, emitted as base64 and written by `File.write(…, { encoding: 'base64' })`.
+**Alternatives:** Generating the report with a disabled button and a caption — rejected: a control
+that looks available and is not teaches people to hunt for a way around it, and the explanation
+belongs where the decision is made. Blocking degraded runs too — rejected as above; it confuses "a
+question is unanswered" with "a limitation is stated". A POST that blocks until the PDF is rendered —
+rejected: it ties a share button to a render that takes seconds and can fail, with nothing to show
+either way. Resolving the mock's download without writing bytes — rejected: "both files open in an
+external viewer" would then pass in testing and fail in front of a judge. Bundling the sample files as
+assets — rejected for now: it needs a `metro.config.js` change and approval, and base64 costs 47 KB in
+a folder that is deleted at Stage 13 anyway. Offering JSON in the share sheet — rejected: it is a real
+report format whose home is the API, and in a share sheet it invites sending a machine artefact to a
+trader who cannot read it.
+**Consequences:** Two contract additions TRD §5 does not have (flag 23), and a `report-failed` mock
+scenario beyond §11's table, because S10 can fail on its own and the screen must handle it. Report
+files land in the cache rather than the document directory — the phone is not their archive — under a
+deterministic filename, so re-sharing overwrites instead of accumulating `report(1).pdf`. The report
+screen is reachable only from the findings screen, so nobody sends a document over verdicts they never
+opened. FR-08 is code-complete, not done, until the Stage 9 device checklist has been walked — nothing
+in a test runner can open a PDF.
+**PR:** n/a (Stage 9) · **Requirement:** FR-08
+
+### 2026-09-12 — The verdict filter is single-select, and the fixture now contains a scan that can prove it
+
+**Context:** FR-09 filters past scans by date, product, verdict and (Mode A) location. A verdict
+filter is the easiest place in the entire app to collapse BORDERLINE into FAIL, and the collapse does
+not look like a bug: a "problems" filter returning `fail > 0 || borderline > 0` gives a longer list in
+which every scan really does have something on it. Building the filter surfaced two further things —
+that the 220-scan fixture could not distinguish the merged filter from the correct one, and that the
+hero scan was internally inconsistent.
+**Decision:** The filter is single-select and `matchesVerdict` is a switch that reads exactly one
+field of `FindingsSummary`; the module deliberately exports no helper taking a set of verdicts, and
+the mock imports the same predicate so fixture data and app cannot disagree about what "has a FAIL"
+means. `buildSummary` gained a **borderline-without-failure** bucket: every borderline in the seeded
+set previously sat beside a failure, so a merged filter would have returned an identical list and
+passed every test written against that data. The hero scan became an enforcement inspection — it was
+owned by the industry org while recorded by the enforcement inspector (a cross-org row CLAUDE.md §3.7
+makes impossible) and carried a `geo` and `district` that §10 says Mode B never collects, contradicting
+`geoForScan`. One `ScanList` serves both tabs, and `toQuery` drops `district` for Mode B where the
+request is built rather than only hiding the control.
+**Alternatives:** A multi-select verdict filter — rejected: it lets someone ask for "FAIL and
+BORDERLINE" and read the answer as a count of problems, which is the forbidden collapse wearing a
+filter's clothes. A headline verdict per row instead of four counts — rejected: it needs a ranking
+rule, and any such rule is one step from "this scan failed" on a pack whose only mark was a
+BORDERLINE. Filtering client-side over the cached pages — rejected: the cost then grows with the
+archive, and the 500 ms criterion would quietly become a function of how long someone has used the
+app. `Date.now()` for the date presets — rejected: impure in a render, and React's own rule forbids
+it; `now` is a parameter everywhere. Answering a reversed date range with an empty list — rejected:
+the user asked a clear question and an empty list answers a different one, so the range is swapped.
+**Consequences:** `ScanListItem` gained a `productId` and `ListScansQuery` a `q` (flags 24 and 25).
+Mode B's "filter by brand and SKU" is deferred: neither field exists on `ProductProfile`, and
+inventing them for a filter is the wrong order of work — SKUs become real in Stage 12. The filter
+measures **0.020 ms per pass** over all 220 seeded scans, timed in bulk because one pass lands under
+the millisecond clock; what remains on a device is the list render, bounded by `getItemLayout` and
+confirmed only by the checklist.
+**PR:** n/a (Stage 10) · **Requirement:** FR-09
+
+### 2026-09-12 — An uncited answer is not shown as an answer, and `unclear` is not `no`
+
+**Context:** FR-07 is the SIH26107 half: a BIS and Indian Standards assistant, with chat in English
+and Hindi, source chips that open the cited page, and a "check BIS requirement" entry point from a
+completed scan. Two of its three outcomes are refusals designed as features. Building it surfaced the
+one thing a client can verify about a citation and the one place the applicability answer can be
+quietly inverted.
+
+**Decision:** A citation whose URL cannot be placed on an official host (`OFFICIAL_HOSTS` — BIS,
+manakonline, crsbis, eGazette, DoCA, and subdomains, `https` only) is **not rendered**, and an
+`answered` response left with no showable citation is **presented as not-found with its model prose
+suppressed entirely**. Separately, `qcoApplicable` maps to three stances, not two: every affirmative
+row on the applicability screen — the certification route, the standards list, the plain-language
+heading — is gated on `isConclusive`, and `scheme: 'none'` on an `unclear` record is treated as the
+absence of a claim rather than the claim "no route applies". The fixture set gained a deliberately
+fabricated citation (`ans_fabricated`, on a `.com` reseller) so the guard is proved rather than
+asserted, and the freshness stamp gained an `unknown` tier for a date that will not parse or sits in
+the future.
+
+**Alternatives:** Rendering `answer.citations` directly and trusting the retrieval layer — rejected:
+a fabricated source does not make an answer worse, it makes it *more convincing*, and it is the part
+of a response a reader will not check. Showing the prose under a not-found heading when the downgrade
+fires — rejected: that is the caveat nobody reads above the answer everybody does. Validating the URL
+with `URL` — rejected: React Native's polyfill has moved between releases, and this should not be the
+one thing in the app that behaves differently on Hermes than in the test runner; a regex host parser
+is used instead. Upgrading an `http` citation to `https` — rejected: a link any intermediary could
+have rewritten is not evidence, and promoting it hides that it arrived downgraded. Mapping
+`QcoApplicable` to a boolean "needs certification" — rejected: this is CLAUDE.md §3.4's collapse
+running the other way and doing more damage, since a wrong FAIL gets disputed while a wrong clearance
+gets believed. Treating an unparseable `asOf` as zero days old — rejected: an answer with no
+provenance in time is worse than an old one, because an old stamp can be weighed. Caching answers by
+question in TanStack Query — rejected: asking the same question twice is what people do when they
+doubt the first answer, and a cache hit would replay it; the transcript is local UI state and is not
+persisted at all. `Date.now()` in the render for the freshness tier — rejected on the same grounds as
+Stage 10's date presets, and the lint rule caught it: an answer turn is stamped `receivedAt` on
+arrival and the BIS screen uses the query's `dataUpdatedAt`.
+
+**Consequences:** `expo-web-browser` moved from installed-but-unused to used, for in-app Custom Tabs
+with a `Linking` fallback — a dead source chip is the wrong thing to ship, since the chip is the app's
+offer to be checked. The mock's answer routing was rewritten from word-overlap scoring, which made the
+two cases a demo most needs the hardest to reach, and its `/bis/applicability` route no longer falls
+back to the atta record for an unknown product — that answered a question about one product with
+another's applicability. Four flags added: the host allowlist now exists on both sides and must not
+drift (26, the same hazard as flag 14), the backend must genuinely emit `unclear` rather than
+defaulting to `no` (27), the `required` and inconsistent-record branches have no fixture reachable
+from a scan because none of the four fixture products is honestly QCO-covered (28), and `lang` assumes
+the server answers in the language asked for rather than the client translating a cited answer
+afterwards (29).
+**PR:** n/a (Stage 11) · **Requirement:** FR-07
+
+### 2026-09-12 — A truncated bulk check is refused, and a measured verdict on a listing is rejected client-side
+
+**Context:** FR-10 is Mode B's bulk listing check: paste or upload up to fifty marketplace URLs or
+lines of listing copy, run presence and format rules, mark every metric rule NOT_ASSESSABLE because a
+listing carries no physical scale. Its acceptance criterion has two halves — a count, and a
+prohibition — and the prohibition is the one the client can get wrong without anyone noticing.
+
+**Decision:** More than fifty rows **blocks submission** and names the excess, rather than checking
+the first fifty. And `features/bulk/guard.ts` checks what the server returned: any metric rule whose
+verdict is PASS, FAIL **or** BORDERLINE is forced to `NOT_ASSESSABLE`, its `observed` value cleared,
+the row and batch summaries recomputed, and the correction **stated in a banner** rather than applied
+silently. The single list of metric rule ids moved out of the mock transport into
+`features/bulk/metric-rules.ts`, and the fixture layer gained `buildViolatingCheck` plus a
+`listing-metric-verdict` dev scenario that emits `PASS · 4.2 mm` on the Rule 9 family on purpose.
+
+**Alternatives:** Truncating at fifty with a notice — rejected: the notice is read once and the table
+is read for an hour, and the dropped row is the one that was non-compliant; the result has been mailed
+on by the time anyone notices. Trusting the backend and rendering `findings` as they arrive — rejected:
+a metric PASS with a millimetre value and a gazette citation, from a source containing no millimetres,
+is the most convincing wrong output this system can produce, and the realistic cause is not a bug but
+a well-meant Rule 9 path over the listing's own photograph landing three layers from anyone thinking
+about CLAUDE.md §3.3. Treating BORDERLINE as the safe middle — rejected: it presupposes a measurement,
+so it would have been the one verdict that sounds cautious and still gets through. Silently sanitising
+without the banner — rejected: it leaves the server emitting a forbidden verdict indefinitely, and the
+next surface to render it may not have a guard. Counting NOT_ASSESSABLE against a row — rejected:
+every row has five by construction, so it would rank every row at the top and rank none of them.
+Reusing `Finding` for a listing — rejected: `scanId`, `bbox` and `band` would be structurally present
+and permanently null, which invites an empty evidence panel and a reader wondering what is missing;
+`ListingFinding` carries a `notAssessableReason` instead. One CSV row per listing — rejected: the
+findings would have to be flattened into a cell, and the first thing anyone does with the file is
+filter on a rule id.
+
+**Consequences:** `ListingCheck`, `ListingRowResult`, `ListingFinding`, `ListingSourceKind` and
+`NotAssessableReason` added to the domain; `POST /v1/listings/check` assumed and flagged as a contract
+gap (flag 30) since TRD §5 has no listing endpoint at all. `api/mock/index.ts` now imports
+`METRIC_RULE_IDS` rather than holding its own literal — the same narrowing it already does for
+`matchesVerdict`. `Field` gained a narrow `inputStyle` passthrough for the paste box. The metric-rule
+list is now remembered in two places that must not drift, which is flag 14's hazard for the third time
+and argues for a `metric: true` flag on the rule in the pack (flag 31). CSV file picking is deferred
+for want of `expo-document-picker` (flag 32); paste takes CSV content and covers the realistic phone
+workflow. Every CSV field is quoted unconditionally and a leading `=`, `+`, `-` or `@` is
+apostrophe-guarded, because listing copy is attacker-influenced text and spreadsheets execute formulas.
+**PR:** n/a (Stage 12) · **Requirement:** FR-10
+
+### 2026-09-12 — The mock is excluded from a live bundle at resolution time, and the exclusion is measured
+
+**Context:** Stage 13's acceptance includes "the mock transport is gone from the release build".
+Before this change it was not. Three screens imported `@/api/mock` statically for the fixture OTP and
+the account switcher; all three were `__DEV__`-gated at render, which keeps a panel off a user's
+screen and does nothing about what is bundled. A production export contained the whole fixture graph —
+220 seeded scans, the base64 sample PDF and DOCX, every gazette citation — as unreachable code that
+still costs cold-start parse time against NFR-02's three-second budget and still ships a working
+offline fake of a compliance tool inside the real one.
+
+**Decision:** The fixture layer is reached only through conditional `require`s in
+`src/api/transport.ts` and a new `src/api/dev.ts`, which exposes a `DevBridge | null` to the three
+screens that wanted conveniences. The exclusion itself happens in a new `metro.config.js`, which
+resolves anything under `src/api/mock/` to `scripts/empty-module.js` when
+`EXPO_PUBLIC_API_MODE=live`. `npm run verify:bundle` exports a production bundle in live mode and
+fails if any of five mock-only sentinel strings appears in it. Separately: Hindi was completed (145
+strings, 586 of 586 keys) with completeness, orphan and copy-of-English regression tests; every
+rendered colour pair in both themes is asserted at 4.5:1; and `src/lib/startup.ts` instruments the
+JS-side cold start.
+
+**Alternatives:** Relying on the conditional `require` alone — **rejected by measurement, not by
+argument.** `EXPO_PUBLIC_API_MODE` is inlined to a literal by `babel-preset-expo`, so the branch is
+statically dead in a live build, and the reasonable expectation is that the `require` goes with it.
+Metro resolves `require()` targets while building the module graph, *before* dead-code elimination,
+so it does not. `verify:bundle` failed on its first run and is the only reason this is known.
+Deleting the fixtures folder now, as the plan's wording suggests — rejected: there is no deployed
+backend, so it would leave the app with no data source in the only mode it can run in. Returning
+empty stubs from `dev.ts` instead of `null` — rejected: `null` forces a caller to handle the state a
+release build is actually in, and the panels then keep compiling after the folder is deleted. Using
+the 3:1 large-text contrast allowance for captions — rejected: `caption` is 12 px and `mono` is 13 px,
+and both carry rule ids, millimetre readings and hashes; none of that is large text. Growing `Chip`
+to 44 px — rejected: it would destroy the one property a chip has, which is fitting eight of them in
+a filter row; the touch area grew via `hitSlop` instead, sized to the `gap` between chips so
+neighbours cannot steal each other's taps. Reporting `Date.now()` from the startup instrument when
+`__BUNDLE_START_TIME__` is absent — rejected: it would report a cold start of zero, which is the kind
+of number that reaches a slide.
+
+**Consequences:** `metro.config.js` is now load-bearing for NFR-07 and must keep calling through to
+the upstream resolver (flag 34). Measured effect: a production Android bundle is **4.85 MB in mock
+mode and 4.76 MB in live mode**, so 92 KB of fixtures are genuinely gone. The light and dark palettes
+no longer share a `textSubtle`, which is correct — one grey cannot sit 4.5:1 from both a near-white
+and a near-black ground. `Field` gained nothing here; `Chip` and `SegmentedControl` gained `hitSlop`.
+Two Stage 13 items remain blocked and are recorded as such rather than claimed: the cutover needs a
+deployed backend publishing OpenAPI, and the cold-start figure needs the EAS build on a physical 4 GB
+phone. `__tests__/i18n.test.ts` now fails because its fallback case used a real app key as a
+stand-in for a missing one; it has been left untouched per CLAUDE.md §6 and needs a decision (flag 33).
+**PR:** n/a (Stage 13) · **Requirement:** NFR-02, NFR-07, NFR-08

@@ -14,7 +14,7 @@
  *   looking exactly as reassuring. If there is no raw asset, `imageSha256` is null and the panel says
  *   the hash is not available yet.
  * - **Nothing here computes a hash.** The integrity claim belongs to the server; see flag 2 in
- *   `docs/04-frontend-plan.md` — until the backend lands, these are fixture values and the UI is real
+ *   `docs/05-frontend-plan.md` — until the backend lands, these are fixture values and the UI is real
  *   while the claim is not. A hash computed on the phone would be a hash of whatever the phone chose
  *   to send.
  *

@@ -15,17 +15,10 @@ import { StyleSheet, View } from 'react-native';
 import Constants from 'expo-constants';
 
 import { API_MODE } from '@/api';
-// Dev-only imports. This whole section, and these imports, are deleted at Stage 13 along with the
-// rest of the mock backend.
-import { FIXTURE_ACCOUNTS, FIXTURE_OTP, HERO_SCAN_ID } from '@/api/mock';
-import {
-  SCENARIOS,
-  SCENARIO_LABELS,
-  getScenario,
-  setScenario,
-  subscribeToScenario,
-  type Scenario,
-} from '@/api/mock/scenario';
+// The dev bridge, not the mock itself. `dev` is null in any build that should not carry fixtures,
+// which is what keeps them out of the production bundle — see `src/api/dev.ts`. This whole section
+// and this import are deleted with the mock folder at the real cutover.
+import { dev, type Scenario } from '@/api/dev';
 import {
   Button,
   Card,
@@ -36,6 +29,7 @@ import {
   type SegmentedOption,
 } from '@/components';
 import { useRequestOtp, useSignOut, useVerifyOtp } from '@/features/auth';
+import { COLD_START_BUDGET_MS, startupMeasurement, withinBudget } from '@/lib/startup';
 import { useT, type Locale } from '@/i18n';
 import {
   GATE_SIMULATIONS,
@@ -120,9 +114,12 @@ function FixtureAccountPanel() {
   const verifyOtp = useVerifyOtp();
   const busy = requestOtp.isPending || verifyOtp.isPending;
 
+  if (!dev) return null;
+  const bridge = dev;
+
   const switchTo = (phone: string) => {
     requestOtp.mutate(phone, {
-      onSuccess: ({ requestId }) => verifyOtp.mutate({ requestId, code: FIXTURE_OTP }),
+      onSuccess: ({ requestId }) => verifyOtp.mutate({ requestId, code: bridge.fixtureOtp }),
     });
   };
 
@@ -133,7 +130,7 @@ function FixtureAccountPanel() {
         Dev only. Signs in as the other mode so the tab bar can be compared from one build.
       </Text>
       <View style={styles.chips}>
-        {FIXTURE_ACCOUNTS.map((account) => (
+        {bridge.fixtureAccounts.map((account) => (
           <Chip
             key={account.mode}
             label={account.org.name}
@@ -220,7 +217,16 @@ function GateSimulationPanel() {
  * code — otherwise they get built once, demoed never, and broken silently.
  */
 function MockScenarioPanel() {
-  const scenario = useSyncExternalStore(subscribeToScenario, getScenario, getScenario);
+  // Subscribed unconditionally so the hook order is stable; the no-op standins are only reached in a
+  // build with no dev bridge, where the panel renders nothing anyway.
+  const scenario = useSyncExternalStore(
+    dev?.subscribeToScenario ?? (() => () => undefined),
+    dev?.getScenario ?? (() => 'happy' as Scenario),
+    dev?.getScenario ?? (() => 'happy' as Scenario)
+  );
+
+  if (!dev) return null;
+  const bridge = dev;
 
   return (
     <Card>
@@ -229,13 +235,13 @@ function MockScenarioPanel() {
         Dev only. Forces the failure modes from the architecture&apos;s degradation table.
       </Text>
       <View style={styles.chips}>
-        {SCENARIOS.map((value: Scenario) => (
+        {bridge.scenarios.map((value: Scenario) => (
           <Chip
             key={value}
-            label={SCENARIO_LABELS[value]}
+            label={bridge.scenarioLabels[value]}
             tone={value === scenario ? 'brand' : 'neutral'}
             selected={value === scenario}
-            onPress={() => setScenario(value)}
+            onPress={() => bridge.setScenario(value)}
           />
         ))}
       </View>
@@ -251,6 +257,9 @@ function MockScenarioPanel() {
  * fixture with a report issued over it, so it is the one that shows Mode A's editing lock.
  */
 function SampleInspectionPanel() {
+  if (!dev) return null;
+  const heroScanId = dev.heroScanId;
+
   return (
     <Card>
       <Text variant="heading">Sample inspection</Text>
@@ -260,9 +269,33 @@ function SampleInspectionPanel() {
       <Button
         label="Open sample findings"
         variant="secondary"
-        onPress={() => router.push(`/scan/${HERO_SCAN_ID}/findings`)}
+        onPress={() => router.push(`/scan/${heroScanId}/findings`)}
       />
     </Card>
+  );
+}
+
+/**
+ * The NFR-02 cold-start figure, read on the device it was measured on.
+ *
+ * **Not dev-gated.** The number that matters is from a release build on a real 4 GB phone, and a
+ * panel that only exists in development cannot produce it. It is one line of monospace text in the
+ * About block, which is where someone taking the measurement will look.
+ *
+ * It states what it measures. "JS→frame" rather than "cold start", because everything before the
+ * bundle began evaluating is invisible from here — `src/lib/startup.ts` has the `adb` commands for
+ * the whole figure, and reporting this one as the cold start would understate it.
+ */
+function StartupLine() {
+  const measurement = startupMeasurement();
+
+  if (!measurement) return null;
+
+  return (
+    <Text variant="mono" tone={withinBudget(measurement) ? 'subtle' : 'borderline'}>
+      JS→frame: {measurement.jsToFirstFrameMs} ms (budget {COLD_START_BUDGET_MS} ms, whole cold
+      start is larger)
+    </Text>
   );
 }
 
@@ -327,6 +360,7 @@ export default function SettingsScreen() {
         <Text variant="mono" tone="subtle">
           API mode: {API_MODE}
         </Text>
+        <StartupLine />
       </View>
     </Screen>
   );

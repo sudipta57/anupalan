@@ -31,12 +31,16 @@ export {
 export type { IconProps } from './icons';
 export { RegionCrop } from './region-crop';
 export type { RegionCropProps } from './region-crop';
+export { SCAN_ROW_HEIGHT, ScanRow } from './scan-row';
+export type { ScanRowProps } from './scan-row';
 export { Screen } from './screen';
 export type { ScreenProps } from './screen';
 export { SegmentedControl } from './segmented-control';
 export type { SegmentedControlProps, SegmentedOption } from './segmented-control';
 export { Skeleton } from './skeleton';
 export type { SkeletonProps } from './skeleton';
+export { SourceChip } from './source-chip';
+export type { SourceChipProps } from './source-chip';
 export { Text } from './text';
 export type { TextProps, TextTone } from './text';
 export { VerdictBadge } from './verdict-badge';

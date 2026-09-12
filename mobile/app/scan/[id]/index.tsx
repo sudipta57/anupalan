@@ -220,6 +220,25 @@ function Complete({ scan, result }: { scan: Scan; result: FindingsResult }) {
         />
       </Card>
 
+      {/* The SIH26107 half, reached from the SIH26034 half (FR-07). Offered on a complete scan
+          regardless of verdict: whether a product needs BIS certification is independent of whether
+          its label passed Legal Metrology, and gating it on a clean result would hide the question
+          from exactly the packs someone is already looking closely at. */}
+      <Card>
+        <Text variant="label" tone="muted">
+          {t('bis.title')}
+        </Text>
+        <Text variant="body" tone="muted">
+          {t('bis.subtitle')}
+        </Text>
+        <Button
+          label={t('bis.cta')}
+          variant="secondary"
+          accessibilityHint={t('bis.ctaHint')}
+          onPress={() => router.push(`/scan/${scan.id}/bis`)}
+        />
+      </Card>
+
       <AdvisoryDisclaimer detailed />
     </Screen>
   );

@@ -4,7 +4,7 @@
  * This exists so **no screen imports a fixture.** The mock's rectified asset is a bundled PNG behind a
  * `fixture://` URI, and the real one will be a presigned HTTPS URL. A screen that branched on which it
  * was would be a screen that has to be rewritten at Stage 13, which is exactly what the transport seam
- * exists to prevent (`04-frontend-plan.md` §3).
+ * exists to prevent (`05-frontend-plan.md` §3).
  *
  * At Stage 13 the `fixture://` branch is deleted and the function becomes `({ uri })`. Nothing above it
  * changes.

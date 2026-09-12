@@ -19,8 +19,11 @@ import type {
   BisApplicabilityBody,
   BisApplicabilityResponse,
   ConfirmFieldsBody,
+  ListingCheckBody,
+  ListingCheckResponse,
   CreateReportBody,
   CreateReportResponse,
+  GetReportResponse,
   CreateScanBody,
   CreateScanResponse,
   GetFindingsResponse,
@@ -40,7 +43,10 @@ import type {
 import type {
   AuthTokens,
   Finding,
+  Report,
+  ReportFormat,
   PipelineStage,
+  SahayakAnswer,
   Scan,
   ScanIssue,
   ScanListItem,
@@ -48,7 +54,8 @@ import type {
   Verdict,
 } from '@/domain';
 
-import { BIS_APPLICABILITY, SAHAYAK_ANSWERS } from './fixtures/sahayak';
+import { BIS_APPLICABILITY, SAHAYAK_ANSWERS, SAHAYAK_ANSWERS_HI } from './fixtures/sahayak';
+import { buildListingCheck, buildViolatingCheck } from './fixtures/listings';
 import {
   FINDINGS_SHA256,
   HERO_FINDINGS_RESULT,
@@ -59,10 +66,19 @@ import { PRODUCTS, PRODUCTS_BY_ID } from './fixtures/products';
 import { RULEPACK_VERSION } from './fixtures/rules';
 import { SCAN_LIST } from './fixtures/scans';
 import { FIXTURE_OTP, accountForPhone } from './accounts';
+import {
+  SAMPLE_DOCX_BASE64,
+  SAMPLE_DOCX_BYTES,
+  SAMPLE_PDF_BASE64,
+  SAMPLE_PDF_BYTES,
+} from './fixtures/report-files';
 import { getScenario } from './scenario';
+import { File } from 'expo-file-system';
 // The file, not the barrel: this module is deleted at Stage 13 and its import surface should be
 // as small as the one thing it needs.
 import { PIPELINE_STAGES } from '@/features/processing/stages';
+import { matchesVerdict } from '@/features/history/filters';
+import { METRIC_RULE_IDS } from '@/features/bulk/metric-rules';
 
 const PAGE_SIZE = 30;
 
@@ -98,6 +114,97 @@ interface SubmittedScan {
 const created = new Map<string, SubmittedScan>();
 
 let scanCounter = 0;
+
+interface RequestedReport {
+  scanId: string;
+  formats: ReportFormat[];
+  requestedAt: number;
+}
+
+/** Reports asked for during this session, keyed by id. */
+const reports = new Map<string, RequestedReport>();
+
+let reportCounter = 0;
+
+/**
+ * How long a report spends generating.
+ *
+ * Long enough that the pending state, the poll and the timeout copy are all reachable on a device,
+ * short enough that a demo does not stall. Like `statusFor`, it is a function of elapsed time rather
+ * than a timer, so a re-mounted screen cannot resume mid-sequence.
+ */
+const REPORT_MS = 2_600;
+
+/** Sample file sizes, by format. The bytes themselves are written by `download`. */
+const SAMPLE_SIZES: Partial<Record<ReportFormat, number>> = {
+  pdf: SAMPLE_PDF_BYTES,
+  docx: SAMPLE_DOCX_BYTES,
+};
+
+function reportFor(id: string): Report {
+  const entry = reports.get(id);
+
+  if (!entry) {
+    throw new ApiError({ code: 'http_404', message: 'Report not found', status: 404 });
+  }
+
+  const scan = scanFor(entry.scanId);
+  const base = {
+    id,
+    scanId: entry.scanId,
+    rulepackVersion: RULEPACK_VERSION,
+    formats: entry.formats,
+    // The raw upload's hash, found by kind: the rectified asset's hash would verify a computation
+    // rather than a photograph (`01-architecture.md` §10).
+    imageSha256: scan.assets.find((asset) => asset.kind === 'raw')?.sha256 ?? null,
+    findingsSha256: FINDINGS_SHA256,
+    requestedAt: new Date(entry.requestedAt).toISOString(),
+  };
+
+  if (getScenario() === 'report-failed') {
+    return {
+      ...base,
+      status: 'failed',
+      files: [],
+      generatedAt: null,
+      error: 'The report service could not render this scan.',
+    };
+  }
+
+  if (Date.now() - entry.requestedAt < REPORT_MS) {
+    return { ...base, status: 'pending', files: [], generatedAt: null, error: null };
+  }
+
+  return {
+    ...base,
+    status: 'ready',
+    files: entry.formats.map((format) => ({
+      format,
+      uri: `fixture://report/${entry.scanId}.${format}`,
+      sizeBytes: SAMPLE_SIZES[format] ?? 0,
+    })),
+    generatedAt: new Date(entry.requestedAt + REPORT_MS).toISOString(),
+    error: null,
+  };
+}
+
+/**
+ * When a report was issued over this scan, or null.
+ *
+ * Derived rather than stored on the scan, so the one fact — a report exists and is ready — cannot be
+ * true in one place and false in another. Mode A's editing lock reads it (`features/findings`).
+ */
+function issuedAtFor(scanId: string): string | null {
+  for (const [, entry] of reports) {
+    if (entry.scanId !== scanId) continue;
+    if (getScenario() === 'report-failed') continue;
+    if (Date.now() - entry.requestedAt < REPORT_MS) continue;
+
+    return new Date(entry.requestedAt + REPORT_MS).toISOString();
+  }
+
+  return null;
+}
 
 function delay(): Promise<void> {
   if (IS_TEST) return Promise.resolve();
@@ -158,14 +265,12 @@ function issuesForScenario(): ScanIssue[] {
  * The no-marker path (architecture §11): metric rules cannot be evaluated without a physical
  * reference, so they return NOT_ASSESSABLE rather than a guessed millimetre value. Presence and
  * format rules still run — that is the whole point of offering a no-measurement mode.
+ *
+ * The set comes from `features/bulk/metric-rules`, which is app code and survives Stage 13. It used
+ * to be a literal here, which meant the one list of metric rules lived in the layer that gets
+ * deleted — and that two places could disagree about what a metric rule is.
  */
-const METRIC_RULES = new Set([
-  'LM-9-2-TABLE1',
-  'LM-9-2-TABLE2',
-  'LM-9-LETTER-HEIGHT',
-  'LM-9-3-WIDTH',
-  'LM-9-QTY-CLEAR-SPACE',
-]);
+const METRIC_RULES = new Set(METRIC_RULE_IDS);
 
 function withoutMeasurement(findings: Finding[]): Finding[] {
   return findings.map((f) =>
@@ -235,18 +340,15 @@ function page<T>(
   return { items: slice, nextCursor: next < items.length ? String(next) : null };
 }
 
-function hasVerdict(item: ScanListItem, verdict: Verdict): boolean {
-  // Each verdict is read on its own. A "failures" filter must never fold BORDERLINE in.
-  switch (verdict) {
-    case 'PASS':
-      return item.summary.pass > 0;
-    case 'FAIL':
-      return item.summary.fail > 0;
-    case 'BORDERLINE':
-      return item.summary.borderline > 0;
-    case 'NOT_ASSESSABLE':
-      return item.summary.notAssessable > 0;
-  }
+/**
+ * Free-text match over the product name.
+ *
+ * Case-insensitive substring, which is what a phone search box means to the person typing in it. The
+ * real backend will do better; what matters for the seam is that the *client* sends `q` and does no
+ * filtering of its own.
+ */
+function matchesQuery(item: ScanListItem, query: string): boolean {
+  return item.productName.toLowerCase().includes(query.trim().toLowerCase());
 }
 
 function scanFor(id: string): Scan {
@@ -259,6 +361,7 @@ function scanFor(id: string): Scan {
       status: statusFor(local.submittedAt),
       pipelineStage: stageFor(local.submittedAt),
       issues: issuesForScenario(),
+      reportIssuedAt: issuedAtFor(id),
     };
   }
 
@@ -278,6 +381,43 @@ function scanFor(id: string): Scan {
     // set, does. Inheriting the hero scan's value unconditionally would have claimed a report over a
     // scan that is still uploading.
     reportIssuedAt: listed.status === 'complete' ? HERO_SCAN.reportIssuedAt : null,
+  };
+}
+
+/**
+ * Which fixture answers a question.
+ *
+ * Explicit keywords rather than word-overlap scoring. The overlap version matched on any word over
+ * four characters, so a question opening "Which…" matched the first fixture whose question also did —
+ * which made the two cases a demo most needs to reach, the priced-content refusal and the fabricated
+ * citation, two of the hardest to reach. Order matters here: the refusal is checked first, because a
+ * question can ask for clause content *about* a product that would otherwise match on its name.
+ *
+ * The fallback is not-found, which is the right default for an assistant over a finite corpus: the
+ * honest answer to an unrecognised question is that it was not found.
+ */
+const ANSWER_KEYWORDS: readonly { id: string; words: readonly string[] }[] = [
+  { id: 'ans_refused', words: ['tensile', 'clause', 'test limit', 'tolerance', 'is 1786'] },
+  { id: 'ans_fabricated', words: ['stainless', 'cookware', 'utensil'] },
+  { id: 'ans_crs_applicability', words: ['charger', 'adaptor', 'adapter', 'crs', 'registration'] },
+  { id: 'ans_hallmarking', words: ['hallmark', 'gold', 'jewel', 'purit'] },
+  { id: 'ans_not_found', words: ['bamboo', 'furniture'] },
+];
+
+function answerFor(question: string, lang: 'en' | 'hi'): SahayakAnswer {
+  const lower = question.toLowerCase();
+  const hit = ANSWER_KEYWORDS.find((entry) => entry.words.some((word) => lower.includes(word)));
+  const matched =
+    SAHAYAK_ANSWERS.find((answer) => answer.id === (hit?.id ?? 'ans_not_found')) ??
+    SAHAYAK_ANSWERS[0];
+
+  return {
+    ...matched,
+    // Echoed so the transcript shows what was actually asked rather than the fixture's phrasing.
+    question,
+    // The server answers in one language. A missing Hindi body falls back to English rather than
+    // to the key — the same rule the app's own i18n follows.
+    answer: lang === 'hi' ? (SAHAYAK_ANSWERS_HI[matched.id] ?? matched.answer) : matched.answer,
   };
 }
 
@@ -304,6 +444,7 @@ function guardScenario(): void {
 function route(spec: RequestSpec): unknown {
   const { method, path, query = {}, body } = spec;
   const scanMatch = /^\/scans\/([^/]+)(\/[a-z-]+)?$/.exec(path);
+  const reportMatch = /^\/reports\/([^/]+)$/.exec(path);
 
   if (method === 'POST' && path === '/auth/otp/request') {
     const { phone } = body as OtpRequestBody;
@@ -360,10 +501,16 @@ function route(spec: RequestSpec): unknown {
 
   if (method === 'GET' && path === '/scans') {
     let items = SCAN_LIST;
-    if (query.verdict) items = items.filter((s) => hasVerdict(s, query.verdict as Verdict));
+    // `matchesVerdict` is the app's own predicate, imported rather than reimplemented: one definition
+    // of "has a FAIL", so the fixture data and the screen cannot disagree about it.
+    if (query.verdict) items = items.filter((s) => matchesVerdict(s, query.verdict as Verdict));
+    if (query.productId) items = items.filter((s) => s.productId === query.productId);
+    if (query.q) items = items.filter((s) => matchesQuery(s, String(query.q)));
     if (query.district) items = items.filter((s) => s.district === query.district);
+    // Dates are `YYYY-MM-DD` and `capturedAt` is a full ISO timestamp, so `to` is compared against
+    // the end of that day. Comparing the bare date would drop every scan taken after midnight on it.
     if (query.from) items = items.filter((s) => s.capturedAt >= String(query.from));
-    if (query.to) items = items.filter((s) => s.capturedAt <= String(query.to));
+    if (query.to) items = items.filter((s) => s.capturedAt <= `${String(query.to)}T23:59:59.999Z`);
     return page(items, query.cursor as string | undefined) satisfies ListScansResponse;
   }
 
@@ -434,41 +581,47 @@ function route(spec: RequestSpec): unknown {
 
   if (method === 'POST' && scanMatch?.[2] === '/report') {
     const { formats } = body as CreateReportBody;
-    return {
-      id: `rpt_${scanMatch[1]}`,
-      scanId: scanMatch[1],
-      rulepackVersion: RULEPACK_VERSION,
-      files: formats.map((format) => ({
-        format,
-        uri: `fixture://report/${scanMatch[1]}.${format}`,
-        sizeBytes: format === 'pdf' ? 184_320 : 42_110,
-      })),
-      // The raw upload's hash, found by kind rather than by position: §10 records the hash of the
-      // photograph, and the rectified asset's hash would verify a computation instead.
-      imageSha256: HERO_SCAN.assets.find((asset) => asset.kind === 'raw')?.sha256 ?? '',
-      findingsSha256: FINDINGS_SHA256,
-      generatedAt: new Date().toISOString(),
-    } satisfies CreateReportResponse;
+    reportCounter += 1;
+
+    // A fresh id per request. Asking twice really does render twice — the app's job is not to ask
+    // twice, and a mock that silently deduplicated would hide that.
+    const id = `rpt_${reportCounter}`;
+    reports.set(id, { scanId: scanMatch[1], formats, requestedAt: Date.now() });
+
+    return reportFor(id) satisfies CreateReportResponse;
+  }
+
+  if (method === 'GET' && reportMatch) {
+    return reportFor(reportMatch[1]) satisfies GetReportResponse;
+  }
+
+  if (method === 'POST' && path === '/listings/check') {
+    const { rows } = body as ListingCheckBody;
+
+    // The org is hard-coded to the industry fixture org: FR-10 is Mode B only, and the tab is not
+    // in the enforcement tab bar (`features/navigation/tabs`). A real backend reads it off the token.
+    const orgId = 'org_annapurna';
+
+    if (getScenario() === 'listing-metric-verdict') {
+      return buildViolatingCheck(orgId) satisfies ListingCheckResponse;
+    }
+
+    return buildListingCheck(rows, orgId) satisfies ListingCheckResponse;
   }
 
   if (method === 'POST' && path === '/sahayak/ask') {
-    const { question } = body as SahayakAskBody;
-    const lower = question.toLowerCase();
-    const matched =
-      SAHAYAK_ANSWERS.find((a) =>
-        lower.includes('tensile') || lower.includes('clause')
-          ? a.outcome === 'refused_priced_content'
-          : a.question
-              .toLowerCase()
-              .split(' ')
-              .some((w) => w.length > 4 && lower.includes(w))
-      ) ?? SAHAYAK_ANSWERS[2];
-    return { ...matched, question } satisfies SahayakAskResponse;
+    const { question, lang } = body as SahayakAskBody;
+    return answerFor(question, lang) satisfies SahayakAskResponse;
   }
 
   if (method === 'POST' && path === '/bis/applicability') {
     const { productId } = body as BisApplicabilityBody;
-    const applicability = BIS_APPLICABILITY[productId ?? 'prd_atta_1kg'];
+    // No default record. This previously fell back to the atta profile for any unknown product,
+    // which answered a question about one product with another product's applicability — the exact
+    // kind of confident wrong clearance `features/sahayak/applicability` exists to prevent. A scan
+    // whose profile was typed in has no `productId`, and the honest response is that there is no
+    // record, which the screen renders as such.
+    const applicability = productId ? BIS_APPLICABILITY[productId] : undefined;
     if (!applicability) {
       throw new ApiError({ code: 'http_404', message: 'No applicability record', status: 404 });
     }
@@ -509,6 +662,37 @@ export function createMockTransport(): Transport {
     async upload(): Promise<void> {
       if (!IS_TEST) await new Promise((resolve) => setTimeout(resolve, UPLOAD_MS));
       guardScenario();
+    },
+
+    /**
+     * Write a **real** sample report to the requested path.
+     *
+     * Stage 9's acceptance is that both files share out of the app and open in an external viewer, and
+     * a mock that resolved without writing anything would let that pass in testing and fail in front
+     * of a judge. `report-files.ts` holds a genuine PDF 1.4 and a genuine OOXML package; the native
+     * side decodes the base64, so nothing is decoded in JS.
+     *
+     * The scenario is honoured, like `upload`, so Offline mid-share exercises the real failure path.
+     */
+    async download(spec): Promise<void> {
+      await delay();
+      guardScenario();
+
+      const format = spec.url.slice(spec.url.lastIndexOf('.') + 1);
+      const base64 =
+        format === 'pdf' ? SAMPLE_PDF_BASE64 : format === 'docx' ? SAMPLE_DOCX_BASE64 : null;
+
+      if (!base64) {
+        throw new ApiError({
+          code: 'download_failed',
+          message: `No sample report for .${format}`,
+          status: 404,
+        });
+      }
+
+      if (IS_TEST) return;
+
+      new File(spec.fileUri).write(base64, { encoding: 'base64' });
     },
   };
 }
