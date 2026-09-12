@@ -150,23 +150,42 @@ Retrieval design: hybrid BM25 + dense (pgvector, multilingual-e5 or BGE-M3 for H
 
 ```
 orgs(id, name, mode[enforcement|industry], state, created_at)
-users(id, org_id, role[admin|inspector|analyst|viewer], phone, email, ...)
-products(id, org_id, name, category_code, gtin, is_imported, pack_type, net_qty_value, net_qty_unit)
-scans(id, org_id, product_id, user_id, status, captured_at, geo_point, device_meta, marker_type, marker_mm)
-scan_assets(id, scan_id, kind[raw|rectified|annotated], s3_key, sha256, width_px, height_px, px_per_mm)
-ocr_results(id, scan_id, engine, version, raw_json, mean_conf)
-extractions(id, scan_id, field_code, value_raw, value_norm, source[regex|llm|human], confidence, bbox)
-measurements(id, scan_id, field_code, glyph, height_mm, width_mm, uncertainty_mm, method)
-findings(id, scan_id, rule_id, rulepack_version, verdict, observed, required, citation, bbox, confidence)
-rulepacks(id, code, version, effective_from, checksum, published_by, published_at)
-reports(id, scan_id, pdf_key, docx_key, json_key, sha256, generated_at)
-bis_queries(id, org_id, scan_id NULL, question, answer, citations_json, model, created_at)
+users(id, org_id, role[admin|inspector|analyst|viewer], phone, email, full_name, is_active, ...)
+products(id, org_id, name, category_code, gtin, is_imported, pack_type, surface, net_qty_value, net_qty_unit)
+scans(id, org_id, product_id, user_id, status, captured_at, geo_lat, geo_lon, geo_accuracy_m,
+      device_meta, marker_type, marker_mm, profile, error)
+scan_assets(id, scan_id, org_id, kind[raw|rectified|annotated], s3_key, sha256, content_type,
+            size_bytes, width_px, height_px, px_per_mm)
+ocr_results(id, scan_id, org_id, asset_id, engine, version, raw_json, mean_conf)
+extractions(id, scan_id, org_id, field_code, value_raw, value_norm, source[regex|llm|human],
+            confidence, bbox, span_start, span_end, superseded_by)
+measurements(id, scan_id, org_id, field_code, glyph, height_mm, width_mm, uncertainty_mm,
+             clear_space_mm, is_numeral, is_mark, method)
+scan_evaluations(id, scan_id, org_id, revision, source, rulepack_version, rulepack_checksum,
+                 as_of, findings_sha256, reduced_extraction)
+findings(id, evaluation_id, scan_id, org_id, rule_id, rulepack_version, verdict, severity,
+         observed, required, citation, message, band, bbox, confidence)
+rulepacks(id, code, version, effective_from, checksum, body, published_by, published_at, is_active)
+reports(id, scan_id, org_id, evaluation_id, pdf_key, docx_key, json_key, sha256, generated_at)
+otp_requests(id, phone, code_hash, expires_at, consumed_at, attempts, request_ip)
+refresh_tokens(id, user_id, org_id, family_id, token_hash, expires_at, revoked_at, replaced_by)
+bis_queries(id, org_id, scan_id NULL, user_id, question, answer, citations_json, model, as_of)
 bis_documents(id, source_type, title, url, published_at, sha256)
 bis_chunks(id, document_id, text, embedding vector(1024), section_ref)
-audit_log(id, org_id, actor_id, action, entity, entity_id, prev_hash, hash, created_at)
+audit_log(id BIGSERIAL, org_id, actor_id, action, entity, entity_id, payload, prev_hash, hash, created_at)
 ```
 
 `findings` is append-only and always stamped with `rulepack_version`. A report regenerated a year later must reproduce the verdict that was issued under the rules in force at scan time.
+
+Five properties of this schema carry requirements that would otherwise depend on everyone remembering them:
+
+- **`org_id` is on every org-owned table, including the ones that hang off a scan.** They could have reached their org by joining `scans`, but scoping that needs a join is scoping that can be written without one. The denormalised copy is kept honest by a composite foreign key — `(scan_id, org_id)` references `scans (id, org_id)`, which carries a matching `UNIQUE` — so a mis-scoped row is a database error, not a code-review question. The only org-owned table without `org_id` is `otp_requests`: a code is issued against a phone number before anyone knows which org, or whether any, it belongs to.
+- **`scan_evaluations` groups findings into revisions.** Each row records which pack, which checksum and which `as_of` produced one complete verdict set, plus the canonical hash of that set. The current verdicts for a scan are its highest revision's. This is what lets `confirm-fields` (FR-06) recompute under the *original* pack version without mutating a row, and what lets a redelivered Celery task recognise an identical result and record nothing new (NFR-04).
+- **`scans.profile` is frozen at submit** rather than re-read from `products` at evaluation time. A brand correcting its catalogue next month must not retroactively change a verdict already issued.
+- **`rulepacks.body` holds the YAML itself**, so a report regenerated next year reproduces its verdict from the database alone rather than needing the right git revision checked out.
+- **The `verdict` CHECK constraint lists exactly four values.** There is no `NOT_APPLICABLE`: a rule that does not apply produces no row at all (`decisions.md`, 2026-09-12), and the not-applicable list is recovered from the pack.
+
+Three of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` — were added in B12 as reviewed deviations from the original model; `geo_point` became three columns to avoid a PostGIS dependency. Enumerated columns are `VARCHAR` + `CHECK` rather than native Postgres `ENUM`, so extending a value is a one-line migration and the same models build a SQLite schema for the org-isolation suite that CI runs without any datastore.
 
 ---
 
@@ -194,7 +213,7 @@ audit_log(id, org_id, actor_id, action, entity, entity_id, prev_hash, hash, crea
 
 ## 10. Security, privacy, integrity
 
-- Auth: phone OTP + JWT access/refresh; org-scoped RBAC (`admin`, `inspector`, `analyst`, `viewer`); row-level org isolation enforced in the repository layer, tested.
+- Auth: phone OTP + JWT access/refresh; org-scoped RBAC (`admin`, `inspector`, `analyst`, `viewer`); row-level org isolation enforced in the repository layer, tested. Access tokens are stateless HS256 and short-lived, so verifying one costs no database round trip; they cannot be revoked before expiry, which is why revocation acts on the refresh family instead. Refresh tokens are opaque, stored as a peppered hash, and rotated — presenting a retired one revokes its whole family. OTP codes are single-use, short-lived, attempt-capped and rate-limited per phone *and* per IP; six digits carries only 10^6 of entropy, so those four properties are the defence and the hash is not. `org_id` is minted into the token from the user's row and read back from the verified token; a request body carrying an `org_id` is a 400, never an override.
 - Storage: presigned URLs only, private buckets, per-org key prefix, server-side encryption.
 - Evidence integrity (Mode A): SHA-256 of the raw image recorded at upload; `audit_log` is hash-chained (`hash = H(prev_hash || row)`); reports embed both hashes. Anyone can verify a report was not altered after issue.
 - Location and device data: collected only in Mode A, disclosed in-app, retention configurable per org.

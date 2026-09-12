@@ -30,6 +30,7 @@ recomputed from the same inputs and replaces the previous one rather than append
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -88,12 +89,35 @@ class ScanOutcome:
     scan_id: str
     status: ScanStatus
     rulepack_version: str
+    rulepack_checksum: str = ""
+    """sha256 of the pack file these findings were issued under.
+
+    The version label says *which* pack; the checksum says it was that pack and not an edited copy
+    of it. Both are carried so a stored evaluation can be proved to name the rules that produced
+    it, rather than the rules that happen to be active when it is read back (CLAUDE.md §3.6).
+    """
+
     findings: list[Finding] = field(default_factory=list)
     extractions: list[Extraction] = field(default_factory=list)
     measurements: list[Measurement] = field(default_factory=list)
     words: list[Word] = field(default_factory=list)
     quality: Quality | None = None
     rectified_key: str | None = None
+
+    rectified_sha256: str | None = None
+    """SHA-256 of the rectified PNG as written.
+
+    Recorded because the annotated image in a report is drawn on this file, so it is evidence in
+    its own right and its ``scan_assets`` row needs a hash. Taken here rather than by the store,
+    which never sees the bytes — and a hash computed by re-reading the object later would attest
+    to what is in the bucket now, not to what this pipeline produced.
+    """
+
+    rectified_px_per_mm: float | None = None
+    rectified_size_px: tuple[int, int] | None = None
+    """``(width, height)``. With ``px_per_mm``, this is what lets a viewer map a finding's
+    bounding box back onto the image at any zoom."""
+
     reduced_extraction: bool = False
     """True when the LLM layer did not run or did not answer — the report says so
     (architecture §11)."""
@@ -229,6 +253,7 @@ def process_scan(
         scan_id=scan_id,
         status="processing",
         rulepack_version=pack.version_label,
+        rulepack_checksum=pack.checksum,
         reduced_extraction=llm is None,
     )
 
@@ -252,8 +277,12 @@ def process_scan(
             rectified = rectify(image, corners, marker_mm=record.marker_mm)
             rectified_image = rectified.image
             key = f"{record.org_id}/{scan_id}/rectified/{record.assets[0].asset_id}.png"
-            storage.put_bytes(key, _encode_png(rectified.image), "image/png")
+            encoded = _encode_png(rectified.image)
+            storage.put_bytes(key, encoded, "image/png")
             outcome.rectified_key = key
+            outcome.rectified_sha256 = hashlib.sha256(encoded).hexdigest()
+            outcome.rectified_px_per_mm = float(rectified.px_per_mm)
+            outcome.rectified_size_px = rectified.out_size
         except (RectificationError, ValueError) as exc:
             # A marker that will not yield a homography is the no-marker case in practice:
             # measurement is impossible, everything else still runs.

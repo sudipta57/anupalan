@@ -251,3 +251,127 @@ is what makes the end-to-end test deterministic. B12 must implement the port rat
 its own call shape. The Celery task in `app/tasks/scan.py` imports a repository that does not
 exist yet, so the worker cannot run end to end until B12 lands — the pipeline and its tests can.
 **PR:** n/a (B10) · **Requirement:** P2.3, NFR-04
+
+### 2026-09-12 — `org_id` denormalised onto every scan-child table, held honest by a composite FK
+**Context:** B12's brief is that org scoping is enforced in the repository base class, not
+remembered at each call site: "a query that cannot name its org must not get past the base class."
+The scan-child tables — assets, OCR results, extractions, measurements, evaluations, findings,
+reports — could reach their org by joining `scans`, but a base class that has to join is a base
+class each subclass can bypass by writing its own query.
+**Decision:** Every org-owned table carries `org_id` itself, so `OrgScopedRepository.select()` is
+one `WHERE` with no join, and every read, write, count and existence check inherits it. The
+redundant copy is not trusted: each child table's `(scan_id, org_id)` is a composite foreign key
+onto `scans (id, org_id)`, which carries a matching `UNIQUE`, so a row whose org disagrees with
+its scan's cannot be inserted at all.
+**Alternatives:** Joining through `scans` inside the base class — rejected because the filter then
+lives in the query rather than in the class, and a subclass writing its own `select()` silently
+loses it. Postgres row-level security — rejected for now: it moves the boundary into the database
+where the CI suite (which runs on SQLite) could not exercise it, and it needs a per-request `SET`
+that pgbouncer's transaction pooling makes fragile.
+**Consequences:** Seven redundant columns and seven composite keys. `test_org_isolation` asserts
+structurally that no org-owned table lacks `org_id` and no scan child lacks the composite key, so
+a new table that forgets either fails the suite rather than leaking quietly. `otp_requests` is the
+one deliberate exception and is listed as such: a code is issued against a phone number before
+anyone knows which org it belongs to.
+**PR:** n/a (B12) · **Requirement:** SR, DR
+
+### 2026-09-12 — Findings grouped into `scan_evaluations` revisions; saving is idempotent by content
+**Context:** Two requirements pull in opposite directions. `findings` is append-only, and B15's
+`confirm-fields` must recompute under the pack version the scan was *originally* judged under. But
+`task_acks_late` means a killed worker's message is redelivered and the pipeline runs the whole
+scan again (NFR-04) — and B10 requires that re-running a completed scan does not duplicate
+findings. Appending on every run doubles the verdict set; deleting the previous rows is exactly
+what append-only forbids.
+**Decision:** A `scan_evaluations` row records one complete run of the rules engine — its
+revision, its pack version and checksum, its `as_of`, and the canonical SHA-256 of the findings it
+produced. Findings point at it. The verdicts that stand for a scan are its highest revision's.
+`ScanStoreAdapter.save_outcome` compares that digest against the latest evaluation and, when they
+match, writes nothing: a redelivery costs a comparison. A genuinely different result appends a new
+revision, leaving the old one intact.
+**Alternatives:** A plain `revision` integer on `findings` with no grouping table — rejected
+because `as_of` and the pack checksum would then be repeated on every row or not stored at all,
+and B15 needs both. An `is_current` flag — rejected: a flag can be wrong, an ordering cannot.
+Deleting and re-inserting on re-run — rejected outright, it breaks append-only.
+**Consequences:** One extra table and one extra join on the findings endpoint. `findings_sha256`
+is also what a report embeds (`01-architecture.md` §10), so the hash earns its place twice. The
+digest covers findings, not extractions: a re-run producing identical verdicts from slightly
+different extraction rows records nothing new, which is the right trade because the verdict is
+what the row exists to state.
+**PR:** n/a (B12) · **Requirement:** NFR-04, FR-05, FR-06
+
+### 2026-09-12 — Database tests run on SQLite in CI, with a Neon drift test as the deploy gate
+**Context:** `CLAUDE.md` §6 requires the org-isolation suite to run on **every PR**, and CI holds
+no datastore credentials by design — Postgres, Redis and object storage are managed services and
+the workflow has no secrets for them.
+**Decision:** Postgres-only column types (`JSONB`, `vector(1024)`, `BIGSERIAL`) are declared
+through `with_variant` in `app/models/base.py`, so one model file yields the real type on Neon and
+a portable one on SQLite. `test_org_isolation.py`, `test_auth.py` and `test_scan_store.py` build
+the schema with `create_all()` on in-memory SQLite. `test_migration.py` runs against
+`DATABASE_URL_DIRECT` and skips without it: it asserts the database is at head and that
+`compare_metadata` returns an empty diff, so the models and the migration cannot drift apart
+unnoticed.
+**Alternatives:** A Neon branch per CI run — rejected for now: it needs an API token in CI secrets
+and makes every PR depend on a live external service. Skipping the isolation suite in CI —
+rejected, it contradicts §6, and this is the one suite that must never be allowed to go yellow.
+**Consequences:** SQLite does not check the migration, the extension or the index method, so
+`alembic upgrade head` followed by `pytest tests/test_migration.py` is a release gate rather than
+a CI step. Foreign keys are enabled explicitly in the fixture (`PRAGMA foreign_keys=ON`), because
+SQLite ignores them by default and the composite keys are the point.
+**PR:** n/a (B12) · **Requirement:** SR, DR
+
+### 2026-09-12 — HS256 tokens written against the stdlib rather than adding a JWT dependency
+**Context:** B13 needs signed access tokens and a hash for OTP codes and refresh tokens. The
+dependency ask covered a JWT library and a slow hasher; only `pgvector` was approved.
+**Decision:** `services/auth/tokens.py` implements HS256 on `hmac`, `hashlib` and `base64`, and
+OTP codes and refresh tokens are peppered HMAC-SHA256. The module documents the four attack
+classes a JWT verifier has to close and closes each explicitly: the algorithm is a module constant
+never read from the token's own header, the signature is compared with `compare_digest`, `typ`
+separates token kinds, and the payload is parsed only after the signature verifies.
+`tests/test_auth.py` constructs each attack — `alg: none`, `alg: RS256`, a tampered `org` claim, a
+foreign signing key — rather than asserting the property in the abstract.
+**Alternatives:** `pyjwt` — recommended but not approved; the tests are written against behaviour
+rather than implementation, so swapping it in later is a module replacement with the suite
+unchanged. `argon2-cffi` for OTP codes — not approved and not needed: six digits is 10^6 of
+entropy, so anyone holding the hash column can enumerate it whatever the cost function. What
+protects a code is that it is single-use, short-lived, attempt-capped and rate-limited on two
+axes — all enforced by columns, all tested.
+**Consequences:** ~60 lines of security-critical code this project now owns and must maintain,
+which is the real cost. One configured `SECRET_KEY`, never used directly: `derive_key` HMACs it
+with a purpose label, so the JWT signing key and the OTP pepper are different keys. There is no
+development default — unset means no token can be issued, because a default signing key that
+reaches production is an auth system anyone can mint tokens for and nothing about it looks broken.
+**PR:** n/a (B13) · **Requirement:** SR
+
+### 2026-09-12 — A body-supplied `org_id` is refused, not ignored
+**Context:** `org_id` comes from the verified token and nowhere else. Pydantic's default is to
+drop unrecognised fields, which would make a body carrying `org_id` safe but invisible.
+**Decision:** `schemas/base.StrictModel` sets `extra="forbid"` and raises `BodyOrgIdError` before
+any field is parsed when a body contains `org_id`; `main.py` renders it as a 400 in the NFR-07
+envelope. Every request schema inherits it.
+**Alternatives:** Ignoring the field — equally safe, and rejected anyway because it conceals both
+a broken client and an attacker probing for exactly this. A router-level check — rejected: it
+would exist only on the endpoints somebody remembered.
+**Consequences:** Every request body is now strict about unknown fields, so a client typo is a 422
+rather than a silently missing value. Any future schema that legitimately needed a field named
+`org_id` — there is none — would have to opt out deliberately.
+**PR:** n/a (B13) · **Requirement:** SR
+
+### 2026-09-12 — The explainer returns a string, so it cannot express a verdict
+**Context:** `reporting.explain` is one of the three LLM call sites (`CLAUDE.md` §9) and it writes
+guidance about a finding. The non-negotiable is that the LLM never decides compliance (§3.1), and
+"we told it not to" is not an enforcement mechanism.
+**Decision:** `explain(finding) -> str`. It receives a finished, frozen `ReportFinding` and
+returns prose; there is no field on its return value a verdict could occupy. The prompt states the
+verdict as settled fact rather than asking for one, and an answer that reaches for a legal
+citation is discarded in favour of the deterministic template — the citation is the pack's, is
+printed separately and verbatim, and a plausible invented one in the guidance column is the
+failure that would make the document indefensible.
+**Alternatives:** Returning a structured object with optional fields — rejected: any field the
+model can populate is a field that can contradict the engine. Passing the whole findings report
+and asking for a summary — rejected for the same reason, plus cost.
+**Consequences:** Guidance is always produced. No provider, a failed call, an empty answer, or one
+that cites law all fall back to a template built from the finding itself, so an unavailable LLM
+changes the wording and never the report's existence (`01-architecture.md` §11). `explain_all`
+defaults to adverse findings only, since explaining a dozen passes is a dozen calls for text
+nobody reads.
+**PR:** n/a (B11) · **Requirement:** FR-27

@@ -14,13 +14,17 @@ warning, and fails the run it rewrites — so a rewrite can never be mistaken fo
 from __future__ import annotations
 
 import json
+import uuid
 import warnings
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
+import sqlalchemy as sa
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.main import app
 
@@ -60,6 +64,96 @@ def client() -> Iterator[TestClient]:
     """
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
+
+
+# --------------------------------------------------------------------------- database
+
+
+@pytest.fixture
+def db_session() -> Iterator[Session]:
+    """A session over an in-memory SQLite database with the full schema built.
+
+    Why SQLite and not Neon: ``CLAUDE.md`` §6 requires the org-isolation suite to run on **every
+    PR**, and CI holds no datastore credentials (``.github/workflows/ci.yml``). What these suites
+    actually test is the repository's filtering and the role matrix — logic that lives in Python
+    and behaves identically on either engine. The Postgres-specific column types are declared
+    through ``with_variant`` in ``app/models/base.py``, so this is the same model file production
+    uses, not a parallel one that could drift.
+
+    What SQLite cannot check — that the migration and the models agree, that pgvector and the HNSW
+    index exist — is checked by ``tests/test_migration.py``, which runs against a real Neon branch
+    and skips without credentials.
+
+    Foreign keys are switched on explicitly. SQLite ignores them by default, and the composite
+    ``(scan_id, org_id)`` keys are the constraint that makes a mis-scoped row impossible — a
+    guarantee worth actually exercising.
+    """
+    from app.models import Base
+
+    # StaticPool and check_same_thread: TestClient runs the app in a worker thread, and an
+    # in-memory SQLite database lives inside a single connection that is otherwise bound to the
+    # thread that opened it. Without both, an API test sees an empty schema — or a
+    # ProgrammingError at teardown — for reasons that have nothing to do with what it is testing.
+    engine = sa.create_engine(
+        "sqlite://",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=sa.pool.StaticPool,
+    )
+
+    @sa.event.listens_for(engine, "connect")
+    def _enable_foreign_keys(dbapi_connection: Any, _record: Any) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
+    session = factory()
+    try:
+        yield session
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def make_org(session: Session, *, name: str, mode: str = "enforcement") -> Any:
+    """Insert an org and return it."""
+    from app.models import Org
+
+    org = Org(id=uuid.uuid4(), name=name, mode=mode, state="West Bengal")
+    session.add(org)
+    session.flush()
+    return org
+
+
+def make_user(session: Session, *, org: Any, phone: str, role: str = "inspector") -> Any:
+    """Insert a user in an org and return it."""
+    from app.models import User
+
+    user = User(id=uuid.uuid4(), org_id=org.id, role=role, phone=phone, full_name=f"user {phone}")
+    session.add(user)
+    session.flush()
+    return user
+
+
+def make_scan(session: Session, *, org: Any, status: str = "complete") -> Any:
+    """Insert a minimally complete scan in an org and return it."""
+    from app.models import Scan
+
+    scan = Scan(
+        id=uuid.uuid4(),
+        org_id=org.id,
+        status=status,
+        captured_at=datetime(2026, 10, 1, 9, 30, tzinfo=UTC),
+        marker_type="aruco_4x4_50",
+        marker_mm=40.0,
+        device_meta={},
+        profile={"surface": "printed", "net_qty_in_g_or_ml": 250.0},
+    )
+    session.add(scan)
+    session.flush()
+    return scan
 
 
 # --------------------------------------------------------------------------- fixture loaders

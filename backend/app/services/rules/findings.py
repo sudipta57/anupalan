@@ -15,7 +15,10 @@ here without adding a fifth verdict (CLAUDE.md §3.4).
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping, Sequence
+from dataclasses import asdict
 
 from app.services.rules.loader import RulePack
 from app.services.rules.schema import Rule
@@ -74,4 +77,30 @@ def assemble(findings: Sequence[Finding], pack: RulePack) -> FindingsReport:
     )
 
 
-__all__ = ["assemble", "render_message"]
+def canonical_findings_json(findings: Sequence[Finding]) -> str:
+    """Serialise findings to one canonical string.
+
+    Canonical means the same findings produce the same bytes on any machine and any Python
+    version: sorted keys, explicit separators, no ASCII escaping, and the findings themselves put
+    in the evaluator's worst-first order rather than whatever order they arrived in.
+
+    That stability is the whole point — two things hash this string and both break quietly if it
+    is unstable. A report embeds the digest so it can be shown unaltered after issue
+    (architecture §10), and persistence compares it to recognise a redelivered task (NFR-04).
+    """
+    ordered = sorted(findings, key=lambda f: f.sort_key())
+    return json.dumps(
+        [asdict(finding) for finding in ordered],
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+def findings_sha256(findings: Sequence[Finding]) -> str:
+    """SHA-256 over ``canonical_findings_json``, as hex."""
+    return hashlib.sha256(canonical_findings_json(findings).encode("utf-8")).hexdigest()
+
+
+__all__ = ["assemble", "canonical_findings_json", "findings_sha256", "render_message"]

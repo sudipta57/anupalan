@@ -17,22 +17,25 @@ Audited against the working tree, not against the plan.
 | Area | State |
 |---|---|
 | `app/config.py` | **Done.** All settings, `PX_PER_MM`, `RULEPACK_PATH`, Neon/Redis/R2 blocks, `alembic_url`, `redis_is_tls`. |
-| `app/db.py` | **Done for scaffolding.** Engine, `Base`, `session_scope`, `ping`. `prepare_threshold=None` + pre-ping in place. **No models on `Base`.** |
-| `app/main.py` | **Done.** CORS, the NFR-07 error envelope, three exception handlers, `/health`. **No router is registered.** |
-| `app/worker.py` | **Done.** Celery app, TLS off the URL scheme, `task_acks_late`. **`include=[]` — no task exists.** |
+| `app/db.py` | **Done.** Engine, `Base`, `session_scope`, `ping`. `prepare_threshold=None` + pre-ping in place. Every model is registered on `Base` (B12). |
+| `app/main.py` | **Done.** CORS, the NFR-07 error envelope, five exception handlers, `/health`, and the auth router (B13). The envelope now carries an error's headers, so a 401 is a well-formed 401. |
+| `app/worker.py` | **Done.** Celery app, TLS off the URL scheme, `task_acks_late`, `include=["app.tasks.scan"]`. |
 | `app/health.py` | **Done.** db + redis + rulepack, 200-with-`degraded` semantics. |
-| `app/routers/*.py` | **Docstrings only.** Seven modules, each specifying its endpoints. Zero routes. |
-| `app/models/`, `app/schemas/`, `app/repositories/` | **Empty `__init__.py`.** |
+| `app/routers/*.py` | **`auth.py` implemented (B13)** — OTP request/verify, refresh rotation, `/me` — plus `deps.py` (session, principal, `requires`, `found`). The other six are docstrings only. |
+| `app/models/` | **Implemented (B12).** 18 tables across eight modules. Postgres-only types declared `with_variant`, so the same models build a SQLite schema for CI. |
+| `app/schemas/` | **`auth.py` + `base.py` (B13).** `StrictModel` forbids unknown fields and refuses a body-supplied `org_id` with a 400. |
+| `app/repositories/` | **Implemented (B12).** `OrgScopedRepository` cannot be constructed over a table without `org_id`; `scans.py` carries the concrete repositories and `ScanStoreAdapter`, the pipeline's persistence port. |
+| `app/services/auth/` | **Implemented (B13).** `tokens.py` (HS256 on the stdlib, no JWT dependency), `otp.py`, `rbac.py`. |
 | `app/services/rules/` | **Done (B0–B3).** `schema.py` validates with line-level errors, `loader.py` checksums and activates, `evaluate.py` interprets all seven rule kinds, `findings.py` assembles. 14 baseline cases green, 88% coverage. |
-| `app/services/reporting/` | **Implemented (B11).** `model.py` is the one structure PDF/DOCX/JSON all render from; `pdf.py` splits `render_html` (pure) from `render_pdf` (needs GTK3). Disclaimer and both hashes in every format. |
+| `app/services/reporting/` | **Done (B11).** `model.py` is the one structure PDF/DOCX/JSON all render from; `pdf.py` splits `render_html` (pure) from `render_pdf` (needs GTK3). Disclaimer and both hashes in every format. `explain.py` is the LLM guidance call site — it returns a `str`, so it structurally cannot express a verdict. |
 | `app/services/vision/` | **Implemented (B5, B6).** `marker.py` + `rectify.py` warp to `PX_PER_MM`; `ocr.py` is the FR-22 interface with stub and PaddleOCR adapters. Metrology (B7) not started. |
 | `app/services/storage.py` | **Implemented (B4).** Org-prefixed keys, presign-time limits, sha256 on receipt, fail-closed EXIF stripping. |
 | `app/services/extraction/` | **Implemented (B9).** Regex, then LLM for the residue, then human confirmation; every span verified against the real text. |
 | `app/services/llm/` | **Implemented (B8).** Vendor-neutral `LLMProvider`; a failure is a return value, never an exception. |
-| `app/services/pipeline.py` | **Implemented (B10).** All ten stages; persistence is a `ScanStore` port awaiting B12. Golden-file pinned. |
+| `app/services/pipeline.py` | **Done (B10).** All ten stages; `ScanStoreAdapter` (B12) implements the `ScanStore` port, and `app/tasks/scan.py` wires it into the worker. Golden-file pinned. |
 | `app/services/bis/` | **Empty `__init__.py`.** |
-| `alembic/` | Configured; `versions/` is empty. **Zero migrations.** |
-| `tests/` | 175 tests across 11 suites, including `test_metrology.py` (28), `test_extraction.py` (18), `test_llm_provider.py` (16) and `test_pipeline.py` (12, one golden-file). One skip: PDF rasterisation needs GTK3. |
+| `alembic/` | **One migration, `0001_initial_schema.py`**, applied to Neon. Creates the `vector` extension, all 18 tables, the HNSW index while `bis_chunks` is empty, and B17's five dashboard indexes. |
+| `tests/` | 364 tests across 16 suites. New since B10: `test_org_isolation.py` (41), `test_auth.py` (116), `test_explain.py` (14), `test_scan_store.py` (12), `test_migration.py` (6, skipped without a database). One skip: PDF rasterisation needs GTK3. |
 | `scripts/` | **Does not exist.** The three eval commands in `CLAUDE.md` §4 and `eval-results.md` have no module behind them. |
 | CI | ruff + mypy (strict on services) + pytest, no datastores. Green. |
 
@@ -90,10 +93,10 @@ track D — sahayak (independent of A/B, needs B12 for the pgvector tables)
 | ✅ B7 | Glyph metrology + uncertainty + curvature downgrade | FR-23 | B5 | done (synthetic; E1 still owed) | ≥90% within ±0.3 mm on the E1 set |
 | ✅ B8 | `LLMProvider` interface + two adapters (wire, stub) | §9 | — | done | vendor name appears only in config + adapter |
 | ✅ B9 | Extraction: regex layer, normalisation, LLM layer, span validation | FR-24 | B8 | done | regex recall ≥0.8, +LLM ≥0.95 on 20 fixtures; every value has a verified `source_span` |
-| ⚠ B10 | `process_scan` Celery task, status machine, retries | P2.3, NFR-04 | B4–B9, ~~B12~~ | logic done and golden-pinned; needs B12's store adapter to run in the worker | golden-file test byte-identical; kill worker mid-job → job completes |
+| ✅ B10 | `process_scan` Celery task, status machine, retries | P2.3, NFR-04 | B4–B9, B12 | done | golden-file test byte-identical; re-running a completed scan records nothing new |
 | ✅ B11 | Reporting: one data structure → PDF, DOCX, JSON | FR-27 | B3 | done | identical row count and verdict strings in both; DOCX table is a real `w:tbl` |
-| B12 | Data layer: models, migrations, org-scoped repositories | DR, SR | — | Oct 1–4 (parallel) | `test_org_isolation` → 404 not 403 |
-| B13 | Auth: OTP, JWT access/refresh, RBAC dependency | SR | B12 | Oct 5–7 | role matrix test; token carries `org_id`, never trusted from the body |
+| ✅ B12 | Data layer: models, migrations, org-scoped repositories | DR, SR | — | done | `test_org_isolation` green (41); `alembic upgrade head` applied to Neon, autogenerate diff empty |
+| ✅ B13 | Auth: OTP, JWT access/refresh, RBAC dependency | SR | B12 | done | role matrix exhaustive; token carries `org_id`, a body-supplied one is a 400 |
 | B14 | Scan intake API: create, submit, get | FR-20 | B12, B13, B4 | Oct 8–10 | submit returns 202 `queued` in <300 ms |
 | B15 | Findings API + `confirm-fields` recompute | FR-05, FR-06 | B3, B14 | Oct 11–13 | correction recorded `source=human`, verdict recomputes |
 | B16 | Audit log hash chain + verification endpoint | SR | B12 | Oct 14–15 | tampering one row breaks verification at that row |
@@ -689,8 +692,8 @@ DONE WHEN:   the §5 gates below are all green and the numbers are in docs/eval-
 | B8 | `httpx` (promote from dev) | LLM adapters | |
 | B9 | `python-dateutil`, possibly `regex` | month-year resolution, Unicode classes for Devanagari | |
 | ✅ B11 | `weasyprint`, `python-docx` | PDF, DOCX | **Added.** GTK3 native stack needed only by `render_pdf`; CI installs it, Windows dev skips that one test |
-| B12 | `pgvector` (Python bindings) | the vector column type | |
-| B13 | a JWT library, a hasher | auth | |
+| ✅ B12 | `pgvector` (Python bindings) | the vector column type | **Added.** Also gives B19 its similarity operators. Declared `with_variant`, so SQLite still builds the schema for CI |
+| ✅ B13 | a JWT library, a hasher | auth | **Refused — none added.** HS256 is written against stdlib `hmac` (`services/auth/tokens.py`, with a test per attack class); OTP codes and refresh tokens use peppered HMAC-SHA256, since a six-digit code is protected by single use, a short TTL and rate limiting, not by the cost of its hash |
 | B19 | embedding + reranker runtime | BGE-M3, cross-encoder | heaviest addition; pin the model revisions |
 | B23 | a rate limiter, a load-test tool | NFR-01 | the load-test tool can be dev-only |
 | tests | `pytest-cov` | the 80% coverage floor | `freezegun` should not be needed — `evaluate()` takes `as_of` |

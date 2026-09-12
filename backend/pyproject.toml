@@ -36,7 +36,19 @@ dependencies = [
     # Vision (B5, B7). ArUco lives in contrib — the plain opencv-python wheel will not do.
     "opencv-contrib-python",
     "numpy",
+    # Data layer (B12). The SQLAlchemy type for bis_chunks.embedding — vector(1024) — and the
+    # operators B19's similarity search needs. Pure Python bindings; the extension itself lives
+    # in Postgres and migration 0001 creates it. Declared with_variant in app/models/base.py, so
+    # the same models build a working SQLite schema for the org-isolation suite, which CI runs
+    # without any datastore.
+    "pgvector",
 ]
+
+# Auth (B13) deliberately adds NOTHING here. Access tokens are HS256 signed with stdlib hmac
+# (app/services/auth/tokens.py, which documents the attacks that implementation has to close and
+# is pinned by tests against each of them), and OTP codes and refresh tokens are peppered
+# HMAC-SHA256 rather than a slow hash — six digits carries 10^6 of entropy, so single use, a short
+# TTL and rate limiting are what protect a code, not the cost of hashing it.
 
 [project.optional-dependencies]
 # PaddleOCR is deliberately NOT a core dependency. It pulls paddlepaddle plus native wheels and

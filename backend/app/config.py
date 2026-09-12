@@ -158,6 +158,52 @@ class Settings(BaseSettings):
     TILT_REFERENCE_DEG: float = 25.0
     """Viewing angle at which capture is considered maximally tilted (TRD FR-01 gate)."""
 
+    # ------------------------------------------------------------------ auth
+    SECRET_KEY: str = ""
+    """The one server secret. Signs access tokens, and peppers the OTP and refresh-token hashes.
+
+    Deliberately **one** value rather than three: three secrets is three things to rotate and
+    three chances for one of them to be left at a default. It is never used directly —
+    ``services/auth/tokens.derive_key`` HMACs it with a purpose label, so the key that signs a JWT
+    and the key that peppers an OTP are different keys that happen to share an origin. Reusing a
+    single key across purposes is how a signature oracle turns into a hash oracle.
+
+    Unset means no token can be issued: ``services/auth`` raises rather than falling back to a
+    development default, because a development default that reaches production is an authentication
+    system with a published key.
+    """
+
+    ACCESS_TOKEN_TTL_SECONDS: int = 900
+    """15 minutes. Short because an access token is stateless and therefore cannot be revoked —
+    revocation acts on the refresh family instead, and this is how long a stolen access token
+    outlives it."""
+
+    REFRESH_TOKEN_TTL_SECONDS: int = 60 * 60 * 24 * 30
+    """30 days. An inspector in the field should not be logged out mid-inspection because they
+    were offline for a fortnight (FR-04)."""
+
+    OTP_LENGTH: int = 6
+    OTP_TTL_SECONDS: int = 300
+    OTP_MAX_ATTEMPTS: int = 5
+    """Wrong guesses before a code is dead. Six digits is 10^6 of entropy, so the guard against
+    brute force is this number and the rate limits below — not the cost of the hash."""
+
+    OTP_RATE_WINDOW_SECONDS: int = 3600
+    OTP_MAX_PER_PHONE: int = 5
+    """Codes per number per window. Also the cap on using this endpoint to send someone SMS."""
+
+    OTP_MAX_PER_IP: int = 20
+    """Codes per source address per window. Both axes are needed: per-phone alone lets one caller
+    sweep many numbers, per-IP alone lets many callers sweep one number."""
+
+    OTP_ECHO_IN_RESPONSE: bool = False
+    """Return the code in the API response instead of sending it.
+
+    For local development and the demo, where there is no SMS gateway wired up. Refused outright
+    when ``ENV`` is ``production`` — see ``services/auth/otp.py``, which checks rather than
+    trusting whoever set the variable.
+    """
+
     # ------------------------------------------------------------------ llm
     # No vendor name appears here or anywhere outside the adapter files (CLAUDE.md §9). The
     # provider is a base URL and a model name; a hosted vendor and a local vLLM/Ollama server are
