@@ -217,6 +217,7 @@ Non-LLM models in use, all self-hosted: PaddleOCR PP-OCRv4 (text detection + rec
 | `docs/01-architecture.md` | Before changing the pipeline, data model or a technology choice. §9 lists rejected alternatives — check it before re-arguing a settled decision. | Same PR as any architectural change |
 | `docs/02-trd.md` | Before implementing a feature — every FR/NFR has an acceptance test | When a requirement changes |
 | `docs/03-implementation-plan.md` | At the start of each phase | When phase scope changes |
+| `docs/04-frontend-plan.md` | Before any mobile work — the fourteen frontend stages and their status | In the same change that completes a stage |
 | `docs/decisions.md` | When a decision looks odd | Append a dated line on every architectural change |
 | `docs/eval-results.md` | Before any demo | After every evaluation run |
 | `rulepacks/lm-2011-v1.yaml` | Before touching rule logic | Only with review — see §7 |

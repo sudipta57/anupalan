@@ -81,3 +81,43 @@ rather than `R2_*` so an on-premise MinIO deployment remains an endpoint change;
 recorded in `01-architecture.md` §9, not in the variable names. NFR-05's cost model needs
 re-costing against managed pricing.
 **PR:** n/a (scaffolding) · **Requirement:** n/a
+
+### 2026-09-12 — Mobile mocks the backend at a transport seam rather than with MSW
+**Context:** `03-implementation-plan.md` §P3.6 suggests mocking the API with MSW generated from the
+OpenAPI schema so the app never waits on the backend. The backend is being built in parallel, so
+the app needs dummy data for every screen from Stage 1.
+**Decision:** One interface, `src/api/transport.ts`, with two implementations — fixtures and HTTP —
+chosen by `EXPO_PUBLIC_API_MODE`. Hooks, screens and types are identical in both. The HTTP
+transport was written first so the fixtures had to satisfy a real contract.
+**Alternatives:** MSW — rejected because it needs polyfills under Hermes and has a history of
+friction in React Native, and because it buys network-level interception the app does not need: the
+seam is one function call wide. Hand-written stubs inside each hook — rejected because they are the
+thing that never gets deleted.
+**Consequences:** Cutover at Stage 13 is an env var plus deleting `src/api/mock/`, with no change
+above the transport. The cost is that the mock is not exercised over real HTTP, so serialisation
+mistakes — casing, date formats — will surface at cutover rather than before it. The mock's failure
+modes are reachable from a dev panel in Settings, which is what keeps the degradation paths in
+`01-architecture.md` §11 demonstrable.
+**PR:** n/a (Stage 1) · **Requirement:** n/a
+
+### 2026-09-12 — Session state lives in zustand, read synchronously, and composes the navigation
+**Context:** Mode is an org-level attribute (`01-architecture.md` §3) and the two shells differ in
+their tab bars, so navigation has to know the org's mode before the first paint. CLAUDE.md §5 says
+server data belongs in TanStack Query, and `user`/`org` come from the server.
+**Decision:** Tokens plus the user and org live in a zustand store that reads MMKV **synchronously**
+in its initialiser — no `persist` middleware. Navigation composes from `tabsForMode(mode)`, and the
+auth boundary is `Stack.Protected`. Settings moved off the tab bar to a root route behind a header
+gear. Refresh-on-401 lives in the transport, single-flight, behind `src/api/auth-bridge.ts`.
+**Alternatives:** The session as a TanStack query — rejected because TRD §5 has no "who am I"
+endpoint, so it would be a query with nothing to fetch. zustand's `persist` — rejected because it
+resolves `getItem` through `Promise.resolve`, so hydration lands after the first render and every
+cold start flashes the login screen at a signed-in user. Redirecting from a mounted screen instead
+of `Protected` — rejected because the screen mounts and fetches first. Settings as a fifth tab —
+rejected because Android truncates labels at five.
+**Consequences:** Two MMKV instances, so signing out cannot take preferences with it. The refresh
+token sits in unencrypted MMKV until `expo-secure-store` is approved — recorded as flag 11 in
+`04-frontend-plan.md`. One subscription in `AppProviders` empties the query cache whenever the org
+id changes, which is the only thing stopping cached org-scoped data from crossing accounts on a
+shared phone. Three contract gaps now need agreeing with the backend, all in `04-frontend-plan.md`:
+no refresh endpoint, no session endpoint, and snake_case in TRD §5 against camelCase in the client.
+**PR:** n/a (Stage 2) · **Requirement:** n/a
