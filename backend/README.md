@@ -141,6 +141,29 @@ The stub is not scaffolding — FR-22 requires a second working implementation t
 interface holds, and every downstream test uses it, because replaying a dump is deterministic and
 `evaluate()` must be byte-identical across runs.
 
+### Running the pipeline
+
+`app/services/pipeline.py` holds all ten stages and takes its dependencies as arguments, so it
+runs with no broker and no database:
+
+```python
+from app.services.pipeline import process_scan
+outcome = process_scan(scan_id, store=..., storage=..., ocr=..., pack=..., llm=...)
+```
+
+`store` is a `ScanStore` — a Protocol with `load`, `mark` and `save_outcome`. **The database
+adapter is B12 and does not exist yet**, so `app/tasks/scan.py` imports a repository that is not
+there and the Celery worker cannot process a scan end to end. Everything below that line works:
+`tests/test_pipeline.py` runs the whole pipeline against an in-memory store.
+
+The golden file `tests/fixtures/findings/pipeline_label_250g_printed.json` pins the output for a
+committed synthetic label. Regenerate the label and its matching OCR dump together — they must
+stay consistent, or measurement silently reads an empty region:
+
+```bash
+.venv/Scripts/python.exe tests/fixtures/generate_label_fixture.py
+```
+
 ### A note on measurement accuracy
 
 `tests/test_rectify.py` validates rectification against **synthetic** images with known ground
@@ -177,9 +200,12 @@ Update that file, not this section, when a package lands.
 | `app/config.py`, `app/db.py`, `app/main.py`, `app/worker.py`, `app/health.py` | Scaffolded and working. `GET /health` is real; no router is registered yet. |
 | `app/services/rules/` | **Implemented (B0–B3).** Rule pack validation with line-level errors, checksumming, the pure `evaluate()` interpreter over all seven rule kinds, findings assembly. 14 baseline cases green. |
 | `app/services/reporting/` | **Implemented (B11).** One `ReportData` structure; PDF (via HTML), DOCX and JSON all render from it, so they cannot disagree. Advisory disclaimer and both SHA-256 hashes in every format. |
-| `app/services/vision/` | **Implemented (B5, B6).** Marker detection + metric rectification; the `OCREngine` interface with two adapters. Glyph metrology (B7) not started. |
+| `app/services/vision/` | **Implemented (B5–B7).** Marker detection, metric rectification, the `OCREngine` interface with two adapters, and glyph metrology with an uncertainty band and a curvature guard. |
 | `app/services/storage.py` | **Implemented (B4).** Presigned R2 access, org-prefixed keys, sha256 on receipt, EXIF stripping. |
-| `app/services/{extraction,bis,llm}/` | Not started. |
+| `app/services/extraction/` | **Implemented (B9).** Regex, then the LLM for what regex missed, then human confirmation. Every source span is verified against the real OCR text. |
+| `app/services/llm/` | **Implemented (B8).** Vendor-neutral provider interface. A failure returns `ok=False`; it never raises, so a scan survives the model being down. |
+| `app/services/pipeline.py` | **Implemented (B10).** All ten stages, pinned by a golden-file test. Persistence is a `ScanStore` port — the database adapter arrives with B12. |
+| `app/services/bis/` | Not started. |
 | `app/models/`, `app/repositories/`, `alembic/versions/` | Not started — no migration exists yet. |
 | `app/routers/*.py` | Docstrings only; zero routes registered. |
 

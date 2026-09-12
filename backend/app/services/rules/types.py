@@ -137,6 +137,14 @@ class Measurement:
     uncertainty_mm: float | None = None
     clear_space_mm: float | None = None
     is_numeral: bool = False
+    is_mark: bool = False
+    """Punctuation or a diacritic — a colon, a comma, the dot of an 'i'.
+
+    Neither a numeral nor a letter, and excluded from both height rules. Rule 9 sets minimum
+    heights for numerals and for letters; a full stop is not a small letter, and measuring one as
+    though it were fails compliant labels on a fraction of a millimetre.
+    """
+
     method: str = ""
 
     @property

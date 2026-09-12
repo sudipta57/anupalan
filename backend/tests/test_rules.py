@@ -228,6 +228,41 @@ def test_case_07_mrp_without_inclusive_of_taxes_wording_fails(pack: RulePack) ->
     assert finding.observed == "₹250"
 
 
+def test_format_rules_read_the_raw_label_text_not_the_normalised_value(pack: RulePack) -> None:
+    """Regression: LM-QTY-UNIT-SYMBOL was passing every label it exists to catch.
+
+    Extraction normalises "250 gms" to "250 g" so downstream comparisons are uniform, and keeps
+    the raw string precisely so this rule can object to it. The evaluator was reading the
+    normalised value, so the rejected variant had already been corrected away before the rule
+    that rejects it ever saw it — a missed violation on every package printing "gms".
+
+    A format rule asks how the label *wrote* something. It reads value_raw.
+    """
+    declarations = [
+        Extraction(field_code="net_quantity", value_raw="250 gms", value_norm="250 g")
+    ]
+
+    findings = evaluate(
+        WEIGHT_PROFILE, declarations, _numeral_height(2.4), rulepack=pack, as_of=AS_OF
+    )
+
+    finding = _find(findings, "LM-QTY-UNIT-SYMBOL")
+    assert finding.verdict == "FAIL"
+    assert finding.observed == "250 gms", "the report must quote what the label actually said"
+
+
+def test_a_prescribed_unit_symbol_still_passes(pack: RulePack) -> None:
+    declarations = [
+        Extraction(field_code="net_quantity", value_raw="250 g", value_norm="250 g")
+    ]
+
+    findings = evaluate(
+        WEIGHT_PROFILE, declarations, _numeral_height(2.4), rulepack=pack, as_of=AS_OF
+    )
+
+    assert _find(findings, "LM-QTY-UNIT-SYMBOL").verdict == "PASS"
+
+
 # --------------------------------------------------------------------------- 8-9: importer
 
 

@@ -115,6 +115,70 @@ class Settings(BaseSettings):
     PX_PER_MM: int = 20
     """Pixels per millimetre in the rectified plane. Never write this number at a call site."""
 
+    # ------------------------------------------------------------------ metrology tuning
+    GLYPH_MIN_AREA_PX: int = 12
+    """Connected components smaller than this are noise, not glyphs (P0 spike §2)."""
+
+    GLYPH_MIN_HEIGHT_PX: int = 4
+    """Components shorter than this are speckle. At 20 px/mm this is 0.2 mm."""
+
+    BASELINE_TOLERANCE_PX: int = 3
+    """How far apart two component bottoms can be and still share a text baseline."""
+
+    CAP_HEIGHT_RATIO: float = 0.75
+    """Fraction of a text line's tallest glyph at which a component counts as cap height.
+
+    Rule 9's tables are about the height of the *numerals* in a declaration. Where connected
+    components cannot be matched to individual characters, this separates cap-height glyphs from
+    punctuation and x-height lowercase — without it, the two dots of a colon are measured as
+    numerals and a compliant label fails on a 0.75 mm "numeral".
+    """
+
+    MARK_HEIGHT_RATIO: float = 0.4
+    """Below this fraction of the line's cap height, a component is punctuation, not a letter.
+
+    x-height lowercase sits around 0.5-0.7 of cap height; a comma or a colon dot is far below
+    that. Rule 9(3) sets a minimum letter height, and a full stop measured as a letter would fail
+    a label that is entirely compliant.
+    """
+
+    CURVATURE_MAX_RESIDUAL_MM: float = 0.45
+    """Above this baseline bow, the surface is not planar enough to measure on.
+
+    An **engineering tuning parameter, not a legal threshold** — it decides whether a measurement
+    can be taken at all, never what the measurement must be. Legal thresholds live in the rule
+    pack (CLAUDE.md §3.2). A planar homography under-measures on a curved pack
+    (docs/01-architecture.md §12.2), so past this the metric rules go NOT_ASSESSABLE rather than
+    reporting a confident wrong number.
+    """
+
+    BLUR_REFERENCE: float = 120.0
+    """Variance-of-Laplacian at which capture is considered sharp (TRD FR-01 gate)."""
+
+    TILT_REFERENCE_DEG: float = 25.0
+    """Viewing angle at which capture is considered maximally tilted (TRD FR-01 gate)."""
+
+    # ------------------------------------------------------------------ llm
+    # No vendor name appears here or anywhere outside the adapter files (CLAUDE.md §9). The
+    # provider is a base URL and a model name; a hosted vendor and a local vLLM/Ollama server are
+    # the same adapter pointed somewhere different, which is what keeps the open-weight path
+    # working without a second code path to rot.
+    LLM_PROVIDER: str = "chat_completions"
+    """Which LLMProvider implementation to use: ``chat_completions`` or ``stub``."""
+
+    LLM_BASE_URL: str = ""
+    """Chat-completions endpoint base, e.g. a hosted API or ``http://localhost:11434/v1``."""
+
+    LLM_API_KEY: str = ""
+    LLM_MODEL_BUDGET: str = ""
+    """Model for extraction and explanations — the two high-volume, low-difficulty call sites."""
+
+    LLM_MODEL_MID: str = ""
+    """Model for Sahayak answers, where citation accuracy matters more than cost."""
+
+    LLM_TIMEOUT_SECONDS: float = 30.0
+    LLM_MAX_RETRIES: int = 2
+
     # ------------------------------------------------------------------ ocr
     OCR_ENGINE: str = "paddle"
     """Which OCREngine implementation to use: ``paddle`` in production, ``stub`` in tests.

@@ -27,9 +27,12 @@ Audited against the working tree, not against the plan.
 | `app/services/reporting/` | **Implemented (B11).** `model.py` is the one structure PDF/DOCX/JSON all render from; `pdf.py` splits `render_html` (pure) from `render_pdf` (needs GTK3). Disclaimer and both hashes in every format. |
 | `app/services/vision/` | **Implemented (B5, B6).** `marker.py` + `rectify.py` warp to `PX_PER_MM`; `ocr.py` is the FR-22 interface with stub and PaddleOCR adapters. Metrology (B7) not started. |
 | `app/services/storage.py` | **Implemented (B4).** Org-prefixed keys, presign-time limits, sha256 on receipt, fail-closed EXIF stripping. |
-| `app/services/{extraction,bis,llm}/` | **Empty `__init__.py`.** |
+| `app/services/extraction/` | **Implemented (B9).** Regex, then LLM for the residue, then human confirmation; every span verified against the real text. |
+| `app/services/llm/` | **Implemented (B8).** Vendor-neutral `LLMProvider`; a failure is a return value, never an exception. |
+| `app/services/pipeline.py` | **Implemented (B10).** All ten stages; persistence is a `ScanStore` port awaiting B12. Golden-file pinned. |
+| `app/services/bis/` | **Empty `__init__.py`.** |
 | `alembic/` | Configured; `versions/` is empty. **Zero migrations.** |
-| `tests/` | 84 tests: `test_rules.py` (17), `test_rulepack_loader.py` (12), `test_findings.py` (7), `test_reporting.py` (11, one skipped without GTK3), `test_storage.py` (16), `test_rectify.py` (21), `test_ocr_interface.py` (15), `test_health.py` (1). `conftest.py` carries the fixture loaders and the `--update-golden` contract; `tests/fixtures/rulepacks/` holds the deliberately broken packs. |
+| `tests/` | 175 tests across 11 suites, including `test_metrology.py` (28), `test_extraction.py` (18), `test_llm_provider.py` (16) and `test_pipeline.py` (12, one golden-file). One skip: PDF rasterisation needs GTK3. |
 | `scripts/` | **Does not exist.** The three eval commands in `CLAUDE.md` §4 and `eval-results.md` have no module behind them. |
 | CI | ruff + mypy (strict on services) + pytest, no datastores. Green. |
 
@@ -84,10 +87,10 @@ track D — sahayak (independent of A/B, needs B12 for the pgvector tables)
 | ✅ B4 | Object storage adapter (R2/S3), presign, sha256, EXIF strip | FR-20, SR | — | done | presigned PUT/GET round-trips against the real bucket |
 | ✅ B5 | Marker detection + rectification to `PX_PER_MM` | FR-21 | P0 spike | done (synthetic; E1 still owed) | 10.00 mm bars measure 10.00 ± 0.25 mm on 20 captures |
 | ✅ B6 | `OCREngine` interface + PaddleOCR adapter + second adapter | FR-22 | — | done | engine swap by config changes no calling code |
-| B7 | Glyph metrology + uncertainty + curvature downgrade | FR-23 | B5 | Oct 9–12 | ≥90% within ±0.3 mm on the E1 set |
-| B8 | `LLMProvider` interface + two adapters (hosted, open-weight) | §9 | — | Oct 10 | vendor name appears only in config + adapter |
-| B9 | Extraction: regex layer, normalisation, LLM layer, span validation | FR-24 | B8 | Oct 11–14 | regex recall ≥0.8, +LLM ≥0.95 on 20 fixtures; every value has a verified `source_span` |
-| B10 | `process_scan` Celery task, status machine, retries | P2.3, NFR-04 | B4–B9, B12 | Oct 14–16 | golden-file test byte-identical; kill worker mid-job → job completes |
+| ✅ B7 | Glyph metrology + uncertainty + curvature downgrade | FR-23 | B5 | done (synthetic; E1 still owed) | ≥90% within ±0.3 mm on the E1 set |
+| ✅ B8 | `LLMProvider` interface + two adapters (wire, stub) | §9 | — | done | vendor name appears only in config + adapter |
+| ✅ B9 | Extraction: regex layer, normalisation, LLM layer, span validation | FR-24 | B8 | done | regex recall ≥0.8, +LLM ≥0.95 on 20 fixtures; every value has a verified `source_span` |
+| ⚠ B10 | `process_scan` Celery task, status machine, retries | P2.3, NFR-04 | B4–B9, ~~B12~~ | logic done and golden-pinned; needs B12's store adapter to run in the worker | golden-file test byte-identical; kill worker mid-job → job completes |
 | ✅ B11 | Reporting: one data structure → PDF, DOCX, JSON | FR-27 | B3 | done | identical row count and verdict strings in both; DOCX table is a real `w:tbl` |
 | B12 | Data layer: models, migrations, org-scoped repositories | DR, SR | — | Oct 1–4 (parallel) | `test_org_isolation` → 404 not 403 |
 | B13 | Auth: OTP, JWT access/refresh, RBAC dependency | SR | B12 | Oct 5–7 | role matrix test; token carries `org_id`, never trusted from the body |
@@ -739,6 +742,8 @@ The ones from `CLAUDE.md` §8 that will actually bite in backend code, plus two 
 - OCR bounding boxes are not glyph heights. Measurement goes through connected components on the rectified image.
 - Neon's pooled endpoint is pgbouncer: keep `prepare_threshold=None`, and run migrations on `DATABASE_URL_DIRECT`.
 - Celery does not infer TLS from `rediss://`; `broker_use_ssl` is set off the URL scheme in `worker.py`.
+- **An unidentifiable glyph is not a numeral.** Rule 9 compares the *smallest* numeral against the threshold, so anything wrongly counted as one decides the verdict. The two dots of the colon in "Net Qty: 250 g" failed a compliant label at 0.75 mm until cap height was used to tell a digit from a mark. When in doubt, a component is neither a numeral nor a letter.
+- **Format rules read `value_raw`, never `value_norm`.** Normalisation turns "250 gms" into "250 g" — exactly the defect `LM-QTY-UNIT-SYMBOL` exists to catch — so reading the normalised value makes the rule pass every label it was written for.
 - **Metric error is relative, not absolute.** FR-21's ±0.25 mm is stated against a *10 mm* feature — it is a 2.5% figure. The dominant term is ArUco's corner localisation (~1 px on a 200 px marker = 0.5%), which scales with feature size, so a 40 mm object legitimately reads ~0.2 mm long. Do not treat ±0.25 mm as an absolute budget that holds at any size, and do not test it by re-detecting the marker — the marker defined the scale and is guaranteed to come back right.
 - **A quality signal that cannot be measured is `None`, never `0.0`.** `quality().curvature` is `None` because four marker corners carry no curvature information. `0.0` would assert a flatness nobody measured, and architecture §12.2's NOT_ASSESSABLE safeguard depends on that number being trustworthy.
 - **Recompute uses the scan's original pack version, not the active one.** The obvious implementation of `confirm-fields` is wrong in a way no test catches unless you write that test (B15).

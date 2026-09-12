@@ -231,7 +231,12 @@ def _eval_format(body: Mapping[str, Any], ctx: _Context) -> _Outcome:
         # would accuse the same label twice for one defect.
         return _Outcome(verdict="NOT_ASSESSABLE", field_codes=(field_code,))
 
-    value = extraction.value
+    # A format rule asks how the label *wrote* something, so it reads the raw text, not the
+    # normalised value. Reading value_norm would defeat the rules that exist to catch bad
+    # formatting: LM-QTY-UNIT-SYMBOL fails a package for printing "250 gms", but normalisation
+    # has already turned that into "250 g", so the rule would pass every label it was written
+    # to catch. Extraction preserves value_raw for exactly this reason.
+    value = extraction.value_raw.strip() or extraction.value
     pattern = body.get("pattern")
     validator = body.get("validator")
 
@@ -279,7 +284,13 @@ def _measure(
         return None
 
     if measure == "letter_cap_height_mm":
-        if not measurement.is_numeral and measurement.height_mm is not None:
+        # Punctuation is excluded: Rule 9(3) sets a minimum height for letters, and a colon is
+        # not a small letter. Measuring one as though it were fails compliant labels.
+        if (
+            not measurement.is_numeral
+            and not measurement.is_mark
+            and measurement.height_mm is not None
+        ):
             return measurement.height_mm, uncertainty
         return None
 

@@ -13,8 +13,9 @@ The broker is managed Redis (Redis Cloud) over TLS. Celery does **not** infer TL
 connect time rather than at startup. That is wired below off the URL scheme, so switching
 between a TLS and a plaintext Redis is a config change and not a code change.
 
-Scaffolding note: no task is registered yet. ``process_scan`` — the ten-stage pipeline of
-docs/01-architecture.md §5 — arrives in P2.3.
+``app.tasks.scan`` registers ``process_scan``, the ten-stage pipeline of
+docs/01-architecture.md §5. The task itself is a wrapper; the logic is in
+``app.services.pipeline`` so it runs without a broker.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ celery_app = Celery(
     backend=settings.celery_backend,
     # Task modules are imported here as they land. app.services.* is the only place
     # pipeline code may live, so the worker and the API share one implementation.
-    include=[],
+    include=["app.tasks.scan"],
 )
 
 celery_app.conf.update(

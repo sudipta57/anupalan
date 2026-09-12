@@ -196,3 +196,58 @@ unstripped; that is the intended trade. ``app/services/vision/adapters/paddle.py
 coverage locally since its body needs the real engine — the same shape as WeasyPrint's PDF path,
 and it needs a CI job with the extra installed before any pilot.
 **PR:** n/a (B4, B6) · **Requirement:** FR-20, FR-22, SR
+
+### 2026-09-12 — Numeral height is decided by cap height, not by every component in the span
+**Context:** The first end-to-end run of the pipeline failed a compliant label. Rule 9's Table-I
+compares the *smallest* numeral against the threshold, and metrology was marking every connected
+component in a numeric declaration as a numeral. In "Net Qty: 250 g" that includes the two dots
+of the colon, so a label whose digits measure 3.5 mm was reported as a 0.75 mm FAIL.
+**Decision:** Where a component cannot be matched to a known character — which is common, since
+components split and merge — it counts as a numeral only if it reaches the **cap height** of its
+text line. Components far below cap height are classified as marks (`Measurement.is_mark`) and
+are excluded from the numeral *and* the letter height rules: a full stop is not a small letter
+either. A cluster of one cannot set its own cap height, or an isolated mark becomes trivially
+cap-height; it is measured against the tallest glyph in the region instead.
+**Alternatives:** Cropping tighter to the value rather than the whole OCR word — rejected for now
+because OCR gives word-level boxes and sub-word cropping would have to estimate character
+advance, putting an approximation inside the measurement path. Taking the median height of the
+line, as the P0 spike sketched — rejected because Rule 9(3)'s width proviso needs per-glyph
+numbers.
+**Consequences:** Measurement is now conservative in the right direction: an unidentifiable
+component is not treated as a numeral, so the failure mode is NOT_ASSESSABLE rather than a false
+FAIL (TRD §7, E3). It also means the reported height is the smallest cap-height glyph in the
+declaration, which can read a few percent under the true cap height when a word mixes ascenders
+and digits — within the pack's 0.25 mm uncertainty band, so it lands BORDERLINE rather than FAIL
+in a marginal case. Revisit with tighter cropping when OCR gives character-level boxes.
+**PR:** n/a (B7, B10) · **Requirement:** FR-23
+
+### 2026-09-12 — Format rules evaluate the raw label text, not the normalised value
+**Context:** Also found by the first end-to-end run. Extraction normalises "250 gms" to "250 g"
+so downstream comparisons are uniform, and deliberately preserves `value_raw` so the rule that
+objects to the variant can see it. The evaluator was reading the normalised value, so
+`LM-QTY-UNIT-SYMBOL` — which exists for no other purpose than to fail a package printing "gms" —
+passed every label it was written to catch.
+**Decision:** `_eval_format` reads `value_raw`, falling back to the normalised value only when
+raw is empty. A format rule asks how the label *wrote* something; the normalised form has by
+definition already had the defect corrected out of it.
+**Alternatives:** Not normalising destructively — already the case, and not the problem. Moving
+unit checking into extraction — rejected: it is a rule with a citation and an effective date, so
+it belongs in the pack.
+**Consequences:** `observed` on a format finding now quotes what the label actually said, which
+is what a report needs to show. Any future format rule must be written against raw text.
+**PR:** n/a (B10) · **Requirement:** FR-24, FR-25
+
+### 2026-09-12 — The pipeline persists through a port, so it predates the data layer
+**Context:** B10's dependencies include B12, the data layer, whose schema is ask-first
+(CLAUDE.md §7). Waiting would have left the ten-stage pipeline unwritten and untested until a
+schema review completed.
+**Decision:** `services/pipeline.py` declares `ScanStore` as a Protocol — load, mark, save — and
+takes storage, OCR, the rule pack and the LLM as arguments. B12 supplies the database adapter.
+**Alternatives:** Writing the schema first — rejected, it needs review. Having the pipeline use
+the ORM directly — rejected outright: org scoping is enforced in `repositories/`, and a pipeline
+that could reach past it would be a second door into another org's evidence.
+**Consequences:** The pipeline is complete, golden-file-pinned and runs with no database, which
+is what makes the end-to-end test deterministic. B12 must implement the port rather than inventing
+its own call shape. The Celery task in `app/tasks/scan.py` imports a repository that does not
+exist yet, so the worker cannot run end to end until B12 lands — the pipeline and its tests can.
+**PR:** n/a (B10) · **Requirement:** P2.3, NFR-04
