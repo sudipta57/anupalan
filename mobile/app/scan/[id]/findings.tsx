@@ -31,7 +31,7 @@
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -186,6 +186,34 @@ function useLabelView(image: ImageSize) {
     reset: useCallback(() => setView(IDENTITY_VIEW), []),
     measure,
   };
+}
+
+/**
+ * The pixel size of the image on screen. Raw uploads carry no stored dimensions (only the rectified
+ * asset does), so when `known` is empty the size is read from the image itself.
+ */
+function useImageSize(uri: string | null, known: ImageSize): ImageSize {
+  const [measured, setMeasured] = useState<{ uri: string; size: ImageSize } | null>(null);
+  const hasKnown = known.widthPx > 0 && known.heightPx > 0;
+
+  useEffect(() => {
+    if (!uri || hasKnown || !/^https?:\/\//.test(uri)) return;
+    let live = true;
+    Image.getSize(
+      uri,
+      (widthPx, heightPx) => {
+        if (live) setMeasured({ uri, size: { widthPx, heightPx } });
+      },
+      // An unreadable image leaves the size at zero, which renders the no-image pane.
+      () => undefined
+    );
+    return () => {
+      live = false;
+    };
+  }, [uri, hasKnown]);
+
+  if (hasKnown) return known;
+  return measured && measured.uri === uri ? measured.size : { widthPx: 0, heightPx: 0 };
 }
 
 type LabelView = ReturnType<typeof useLabelView>;
@@ -582,10 +610,17 @@ function Loaded({ scan, result }: { scan: Scan; result: FindingsResult }) {
   // Bounding boxes are in the rectified image's coordinate space (`src/domain/common.ts`), so there
   // is nothing to draw them on without that asset.
   const rectified = scan.assets.find((asset) => asset.kind === 'rectified') ?? null;
-  const source = imageSourceFor(rectified?.uri);
-  const image: ImageSize = rectified
-    ? { widthPx: rectified.widthPx, heightPx: rectified.heightPx }
-    : { widthPx: 0, heightPx: 0 };
+  // A no-marker scan has no rectified asset, but the pipeline still OCRs its first raw photograph
+  // (assets arrive oldest first), so its boxes are in that photograph's pixels. Show it, unscaled:
+  // pxPerMm stays null, so no ruler is drawn over it (CLAUDE.md §3.3).
+  const shown = rectified ?? scan.assets.find((asset) => asset.kind === 'raw') ?? null;
+  const source = imageSourceFor(shown?.uri);
+  const image = useImageSize(
+    shown?.uri ?? null,
+    shown
+      ? { widthPx: shown.widthPx ?? 0, heightPx: shown.heightPx ?? 0 }
+      : { widthPx: 0, heightPx: 0 }
+  );
 
   const labelView = useLabelView(image);
 
@@ -625,11 +660,11 @@ function Loaded({ scan, result }: { scan: Scan; result: FindingsResult }) {
 
   return (
     <Screen bleed contentStyle={styles.screen}>
-      {rectified && source ? (
+      {shown && source && image.widthPx > 0 && image.heightPx > 0 ? (
         <LabelPane
           image={image}
           source={source}
-          pxPerMm={rectified.pxPerMm}
+          pxPerMm={rectified?.pxPerMm ?? null}
           findings={result.findings}
           selectedId={selectedId}
           onSelect={selectFromImage}

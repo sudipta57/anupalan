@@ -34,6 +34,7 @@ import type {
 } from '@/domain';
 
 import {
+  fromMarkerType,
   fromProfile,
   toApplicability,
   toAnswer,
@@ -161,7 +162,9 @@ export const api = {
         // (`is_imported`, `net_qty_in_g_or_ml`) while `ProductProfile` is camelCase, and `ProfileIn`
         // forbids unknown fields — so passing it through is a 422 on every scan, not a dropped key.
         profile: fromProfile(body.profile),
-        marker_type: body.markerType,
+        // Same trap as the profile: the app says `aruco_40mm`, the server's MarkerType Literal says
+        // `aruco_4x4_50`, so sending the app's spelling is a 422 on every ArUco scan.
+        marker_type: fromMarkerType(body.markerType),
         marker_mm: body.markerMm,
         // One entry per photograph, each declaring what is about to be uploaded. The server signs
         // a URL per entry and the worker verifies the stored object against the hash.

@@ -96,8 +96,10 @@ def main() -> int:
             session,
             org=industry,
             phone=INDUSTRY_PHONE,
-            role="analyst",
-            full_name="Analyst (dev)",
+            # inspector, not analyst: analyst lacks scan:create, so the industry account could
+            # sign in but every scan was a 403.
+            role="inspector",
+            full_name="Industry (dev)",
         )
 
         # A small catalogue, so the context form's picker and the history product filter have
