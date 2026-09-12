@@ -1,0 +1,738 @@
+# Anupalan — Backend Implementation Plan
+
+**Doc version:** v1.0 · **Written:** 12 Sep 2026
+**Scope:** `backend/` only — FastAPI API, Celery worker, `rulepacks/` consumption, eval scripts.
+**Companions:** `01-architecture.md` (§5 pipeline, §8 data model, §9 settled decisions), `02-trd.md` (every FR/NFR below is defined there with its acceptance test), `03-implementation-plan.md` (whole-project phases and dates).
+
+This document does not restate `CLAUDE.md`. Every task below inherits its non-negotiables (§3), layout (§2), conventions (§5), testing rules (§6) and ask-first list (§7).
+
+**How to use it:** §2 is the sequence. §3 is one handoff card per work package, in the `CLAUDE.md` §11 shape. Hand over **one card at a time**. Write the test file named on the card *before* the implementation, then hand the card over with the tests already committed.
+
+---
+
+## 0. Where the backend stands today (12 Sep 2026)
+
+Audited against the working tree, not against the plan.
+
+| Area | State |
+|---|---|
+| `app/config.py` | **Done.** All settings, `PX_PER_MM`, `RULEPACK_PATH`, Neon/Redis/R2 blocks, `alembic_url`, `redis_is_tls`. |
+| `app/db.py` | **Done for scaffolding.** Engine, `Base`, `session_scope`, `ping`. `prepare_threshold=None` + pre-ping in place. **No models on `Base`.** |
+| `app/main.py` | **Done.** CORS, the NFR-07 error envelope, three exception handlers, `/health`. **No router is registered.** |
+| `app/worker.py` | **Done.** Celery app, TLS off the URL scheme, `task_acks_late`. **`include=[]` — no task exists.** |
+| `app/health.py` | **Done.** db + redis + rulepack, 200-with-`degraded` semantics. |
+| `app/routers/*.py` | **Docstrings only.** Seven modules, each specifying its endpoints. Zero routes. |
+| `app/models/`, `app/schemas/`, `app/repositories/` | **Empty `__init__.py`.** |
+| `app/services/rules/loader.py` | **Half of FR-26.** Parses YAML, validates `meta.code`/`meta.version`, caches, `reload()`. No schema validation, no checksum, no evaluator. |
+| `app/services/{vision,extraction,reporting,bis,llm}/` | **Empty `__init__.py`.** |
+| `alembic/` | Configured; `versions/` is empty. **Zero migrations.** |
+| `tests/` | `conftest.py` + `test_health.py` only. `tests/fixtures/` empty. |
+| `scripts/` | **Does not exist.** The three eval commands in `CLAUDE.md` §4 and `eval-results.md` have no module behind them. |
+| CI | ruff + mypy (strict on services) + pytest, no datastores. Green. |
+
+So: the frame is built and the conventions are enforced. Everything below is the first line of feature code.
+
+---
+
+## 1. Fixed points this plan is built on
+
+Three constraints shape the ordering more than anything else. They are not re-arguable here — see `01-architecture.md` §9.
+
+1. **`evaluate()` is pure and is the product.** It takes profile + extractions + measurements + pack + `as_of`, and returns findings. Because it touches nothing, it can be built and fully tested *before* vision, OCR, extraction, storage or the database exist. It is therefore built **first**, not last.
+2. **Millimetres come only from the marker.** B5 (rectify) gates B7 (metrology) gates every `metric` rule. Nothing downstream may invent a length.
+3. **One codebase, two entrypoints.** Nothing in `routers/` may hold pipeline logic; the worker imports `app.services.*`. A service function that cannot be called from both is in the wrong place.
+
+---
+
+## 2. Sequence
+
+Work packages are `B0`–`B23`. Dependencies are hard: do not start a package whose predecessors are not green.
+
+### 2.1 The three tracks
+
+```
+track A — verdict engine (no infrastructure needed, start immediately)
+  B1 rulepack schema+checksum ──> B2 evaluate() ──> B3 findings assembly
+                                          │
+track B — pipeline (needs images, not the DB)                 │
+  B4 storage adapter ─┐                                       │
+  B5 marker+rectify ──┼──> B7 metrology ──┐                   │
+  B6 OCR interface ───┘                   ├──> B10 process_scan ──> B11 reporting
+  B8 llm provider ──> B9 extraction ──────┘          │
+                                                     │
+track C — platform (needs Neon)                      │
+  B12 data layer + org scoping ──> B13 auth ──> B14 scan API ──┘
+                                        ├──> B15 findings/confirm API
+                                        ├──> B16 audit chain
+                                        └──> B17 dashboards
+
+track D — sahayak (independent of A/B, needs B12 for the pgvector tables)
+  B18 corpus ingest ──> B19 retrieval ──> B20 answer + applicability
+```
+
+### 2.2 Ordered table
+
+| # | Package | TRD | Depends on | Window | Gate to clear it |
+|---|---|---|---|---|---|
+| B0 | Test scaffolding + fixture contract | — | — | Sep 29–30 | `pytest` green with the new conftest fixtures |
+| B1 | Rule pack: JSON schema, checksum, `RulePack` API | FR-26 | — | Oct 1 | invalid pack rejected with a line number; previous pack stays active |
+| **B2** | **`evaluate()` — the rules interpreter** | **FR-25** | B1 | **Oct 1–5** | **all 14 baseline cases pass; 1000-run byte-identity; no DB import in the module** |
+| B3 | Findings assembly + summary + `rulepack_version` stamping | FR-25 | B2 | Oct 5 | every finding carries pack version, citation, bbox slot |
+| B4 | Object storage adapter (R2/S3), presign, sha256, EXIF strip | FR-20, SR | — | Oct 6 | presigned PUT/GET round-trips against the real bucket |
+| B5 | Marker detection + rectification to `PX_PER_MM` | FR-21 | P0 spike | Oct 6–8 | 10.00 mm bars measure 10.00 ± 0.25 mm on 20 captures |
+| B6 | `OCREngine` interface + PaddleOCR adapter + second adapter | FR-22 | — | Oct 8–10 | engine swap by config changes no calling code |
+| B7 | Glyph metrology + uncertainty + curvature downgrade | FR-23 | B5 | Oct 9–12 | ≥90% within ±0.3 mm on the E1 set |
+| B8 | `LLMProvider` interface + two adapters (hosted, open-weight) | §9 | — | Oct 10 | vendor name appears only in config + adapter |
+| B9 | Extraction: regex layer, normalisation, LLM layer, span validation | FR-24 | B8 | Oct 11–14 | regex recall ≥0.8, +LLM ≥0.95 on 20 fixtures; every value has a verified `source_span` |
+| B10 | `process_scan` Celery task, status machine, retries | P2.3, NFR-04 | B4–B9, B12 | Oct 14–16 | golden-file test byte-identical; kill worker mid-job → job completes |
+| B11 | Reporting: one data structure → PDF, DOCX, JSON | FR-27 | B3 | Oct 16–18 | identical row count and verdict strings in both; DOCX table is a real `w:tbl` |
+| B12 | Data layer: models, migrations, org-scoped repositories | DR, SR | — | Oct 1–4 (parallel) | `test_org_isolation` → 404 not 403 |
+| B13 | Auth: OTP, JWT access/refresh, RBAC dependency | SR | B12 | Oct 5–7 | role matrix test; token carries `org_id`, never trusted from the body |
+| B14 | Scan intake API: create, submit, get | FR-20 | B12, B13, B4 | Oct 8–10 | submit returns 202 `queued` in <300 ms |
+| B15 | Findings API + `confirm-fields` recompute | FR-05, FR-06 | B3, B14 | Oct 11–13 | correction recorded `source=human`, verdict recomputes |
+| B16 | Audit log hash chain + verification endpoint | SR | B12 | Oct 14–15 | tampering one row breaks verification at that row |
+| B17 | Dashboard aggregates + indexes | FR-30 | B12 | Oct 16–18 | <1 s on 50,000 seeded findings |
+| B18 | BIS corpus ingest + **blocklist** | P4.1 | B12 | Nov 1–6 | blocklist test: a priced IS text is refused by the ingester |
+| B19 | Hybrid retrieval: BM25 + dense + RRF + rerank | FR-28 | B18 | Nov 7–12 | top-6 recall measured on the E4 set |
+| B20 | Sahayak answer (citation-required) + applicability **lookup** | FR-28, FR-29 | B19 | Nov 13–20 | applicability is a table lookup, not retrieval; 10/10 refusals correct |
+| B21 | Bulk listing check (Mode B) | FR-10 | B2, B14 | Nov 20 | no metric rule returns PASS/FAIL from listing text |
+| B22 | Eval harness: `scripts.eval_e1/e3/e4` | §7 | B7, B2, B20 | rolling | each prints the exact output shape in `03-implementation-plan.md` |
+| B23 | Hardening: rate limits, load test, security pass, docs | NFR-01, SR | all | Nov 22–Dec 10 | §5 gates all green |
+
+**Why B2 comes before everything.** It is the only module whose correctness is legally load-bearing, it needs zero infrastructure, and its 14 cases are already written in `03-implementation-plan.md` §P2.4. If the backend gets one week, it gets B1 + B2 + B3 + B11 and a fixture-fed demo — a citable PDF verdict with no camera involved at all.
+
+### 2.3 Parallelism
+
+Two people: one takes track A then B (the pipeline), one takes track C (platform) then D. They meet at B10, the only package that needs both. One person: A → C → B → D, and accept that B10 slips to the end of October.
+
+---
+
+## 3. Handoff cards
+
+Each card is ready to paste into a Claude Code session. `CONTEXT` assumes `CLAUDE.md` is already loaded.
+
+---
+
+### B0 — Test scaffolding and the fixture contract
+
+```
+CONTEXT:     docs/02-trd.md §7; CLAUDE.md §6.
+TASK:        backend/tests/conftest.py (extend), backend/tests/fixtures/README.md
+CONSTRAINTS: no network in unit tests; no DB in any test under tests/unit/.
+             Fixtures are committed data — images stay small (<300 KB each).
+PRODUCE:
+  - fixture loaders: load_profile(name), load_ocr_dump(name), load_expected_findings(name)
+  - a `golden` marker + a --update-golden flag that is OFF by default and prints a warning
+  - tests/fixtures/README.md stating: a golden diff is a reviewed change, never a silent update
+DONE WHEN:   pytest green; `pytest --update-golden` rewrites nothing unless explicitly passed.
+```
+
+Do this first. Every later card names a fixture, and a fixture format invented twice is a day lost.
+
+---
+
+### B1 — Rule pack validation, checksum, and the pack API
+
+```
+CONTEXT:     docs/02-trd.md FR-26; rulepacks/lm-2011-v1.yaml; app/services/rules/loader.py.
+TASK:        backend/app/services/rules/schema.py  (JSON schema for a pack)
+             backend/app/services/rules/loader.py  (extend — do not rewrite)
+CONSTRAINTS:
+  - pure: no DB write here; persisting the pack row is B12's job
+  - the schema is data too — put it in rulepacks/_schema.json, not in a Python literal
+  - validation errors must carry the YAML line number
+  - checksum is sha256 over the raw file bytes, not over the parsed dict
+SIGNATURE:
+  def validate_pack(raw: bytes, *, path: Path | None = None) -> None      # raises RulePackError
+  def load_pack(path: Path) -> RulePack                                    # existing, now validating
+  RulePack.checksum: str
+  RulePack.rules: tuple[Rule, ...]       # parsed, typed; not raw dicts
+  RulePack.table(name: str) -> Table
+DEPENDENCY:  needs `jsonschema`. ASK before adding.
+TESTS:       tests/test_rulepack_loader.py — valid pack loads; missing citation rejected;
+             unknown `kind` rejected; float version rejected; checksum stable across reloads;
+             an invalid pack leaves active_pack() returning the previous one.
+DONE WHEN:   pytest tests/test_rulepack_loader.py && mypy app/services clean.
+```
+
+The schema must force every rule to carry `id`, `kind`, `citation`, `severity`, `message`. A rule without a citation is unusable in a report, so the schema — not a code review — is what has to stop it.
+
+---
+
+### B2 — `evaluate()`, the rules interpreter ★ critical path
+
+```
+CONTEXT:     docs/01-architecture.md §6; docs/02-trd.md FR-25 and §6;
+             docs/03-implementation-plan.md §P2.4.
+TASK:        backend/app/services/rules/evaluate.py
+             backend/app/services/rules/types.py   (Profile, Extraction, Measurement, Finding, Verdict)
+CONSTRAINTS:
+  - PURE. No I/O, no DB, no model call, no datetime.now(), no logging of inputs.
+    Effective-date filtering takes `as_of` as an argument.
+  - No threshold, table row, unit symbol or date literal in this file. All of it is read from
+    the pack. A grep for a bare float in evaluate.py should return nothing.
+  - Four-valued verdicts. BORDERLINE is never collapsed into FAIL.
+  - A metric rule with no measurement is NOT_ASSESSABLE. Never a guess, never a PASS.
+  - A conditional rule whose `when` is false is skipped (reported NOT_APPLICABLE) —
+    it is never a FAIL.
+  - Rule kinds to support: presence | any_of | format | metric | conditional | composite | geometry
+SIGNATURE:
+  def evaluate(
+      profile: Profile,
+      extractions: Sequence[Extraction],
+      measurements: Sequence[Measurement],
+      *,
+      rulepack: RulePack,
+      as_of: date,
+  ) -> list[Finding]
+TESTS:       tests/test_rules.py — the 14 cases in 03-implementation-plan.md §P2.4, verbatim,
+             plus one determinism test (1000 runs, identical serialisation) and one import test
+             (assert no sqlalchemy/celery/httpx import reachable from the module).
+             ALREADY WRITTEN — DO NOT EDIT.
+DONE WHEN:   pytest tests/test_rules.py -v passes, mypy app/services clean,
+             coverage on app/services/rules ≥ 80%.
+```
+
+Three details the 14 cases pin down that are easy to get subtly wrong:
+
+- **Borderline band.** The pack says `if |observed - required| <= uncertainty then BORDERLINE`. Case 3 (observed 2.05, required 2.0, uncertainty 0.25) is BORDERLINE even though `observed > required` — so the band is symmetric and is checked **before** the comparator, not after a PASS.
+- **Table lookup.** `max_qty_g_or_ml: null` is the open-ended top row; rows are ordered and the first row whose bound is not exceeded wins. `500` belongs to the `≤500` row, not to the one above it.
+- **Effective dates.** Cases 10 and 11 differ only in `as_of`. A rule with `effective_from` in the future yields `NOT_APPLICABLE`, which must be distinguishable in the output from `NOT_ASSESSABLE` — they mean opposite things to the person reading the report.
+
+---
+
+### B3 — Findings assembly
+
+```
+CONTEXT:     docs/01-architecture.md §5 S8; docs/02-trd.md §5 (findings response shape).
+TASK:        backend/app/services/rules/findings.py
+CONSTRAINTS: pure; every Finding carries rulepack_version (CLAUDE.md §3.6); message templates
+             are rendered from the pack's `message` with {observed}/{required}/{qty}/{unit}/
+             {surface}/{pdp}; a missing template variable raises — never an empty placeholder
+             in a legal report.
+SIGNATURE:
+  def assemble(findings: Sequence[Finding], pack: RulePack) -> FindingsReport
+  FindingsReport = {rulepack_version, summary: {pass, fail, borderline, na, not_applicable},
+                    findings: [...]}
+TESTS:       tests/test_findings.py — summary counts; template rendering; unknown placeholder raises.
+DONE WHEN:   pytest tests/test_findings.py, mypy clean.
+```
+
+---
+
+### B4 — Object storage adapter
+
+```
+CONTEXT:     docs/01-architecture.md §9 (R2 row), §10; infra/README.md §3; app/config.py S3_* block.
+TASK:        backend/app/services/storage.py
+CONSTRAINTS:
+  - speak S3, never R2-specific APIs — an on-premise MinIO swap must be an endpoint change
+  - no per-object ACL calls (R2 rejects them); access is presigned-only
+  - key layout: {org_id}/{scan_id}/{kind}/{asset_id}.{ext} — the org prefix is mandatory
+  - strip EXIF from anything that will be served; record sha256 of the bytes as received,
+    BEFORE any processing (evidence integrity, §10)
+  - MIME allow-list and max upload size enforced at presign time, not after upload
+SIGNATURE:
+  def presign_put(key: str, content_type: str, size_limit: int) -> PresignedUpload
+  def presign_get(key: str, expires_in: int | None = None) -> str
+  def put_bytes(key: str, data: bytes, content_type: str) -> StoredObject   # sha256 on the way in
+  def get_bytes(key: str) -> bytes
+DEPENDENCY:  needs `boto3`. ASK before adding.
+TESTS:       tests/test_storage.py with a stubbed client — key layout, expiry, allow-list
+             rejection, sha256 stability. One opt-in integration test against the real bucket,
+             skipped without credentials.
+DONE WHEN:   pytest tests/test_storage.py, mypy clean.
+```
+
+---
+
+### B5 — Marker detection and metric rectification
+
+```
+CONTEXT:     docs/01-architecture.md §5 S1–S3; docs/02-trd.md FR-21; the P0 spike's measure.py.
+TASK:        backend/app/services/vision/marker.py, backend/app/services/vision/rectify.py
+CONSTRAINTS:
+  - pure functions over arrays, no I/O, no file reads
+  - PX_PER_MM imported from app.config — CLAUDE.md §8 names the hardcoded 20 as a known time
+    sink. It must not appear as a literal at any call site.
+  - arrays typed npt.NDArray[np.uint8]
+  - marker absent -> return None, never an estimate. The caller marks the scan "no_marker".
+  - detect high curvature and report it; rectify does not silently flatten a bottle
+SIGNATURE:
+  def detect_marker(img: NDArray[np.uint8]) -> MarkerCorners | None
+  def rectify(img: NDArray[np.uint8], corners: MarkerCorners, marker_mm: float) -> Rectified
+      # Rectified = {image, px_per_mm, homography, out_size}
+  def quality(img: NDArray[np.uint8], corners: MarkerCorners | None) -> Quality
+      # Quality = {blur, glare, tilt_deg, curvature}
+DEPENDENCY:  needs `opencv-contrib-python` (ArUco is in contrib) and `numpy`. ASK before adding.
+TESTS:       tests/test_rectify.py — a synthetic marker at known warps recovers the scale;
+             a 10.00 mm bar measures 10.00 ± 0.25 across the committed fixture captures;
+             no marker -> None; tilt beyond 25° reported, not silently corrected.
+DONE WHEN:   pytest tests/test_rectify.py, mypy app/services clean,
+             coverage ≥80% on services/vision.
+```
+
+`marker_mm` is per-scan (40 mm tag vs ID-1 card, TRD FR-02) and arrives from the request. It is a function argument, never a constant.
+
+---
+
+### B6 — OCR behind an interface
+
+```
+CONTEXT:     docs/02-trd.md FR-22; docs/01-architecture.md §5 S4, §9 (OCR row).
+TASK:        backend/app/services/vision/ocr.py  (+ adapters/paddle.py, adapters/stub.py)
+CONSTRAINTS:
+  - the interface is the deliverable; the adapter is replaceable. FR-22 requires a second
+    working implementation to prove the interface holds — the stub adapter replays a committed
+    OCR dump and is what every downstream unit test uses.
+  - engine choice comes from config; no calling code changes when it is swapped
+  - polygons are returned as given; they are NOT heights (CLAUDE.md §8) and nothing in this
+    module may convert a polygon to a millimetre
+SIGNATURE:
+  class OCREngine(Protocol):
+      def detect_and_recognise(self, image: NDArray[np.uint8]) -> list[Word]
+  Word = {text, polygon, confidence, language}
+  def get_engine(name: str | None = None) -> OCREngine
+DEPENDENCY:  needs `paddleocr` + `paddlepaddle` (large, CPU wheels). ASK — and ask about pinning
+             the model files and where they are cached, because CI must not download them.
+TESTS:       tests/test_ocr_interface.py — the stub adapter satisfies the Protocol; get_engine
+             honours config; a Devanagari dump round-trips with language tags intact (NFR-08).
+DONE WHEN:   pytest tests/test_ocr_interface.py, mypy clean.
+```
+
+---
+
+### B7 — Glyph metrology
+
+```
+CONTEXT:     docs/01-architecture.md §5 S5; docs/02-trd.md FR-23;
+             docs/03-implementation-plan.md §P0.2.
+TASK:        backend/app/services/vision/metrology.py
+CONSTRAINTS:
+  - pure, no I/O, no global state
+  - measurement is connected components on the rectified image, NEVER OCR polygons (CLAUDE.md §8)
+  - cap-height is measured on numerals, which is why Rule 9 is written about numerals
+  - every measurement carries an uncertainty widened by blur, tilt and px/mm
+  - curvature above threshold -> return no measurement, so the rule lands NOT_ASSESSABLE
+    (01-architecture.md §12.2). A confident under-measurement is the worst possible output.
+  - glyphs excluded from the width ratio ("1", "i", "I", "l") are read from the pack's
+    exclude_glyphs, not written here
+SIGNATURE:
+  def measure_text_span(warped: NDArray[np.uint8], bbox: BBox, quality: Quality) -> Measurement | None
+  Measurement = {field_code, glyph, height_mm, width_mm, uncertainty_mm, method}
+TESTS:       tests/test_metrology.py — synthetic glyphs at exact pixel heights; noise components
+             dropped; baseline clustering; uncertainty grows with blur and tilt; high curvature
+             returns None. ALREADY WRITTEN — DO NOT EDIT.
+DONE WHEN:   pytest tests/test_metrology.py, mypy clean, coverage ≥80% on services/vision.
+```
+
+---
+
+### B8 — LLM provider interface
+
+```
+CONTEXT:     CLAUDE.md §9; docs/01-architecture.md §9 (LLM vendor row).
+TASK:        backend/app/services/llm/provider.py (+ adapters/)
+CONSTRAINTS:
+  - NO vendor name outside config and the adapter files — not in a comment, not in a variable
+  - an open-weight adapter must work; a government deployment may be fully on-premise
+  - three call sites only: extraction.llm_layer, reporting.explain, bis.answer
+  - strict JSON-schema mode and temperature are parameters of the interface, because the
+    extraction call site depends on both
+  - failure is a first-class return, not an exception that kills a scan: LLM down means
+    regex-only extraction and a report flagged "reduced extraction" (01-architecture.md §11)
+SIGNATURE:
+  class LLMProvider(Protocol):
+      def complete(self, *, prompt: str, schema: dict | None, temperature: float,
+                   max_tokens: int, tier: Literal["budget", "mid"]) -> LLMResult
+  LLMResult = {text, parsed: dict | None, usage, ok: bool, error: str | None}
+DEPENDENCY:  one HTTP client (`httpx` is already a dev dep — promote it) plus the open-weight
+             adapter's client. ASK.
+TESTS:       tests/test_llm_provider.py — a schema violation surfaces as ok=False, never as a
+             partial dict; a provider timeout returns ok=False; no vendor string appears in the
+             interface module (grep assertion).
+DONE WHEN:   pytest tests/test_llm_provider.py, mypy clean.
+```
+
+---
+
+### B9 — Field extraction
+
+```
+CONTEXT:     docs/01-architecture.md §5 S6; docs/02-trd.md FR-24;
+             docs/03-implementation-plan.md §P2.5.
+TASK:        backend/app/services/extraction/{regex_layer,normalise,llm_layer,pipeline}.py
+CONSTRAINTS:
+  - order is fixed: regex -> LLM for what regex missed -> human confirmation below 0.75
+  - the unit normalisation table comes from the rule pack's
+    tables.unit_symbols.rejected_variants, not from a dict in Python. The pack already carries
+    gms/Gms/gm/GM/ltr/Ltr/LTR/lts.
+  - the LLM gets the OCR text as its ONLY context, temperature 0, strict JSON schema
+  - EVERY field carries a source_span, and that span is verified to exist in the input text
+    before the value is accepted (CLAUDE.md §8). Do not trust the model's span.
+  - 15 field codes exactly as listed in FR-24
+  - money as integer paise; lengths as float millimetres
+SIGNATURE:
+  def extract(words: Sequence[Word], profile: Profile, *, llm: LLMProvider | None) -> list[Extraction]
+  Extraction = {field_code, value_raw, value_norm, source: Literal["regex","llm","human"],
+                confidence, bbox, source_span: tuple[int, int]}
+TESTS:       tests/test_extraction.py — 20 committed OCR dumps; regex-only recall for
+             net_quantity ≥0.8; with the stub LLM ≥0.95; a fabricated span is rejected;
+             "250 gms" normalises to value 250 unit g with the raw string preserved.
+DONE WHEN:   pytest tests/test_extraction.py, mypy clean.
+```
+
+---
+
+### B10 — `process_scan`, the pipeline task
+
+```
+CONTEXT:     docs/01-architecture.md §5 (all ten stages); docs/03-implementation-plan.md §P2.3;
+             docs/02-trd.md NFR-04.
+TASK:        backend/app/services/pipeline.py  (the logic)
+             backend/app/tasks/scan.py         (the thin Celery binding)
+             register the task module in worker.py's include=[]
+CONSTRAINTS:
+  - the Celery task is a five-line wrapper. All logic lives in services/ so it is testable
+    without a broker and callable from the API.
+  - status machine: queued -> processing -> complete | failed | no_marker
+  - idempotent: re-running a completed scan must not duplicate findings
+  - acks_late is already set; the task must be safe to run twice after a worker kill
+  - no marker -> mark the scan no_marker, run presence/format rules only, mark every metric
+    rule NOT_ASSESSABLE (01-architecture.md §11) — do not abort the scan
+  - LLM unavailable -> regex-only, scan completes, report flagged "reduced extraction"
+TESTS:       tests/test_pipeline_golden.py — one committed fixture image in,
+             tests/fixtures/expected_findings.json out, byte-identical. A diff here is a
+             reviewed change, never a silent update (CLAUDE.md §6).
+             tests/test_pipeline_degraded.py — no-marker path, LLM-down path, re-run idempotency.
+DONE WHEN:   both suites pass; killing the worker mid-job leaves the scan completing on retry.
+```
+
+---
+
+### B11 — Reporting
+
+```
+CONTEXT:     docs/02-trd.md FR-27; docs/01-architecture.md §5 S10, §10; CLAUDE.md §3.8.
+TASK:        backend/app/services/reporting/{model,pdf,docx,json_report,explain}.py
+CONSTRAINTS:
+  - PDF and DOCX render from ONE shared data structure so they cannot drift
+  - the DOCX findings table must be a real w:tbl, editable in Word and LibreOffice
+  - every report carries: annotated image, findings table, rulepack_version, both SHA-256
+    hashes, and the advisory disclaimer (CLAUDE.md §3.8) — the disclaimer is not optional and
+    cannot be configured off
+  - reporting.explain is an LLM call site: it writes plain-language guidance for a finding and
+    NEVER changes a verdict
+DEPENDENCY:  needs `weasyprint` (PDF) and `python-docx`. ASK — weasyprint has native
+             dependencies (pango/cairo) that the deploy VM must have, so raise it with infra at
+             the same time.
+TESTS:       tests/test_reporting.py — the same scan to both formats: identical row count,
+             identical verdict strings; the DOCX table is a w:tbl and not an image; the
+             disclaimer string is present in all three outputs.
+DONE WHEN:   pytest tests/test_reporting.py, mypy clean.
+```
+
+---
+
+### B12 — Data layer and org scoping
+
+```
+CONTEXT:     docs/01-architecture.md §8 (every table), §10; CLAUDE.md §3.7.
+TASK:        backend/app/models/*.py, backend/app/repositories/base.py,
+             alembic/versions/0001_*.py
+CONSTRAINTS:
+  - ★ CLAUDE.md §7: schema changes and migrations are ASK-FIRST. Bring the proposed DDL for
+    review before writing the migration.
+  - org scoping is enforced in the repository base class, not remembered at each call site.
+    A query that cannot name its org must not get past the base class.
+  - cross-org access returns 404, never 403 — do not leak existence
+  - findings is append-only; a correction writes a new row, it never updates one
+  - migrations run on DATABASE_URL_DIRECT (pgbouncer cannot do DDL reliably in a transaction)
+  - the first migration creates the pgvector extension; bis_chunks.embedding is vector(1024)
+SIGNATURE:
+  class OrgScopedRepository(Generic[T]):
+      def __init__(self, session: Session, org_id: UUID) -> None
+      def get(self, id: UUID) -> T | None      # returns None for another org's row
+      def list(self, **filters: object) -> Sequence[T]
+TESTS:       tests/test_org_isolation.py — a user in org A requesting org B's scan, product,
+             finding, report and bis_query each get 404. Runs on every PR (CLAUDE.md §6).
+DONE WHEN:   alembic upgrade head against a Neon branch, then the isolation suite green.
+```
+
+Create these indexes in the same migration, because B17 needs them and adding them later against a populated table is a lock: `findings(scan_id)`, `findings(rule_id, verdict)`, `scans(org_id, captured_at)`, `extractions(scan_id, field_code)`, and the HNSW index on `bis_chunks.embedding`.
+
+---
+
+### B13 — Auth and RBAC
+
+```
+CONTEXT:     docs/01-architecture.md §10; docs/02-trd.md §5 (auth endpoints).
+TASK:        backend/app/routers/auth.py, backend/app/services/auth/{otp,tokens,rbac}.py
+CONSTRAINTS:
+  - org_id comes from the verified token and NOWHERE else. A request body carrying an org_id
+    is a 400, not an override.
+  - roles admin | inspector | analyst | viewer, enforced by a dependency, not by if-statements
+    inside handlers
+  - OTP codes hashed at rest, rate-limited per phone and per IP, single-use, short TTL
+  - refresh rotation; a reused refresh token invalidates the family
+DEPENDENCY:  a JWT library and a hasher. ASK.
+TESTS:       tests/test_auth.py — the role matrix (each role × each endpoint); a body-supplied
+             org_id is rejected; OTP replay rejected; expired refresh rejected.
+DONE WHEN:   pytest tests/test_auth.py, mypy clean.
+```
+
+---
+
+### B14 — Scan intake API
+
+```
+CONTEXT:     docs/02-trd.md FR-20, FR-02, §5; the existing docstring in app/routers/scans.py.
+TASK:        backend/app/routers/scans.py (create/submit/get), backend/app/schemas/scans.py
+CONSTRAINTS:
+  - POST /v1/scans returns presigned upload URLs; the API never proxies image bytes
+  - submit returns 202 {status:"queued"} inside 300 ms — it enqueues and returns, it does not
+    touch an image
+  - a scan cannot be submitted without marker_type and marker_mm (FR-02)
+  - Idempotency-Key honoured on both POSTs
+  - routers hold no pipeline logic; they validate, call repositories/services, shape output
+TESTS:       tests/test_scans_api.py — the 202 shape and latency; missing marker_mm -> 422 in
+             the NFR-07 envelope; a replayed Idempotency-Key returns the original scan, not a
+             second one.
+DONE WHEN:   pytest tests/test_scans_api.py; the OpenAPI schema regenerates cleanly for mobile.
+```
+
+Changing this contract after mobile has generated its client is ASK-FIRST (`CLAUDE.md` §7). Publish the OpenAPI schema the day this lands, so `mobile/` can run `npm run gen:api` and mock with MSW instead of waiting.
+
+---
+
+### B15 — Findings API and field confirmation
+
+```
+CONTEXT:     docs/02-trd.md FR-05, FR-06; §5 findings response shape.
+TASK:        backend/app/routers/scans.py (findings + confirm-fields), schemas/findings.py
+CONSTRAINTS:
+  - the response always carries rulepack_version and the summary block
+  - confirm-fields records the correction with source=human and RECOMPUTES by calling
+    evaluate() again with the same as_of and the same pack version the scan was first
+    evaluated under — not the currently active pack. A report regenerated next year must
+    reproduce the original verdict (CLAUDE.md §3.6).
+  - the recompute writes new finding rows; it never mutates the old ones
+TESTS:       tests/test_confirm_fields.py — a correction flips a FAIL to PASS; the original
+             finding row survives; the new findings carry the ORIGINAL pack version.
+DONE WHEN:   pytest tests/test_confirm_fields.py.
+```
+
+---
+
+### B16 — Audit hash chain
+
+```
+CONTEXT:     docs/01-architecture.md §10; docs/03-implementation-plan.md §10 release gates.
+TASK:        backend/app/services/audit.py, backend/app/routers/admin.py (verify endpoint)
+CONSTRAINTS:
+  - hash = H(prev_hash || canonical_row_json); canonicalisation must be stable across Python
+    versions (sorted keys, explicit separators, UTF-8)
+  - append-only; no update path for this table exists in the repository layer
+  - the verification endpoint reports the first broken link, not just a boolean
+TESTS:       tests/test_audit_chain.py — a tampered row breaks verification at that row and not
+             before it; the chain survives a process restart.
+DONE WHEN:   pytest tests/test_audit_chain.py.
+```
+
+---
+
+### B17 — Dashboards
+
+```
+CONTEXT:     docs/02-trd.md FR-30.
+TASK:        backend/app/routers/dashboard.py, backend/app/repositories/aggregates.py
+CONSTRAINTS: aggregation in SQL, not in Python; org-scoped like everything else;
+             group_by is an enum, never interpolated into SQL.
+TESTS:       tests/test_dashboard.py — 50,000 seeded findings, each endpoint under 1 s;
+             a group_by value outside the enum -> 422.
+DONE WHEN:   pytest tests/test_dashboard.py with the seed fixture.
+```
+
+---
+
+### B18 — BIS corpus ingest ★ has a hard legal constraint
+
+```
+CONTEXT:     docs/01-architecture.md §7; docs/03-implementation-plan.md §P4.1; CLAUDE.md §3.5.
+TASK:        backend/app/services/bis/ingest.py
+CONSTRAINTS:
+  - ★ NEVER ingest priced Indian Standards texts. The module carries an explicit blocklist
+    WITH the comment explaining why. Keep both. This is not a style preference; it is the
+    difference between a demo and a copyright problem.
+  - allowed source_types only: qco_gazette | mandatory_cert_list | crs_list | scheme_guide |
+    faq | hallmarking | lab_directory | catalogue_metadata
+  - every document records source_type, url, published_at, sha256
+  - chunks of 400–600 tokens, each with a section_ref
+TESTS:       tests/test_bis_ingest.py — a document whose source looks like a priced IS text is
+             REFUSED with a named error; the blocklist is non-empty; allowed types ingest;
+             sha256 dedupe works on re-ingest.
+DONE WHEN:   pytest tests/test_bis_ingest.py.
+```
+
+---
+
+### B19 — Hybrid retrieval
+
+```
+CONTEXT:     docs/01-architecture.md §7; docs/02-trd.md FR-28.
+TASK:        backend/app/services/bis/retrieve.py
+CONSTRAINTS: BM25 via Postgres FTS (no new dependency) + dense via pgvector, RRF fusion,
+             cross-encoder rerank top 30 -> top 6; embeddings are BGE-M3, self-hosted;
+             retrieval is deterministic given a fixed corpus — no temperature anywhere here.
+DEPENDENCY:  the embedding model runtime and the reranker. ASK — these are the heaviest
+             additions in the project, and CI must not download weights.
+TESTS:       tests/test_retrieval.py — RRF ordering on a fixed toy corpus is exact;
+             an empty result set returns empty, never a nearest-anything chunk.
+DONE WHEN:   pytest tests/test_retrieval.py.
+```
+
+---
+
+### B20 — Sahayak answer and BIS applicability
+
+```
+CONTEXT:     docs/01-architecture.md §7; docs/02-trd.md FR-28, FR-29;
+             docs/03-implementation-plan.md §P4.
+TASK:        backend/app/services/bis/{answer,applicability}.py, backend/app/routers/sahayak.py
+CONSTRAINTS:
+  - ★ applicability is a TABLE LOOKUP against the QCO/CRS lists, not retrieval. Retrieval is
+    used only for the explanation and next steps. A lookup is deterministic; retrieval is not,
+    and "does this product need the ISI mark" is not a question to answer probabilistically.
+  - generation is citation-required: every claim maps to a chunk id. Post-validate that each
+    cited chunk id exists AND that every numeric claim in the answer appears in a cited chunk.
+    Unsupported -> refuse and return the closest official page link.
+  - refusing priced-standard content is a FEATURE. The refusal says so plainly and points at
+    the BIS purchase route.
+  - answers carry an as_of freshness stamp — QCOs are amended constantly
+SIGNATURE:
+  def applicability(profile: Profile) -> Applicability
+      # {qco_applicable: "yes"|"no"|"unclear", scheme: "ISI"|"CRS"|"FMCS"|"none",
+      #  candidate_is_numbers: [...], next_steps: [...], sources: [...]}
+TESTS:       tests/test_bis_answer.py — a fabricated chunk id fails post-validation; a numeric
+             claim absent from the cited chunks fails; all 10 unanswerable questions are refused.
+             tests/test_applicability.py — the 20 known products from FR-29, ≥17 correct.
+DONE WHEN:   both suites pass; E4 reports the output shape in 03-implementation-plan.md §P4.
+```
+
+---
+
+### B21 — Bulk listing check (Mode B)
+
+```
+CONTEXT:     docs/02-trd.md FR-10.
+TASK:        backend/app/services/listings.py, backend/app/routers/products.py (bulk endpoint)
+CONSTRAINTS: a listing has no physical scale, so EVERY metric rule is NOT_ASSESSABLE on this
+             path. Make it structurally impossible for a metric rule to return PASS or FAIL
+             from listing text — pass an empty measurement set, and assert that in the test.
+TESTS:       tests/test_bulk_listing.py — a 50-row CSV yields 50 results and a summary;
+             no metric rule in any row is PASS or FAIL.
+DONE WHEN:   pytest tests/test_bulk_listing.py.
+```
+
+---
+
+### B22 — Evaluation harness
+
+```
+CONTEXT:     docs/02-trd.md §7; docs/eval-results.md (output formats); CLAUDE.md §4.
+TASK:        backend/scripts/{eval_e1,eval_e3,eval_e4}.py   (new package: backend/scripts/)
+CONSTRAINTS: print exactly the output shapes in 03-implementation-plan.md §P0.4 and §P4;
+             read corpora from ../eval/, which is gitignored — the scripts commit numbers,
+             never images; every run prints the commit sha and the rule pack version, because
+             a number that cannot name its pack cannot be reproduced.
+DONE WHEN:   each script runs end to end and its output pastes into docs/eval-results.md.
+```
+
+E3's headline is the **false-FAIL rate**, target ≤2%. Print it on its own line; it is the number that decides whether anyone trusts the tool.
+
+---
+
+### B23 — Hardening
+
+```
+CONTEXT:     docs/02-trd.md NFR-01, docs/03-implementation-plan.md §10 release gates;
+             docs/01-architecture.md §10.
+TASK:        rate limiting, load test, dependency audit, API reference, rule pack authoring guide
+CONSTRAINTS: rate limits per org and per IP; presigned URL expiry verified; EXIF stripping
+             verified on served assets; load test to NFR-01 (p50 ≤10 s, p95 ≤20 s, 50 concurrent)
+             INCLUDING a Neon cold start in the measurement, since 01-architecture.md §11 charges
+             that cold start against NFR-01.
+DONE WHEN:   the §5 gates below are all green and the numbers are in docs/eval-results.md
+             with a date.
+```
+
+---
+
+## 4. Dependencies to request
+
+`CLAUDE.md` §7: **every one of these needs an explicit ask before it is added.** Batch them per package rather than one at a time.
+
+| Package | Dependency | For | Notes |
+|---|---|---|---|
+| B1 | `jsonschema` | rule pack validation | small, pure Python |
+| B4 | `boto3` | R2 via the S3 API | |
+| B5, B7 | `opencv-contrib-python`, `numpy` | ArUco + homography + connected components | ArUco is in **contrib**; the plain wheel will not do |
+| B6 | `paddleocr`, `paddlepaddle` | OCR | large; decide model caching so CI never downloads weights |
+| B8 | `httpx` (promote from dev) | LLM adapters | |
+| B9 | `python-dateutil`, possibly `regex` | month-year resolution, Unicode classes for Devanagari | |
+| B11 | `weasyprint`, `python-docx` | PDF, DOCX | weasyprint needs native pango/cairo on the deploy VM — raise with infra together |
+| B12 | `pgvector` (Python bindings) | the vector column type | |
+| B13 | a JWT library, a hasher | auth | |
+| B19 | embedding + reranker runtime | BGE-M3, cross-encoder | heaviest addition; pin the model revisions |
+| B23 | a rate limiter, a load-test tool | NFR-01 | the load-test tool can be dev-only |
+| tests | `pytest-cov` | the 80% coverage floor | `freezegun` should not be needed — `evaluate()` takes `as_of` |
+
+Everything else in the stack is already declared in `backend/pyproject.toml`.
+
+---
+
+## 5. Backend release gates
+
+A subset of `03-implementation-plan.md` §10, restricted to what the backend owns. None of these are optional.
+
+- [ ] `pytest` green, including `test_org_isolation` and the golden-file pipeline test
+- [ ] `ruff check .` and `mypy app/services` clean; coverage ≥80% on `services/rules` and `services/vision`
+- [ ] E1 and E3 numbers committed and dated in `docs/eval-results.md`; false-FAIL rate ≤2%
+- [ ] E4 refusals 10/10 correct on priced-standard questions
+- [ ] Every finding and every report stamped with `rulepack_version`
+- [ ] Advisory disclaimer present in PDF, DOCX and JSON outputs
+- [ ] Hash-chain verification endpoint working and documented
+- [ ] No threshold, table row or effective date anywhere in a `.py` file — grep and prove it
+- [ ] BIS ingest blocklist present, tested, and its comment intact
+- [ ] `GET /health` returns the real active pack version, and `degraded` when a dependency is down
+- [ ] OpenAPI schema published and `mobile/`'s generated client builds against it
+- [ ] Legal review of the rule pack booked (November) — a release blocker, not a nice-to-have
+
+---
+
+## 6. If the backend timeline compresses
+
+Ranked by demo value per hour. Drop from the bottom, never from the top.
+
+1. **B1 + B2 + B3** — the rules engine over the pack. Deterministic, citable verdicts from fixture input. Nothing else demonstrates the idea.
+2. **B5 + B7** — rectification and millimetre glyph heights. The one thing no other team will have.
+3. **B11** — the PDF with citations. Turns a script into a product.
+4. **B12 + B14 + B15** — the data layer and API, so the phone can talk to it.
+5. **B9** — extraction. Until this lands, fixtures stand in for it.
+6. **B20 applicability lookup only** — proves the two problem statements are one system. Cheap, because it is a table.
+7. **B19 + B20 free chat** — the most impressive-sounding and the most droppable.
+
+Note what this ordering implies: a fixture-driven backend that produces a real, cited, correctly-measured PDF verdict is worth more in a demo than a complete API with a guessed millimetre in it.
+
+---
+
+## 7. Standing traps
+
+The ones from `CLAUDE.md` §8 that will actually bite in backend code, plus two this plan adds.
+
+- `PX_PER_MM` is imported from config. Never `20` at a call site.
+- OCR bounding boxes are not glyph heights. Measurement goes through connected components on the rectified image.
+- Neon's pooled endpoint is pgbouncer: keep `prepare_threshold=None`, and run migrations on `DATABASE_URL_DIRECT`.
+- Celery does not infer TLS from `rediss://`; `broker_use_ssl` is set off the URL scheme in `worker.py`.
+- **Recompute uses the scan's original pack version, not the active one.** The obvious implementation of `confirm-fields` is wrong in a way no test catches unless you write that test (B15).
+- **`NOT_APPLICABLE` and `NOT_ASSESSABLE` are different verdicts.** "This rule does not apply to your product" and "we could not measure this" mean opposite things to the reader, and collapsing them turns a clean report into an accusation.
