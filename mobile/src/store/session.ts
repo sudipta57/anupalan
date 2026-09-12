@@ -6,7 +6,7 @@
  *
  * 1. **There is nothing to fetch it from.** TRD §5 has no "who am I" endpoint — `user` and `org`
  *    arrive exactly once, in the OTP verify response. Treating them as server state would mean a
- *    query with no queryFn (flag 9 in `docs/04-frontend-plan.md`).
+ *    query with no queryFn (flag 9 in `docs/05-frontend-plan.md`).
  * 2. **Navigation needs it before the first paint.** The tab bar composes from the org mode, and a
  *    query result is never available on the first render.
  *

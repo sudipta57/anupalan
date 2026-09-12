@@ -19,14 +19,14 @@
  *
  * **Rules that do not apply are omitted, not given a fifth verdict.** This pack is not imported
  * and is not an e-commerce listing, so the importer rule and Rule 6(10A) produce no finding at
- * all. See the note in `docs/04-frontend-plan.md` §9 — the backend contract needs to confirm
+ * all. See the note in `docs/05-frontend-plan.md` §9 — the backend contract needs to confirm
  * this is how inapplicable rules are represented.
  */
 
 import type { Extraction, Finding, FindingsResult, Measurement, Scan, ScanAsset } from '@/domain';
 
 import { LABEL_HEIGHT_PX, LABEL_PX_PER_MM, LABEL_REGIONS, LABEL_WIDTH_PX } from './label';
-import { INDUSTRY_ORG, INSPECTOR } from './orgs';
+import { ENFORCEMENT_ORG, INSPECTOR } from './orgs';
 import { PRODUCTS_BY_ID } from './products';
 import { RULES, RULEPACK_VERSION } from './rules';
 
@@ -71,7 +71,15 @@ const RECTIFIED_ASSET: ScanAsset = {
 
 export const HERO_SCAN: Scan = {
   id: HERO_SCAN_ID,
-  orgId: INDUSTRY_ORG.id,
+  /**
+   * An **enforcement** inspection, and it has to be.
+   *
+   * It was recorded by `INSPECTOR`, whose org is the enforcement one, so any other value here is a
+   * cross-org row that CLAUDE.md §3.7 makes impossible. It also carries `geo`, a `district` and an
+   * issued report — all three are Mode A only (`01-architecture.md` §10), and an industry-owned scan
+   * carrying a location would contradict `geoForScan`, which the app enforces at capture time.
+   */
+  orgId: ENFORCEMENT_ORG.id,
   productId: 'prd_atta_1kg',
   userId: INSPECTOR.id,
   status: 'complete',

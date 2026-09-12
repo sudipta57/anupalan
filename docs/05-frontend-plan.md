@@ -1,6 +1,6 @@
 # Anupalan — Frontend Build Order
 
-**Doc version:** v1.6 · Companion to `02-trd.md` (the requirements) and `03-implementation-plan.md` §P3 (the phase this sits inside)
+**Doc version:** v1.7 · Companion to `02-trd.md` (the requirements) and `03-implementation-plan.md` §P3 (the phase this sits inside)
 **Scope:** the Android app, end to end, built against dummy data until the backend is ready
 **Owner:** frontend half of a two-person team; the backend is being built in parallel
 
@@ -25,8 +25,8 @@
 | 6 | Offline queue | FR-04 | ✅ (device check pending) |
 | 7 | Processing and low-confidence confirmation | FR-06 | ✅ (device check pending) |
 | 8 | Findings viewer | FR-05 | ✅ (device check pending) |
-| 9 | Report export and share | FR-08 | ⬜ |
-| 10 | History and search | FR-09 | ⬜ |
+| 9 | Report export and share | FR-08 | ✅ (device check pending) |
+| 10 | History and search | FR-09 | ✅ (device check pending) |
 | 11 | Sahayak chat and BIS applicability | FR-07 | ⬜ |
 | 12 | Bulk listing check | FR-10 | ⬜ |
 | 13 | Hardening and the live-backend cutover | NFR-02, NFR-07, NFR-08 | ⬜ |
@@ -712,31 +712,198 @@ unverified: that the outlines land on the right text on real glass, and Devanaga
     without clipping. The citation itself stays in English — it is verbatim legal text.
 16. Rotate the phone. The view re-fits rather than leaving the label pressed off one edge.
 
-### Stage 9 · Report export and share ⬜
+### Stage 9 · Report export and share ✅ (device check pending)
 
 **Requirements:** FR-08
 
-- Request PDF and DOCX, poll for completion, hand off to the system share sheet.
-- A preview carrying the disclaimer, both hashes and the rule pack version.
-- Mock mode ships real sample PDF and DOCX files so the share path is genuinely exercised.
+**What shipped**
+
+- **The stage's one refusal: provisional verdicts block a report, they do not warn.**
+  `features/reports/eligibility.ts`. Stage 7 established that an unconfirmed low-confidence field
+  makes every verdict provisional, and Stage 8's findings screen says so in a banner. A banner is
+  enough on a screen — the reader is holding the phone and the next scan replaces it. A PDF is not a
+  screen: it leaves the device, embeds a findings hash, quotes gazette citations beside a
+  measurement, and **cannot be retracted from an inbox**. A report over a misread MRP is CLAUDE.md
+  §3.4's failure mode made permanent and distributable, so the screen refuses, explains why, and
+  offers the confirmation sheet as the fix.
+- **A degraded run is not blocked.** No marker, or an unavailable LLM, produce complete and correctly
+  labelled results, and `01-architecture.md` §11 says such a report is issued **flagged** rather than
+  withheld. Withholding it would leave an inspector with no record of an inspection they actually
+  made. So those surface as banners that travel with the document. That is Stage 7's
+  `isDegradedButFinal` distinction doing its job: an unanswered question blocks, a stated limitation
+  does not.
+- **Generation is asynchronous, and the app polls.** `Report` gained `status`, `formats`,
+  `requestedAt`, `generatedAt` and `error`. A POST that blocked until an annotated PDF was rendered
+  would tie a share button to a render that takes seconds and can fail, with nothing to show either
+  way. `hasTimedOut` exists because an endless spinner is where someone decides the app is broken and
+  asks again — which renders the same document twice.
+- **`missingFormats`.** A report can come back `ready` with the PDF and not the DOCX. Without this the
+  screen shows one share button and looks entirely correct, and the user never learns the document
+  they asked for does not exist.
+- `scripts/make-sample-report.py` — **the mock writes real files.** A genuine PDF 1.4 carrying the
+  annotated label as an embedded JPEG, the findings table and both hashes; and a genuine OOXML
+  package whose findings table is a real `<w:tbl>`, not a picture of one (FR-27). A mock that
+  resolved with a plausible URI would let "both files open in an external viewer" pass in testing and
+  fail in front of a judge. The generator imports the label script for its region geometry and reads
+  the hashes out of `hero-scan.ts`, so a sample report cannot quote a different findings hash from
+  the one the evidence panel shows — if the regex stops matching, it fails rather than emitting a lie.
+- Base64 rather than bundled binaries, because bundling a `.pdf` needs a `metro.config.js` asset
+  extension and approval (flag 13). `File.write(…, { encoding: 'base64' })` decodes natively, so
+  nothing is decoded in JS.
+- `Transport.download` — the mirror of Stage 6's `upload`, and separate from `request` for the same
+  reasons: file bytes rather than a JSON envelope, a presigned URL on a third-party host, and our
+  `Authorization` header must not travel there. It exists because **a share sheet needs a file**:
+  handing Android an https URL produces an intent most apps cannot open, and the user sees a share
+  that silently does nothing.
+- **The filename is not cosmetic.** `anupalan-<product>-<date>-<id>.<ext>`. A report lands in someone's
+  WhatsApp next to everything else they were sent that week, and `report.pdf` is indistinguishable
+  from every other report ever generated. The scan-id tail is what stops two scans of the same pack on
+  the same day overwriting each other in a downloads folder — that failure is silent and the file lost
+  is evidence. A Devanagari product name reduces to nothing under the ASCII-safe sanitiser and falls
+  back to a generic segment, because transliterating would give a name neither readable to a Hindi
+  speaker nor accurate to anyone else.
+- JSON is a real report format (FR-27) and is deliberately **not** offered for sharing. Its home is the
+  API; in a phone's share sheet it invites sending a machine artefact to a trader who cannot read it.
+- The report screen is reachable **only from the findings screen**. Issuing a report is a decision
+  taken after reading the findings, and a shortcut from the summary would let someone send a document
+  over verdicts they never opened.
+- A `report-failed` mock scenario, beyond §11's table: report generation is S10 and can fail on its
+  own, and the screen has to handle a `failed` report whether or not §11 lists it.
 
 **Done when:** both files share out of the app and open in an external viewer.
+**Verified:** lint 0 · tsc clean · 474 tests pass (49 new) · prettier clean · `expo export --platform
+android` bundles at 5.0 MB. The sample files are asserted to be genuine: `%PDF-` header and `%%EOF`
+trailer, a `PK\x03\x04` ZIP containing `word/document.xml`, `/DCTDecode` for the embedded image, and
+both hashes present in the PDF's bytes. No new dependency — `expo-sharing` and `expo-file-system` were
+already installed.
+**Not verified:** that the PDF opens in a viewer and the DOCX opens in Word with an editable table.
+Nothing in a test runner can open either, which is what items 6–8 of the checklist are for.
 
-### Stage 10 · History and search ⬜
+**Device checklist for this stage**
+
+1. From a completed scan, open the findings, scroll to the bottom and tap **Generate the report**.
+2. With the **Low-confidence field** scenario on, the screen refuses instead of offering a button:
+   "Confirm the low-confidence fields first", with a button that goes to the sheet. Confirm the field,
+   come back, and the refusal is gone.
+3. Both PDF and Word are selected by default. Deselecting both disables Generate.
+4. Generate: a pending state for a few seconds, then "Report ready" with two files, their sizes and
+   a filename per file. The filename contains the product, the date and a short id.
+5. The preview above shows all four verdict counts, both hashes in 8-character groups, and the rule
+   pack version — before anything is shared.
+6. **Share the PDF.** The system share sheet opens. Send it to yourself and open it: one A4 page with
+   the annotated label top-right, the findings table colour-coded by verdict, both hashes and the
+   advisory disclaimer.
+7. **Share the DOCX** and open it in Word, Google Docs or WPS. The findings table must be a **real
+   table** you can click into and edit — not a picture (FR-27).
+8. Share the same file twice. The second share works and does not create a duplicate copy.
+9. Settings → Mock backend → **Report generation fails**, then generate: an error state with the
+   server's reason and a button to try again, not a spinner.
+10. Settings → Mock backend → **Offline**, then tap Share: the share fails with an explanation, and
+    the report itself is still listed.
+11. Settings → Mock backend → **No marker detected**: the report is still offered, with the no-marker
+    banner above the preview. It must not be blocked.
+12. Signed in as **enforcement**, before generating: the "Issuing a report closes this record" notice
+    appears. Generate, then go back to the findings — the record is now closed and the confirm button
+    is disabled.
+13. In हिन्दी: the format names, the refusal copy and the buttons read in Hindi without clipping.
+
+### Stage 10 · History and search ✅ (device check pending)
 
 **Requirements:** FR-09
 
-- Virtualised list over the 220 seeded scans; filters for date range, product and verdict.
-- Verdict filters keep all four values distinct — "failures only" must not quietly include
-  BORDERLINE.
-
 | Mode | Difference |
 |---|---|
-| A | District and state filters; inspection-history framing |
-| B | Filter by brand and SKU; no location filter, since none is collected |
+| A | District filter; inspection framing. Reached through the **Inspections** tab |
+| B | No location filter, since none is collected. Reached through **History** |
+
+**What shipped**
+
+- **One verdict per question, and `matchesVerdict` reads exactly one number.** This is the stage, and
+  it is the reason the filter is a module rather than a `useState` object in a screen. A verdict
+  filter is the easiest place in the whole app to collapse BORDERLINE into FAIL, and the collapse
+  would not look like a bug: a "problems" filter returning `fail > 0 || borderline > 0` gives a
+  longer, more impressive list in which every scan really does have something on it. What it destroys
+  is the distinction the product rests on — an inspector who filters for failures and is shown a
+  compliant pack whose measurement merely sat inside the uncertainty band has been handed CLAUDE.md
+  §3.4's failure mode by the search box. So the filter is **single-select**, the predicate is a switch
+  over one field of `FindingsSummary`, and there is deliberately no helper that takes a set of
+  verdicts.
+- **The seeded fixture had no scan that could catch that collapse, and now does.** Every borderline in
+  the 220-scan set sat beside a failure, so a merged filter would have returned an identical list and
+  passed every test written against the data. `buildSummary` gained a borderline-only bucket. The
+  hero fixture's doc comment already made this argument for the findings screen; it had not been
+  carried through to the history set.
+- **Two fixture inconsistencies the Mode B test surfaced, both on the hero scan.** Its `orgId` was the
+  industry org while its `userId` was the enforcement inspector — a cross-org row CLAUDE.md §3.7 makes
+  impossible — and it carried a `geo` and a `district` that `01-architecture.md` §10 says Mode B never
+  collects, contradicting `geoForScan`, which the app enforces at capture. It is now an enforcement
+  inspection, which is what everything else about it already said.
+- **One list, two tabs.** Mode A reaches it through Inspections and Mode B through History; building
+  it twice would have meant two places to forget that Mode B has no district filter. `toQuery` drops
+  `district` for Mode B **at the point the request is built**, so a future screen that forgets to hide
+  the control still cannot send one.
+- `FlatList` with `getItemLayout` over a fixed `SCAN_ROW_HEIGHT` exported by the row, so the list
+  never measures a row. Without it two hundred rows are measured on every scroll and the stutter is
+  impossible to attribute afterwards.
+- **Every row shows all four verdict counts, including the zeroes**, rather than a headline verdict. A
+  single badge would need a rule for ranking the four, and any such rule is one step from "this scan
+  failed" appearing on a pack whose only mark was a BORDERLINE.
+- **Two different empty states.** "No scans yet" and "nothing matches those filters" look the same and
+  mean opposite things; only one of them has an action. The filter bar also always states how many
+  filters are narrowing the list, because a list showing a fraction of the data and looking like all
+  of it is how someone concludes a scan was lost and re-photographs a pack.
+- Date presets — Today, Last 7 days, Last 30 days — computed from a `now` that is **passed in**, never
+  `Date.now()` in a render. `toIsoDate` builds a local calendar date rather than slicing an ISO
+  string, which would give the UTC day and file every evening scan in India under tomorrow. A
+  hand-picked range reports as `custom` rather than lighting up a preset chip the user did not choose.
+- A reversed date range is **put the right way round**, not answered with an empty list: someone who
+  picked the dates in the wrong order asked a clear question.
+- The mock's `to` filter compares against the end of that day. Comparing a `YYYY-MM-DD` against a full
+  timestamp would silently drop every scan taken after midnight on the last day of the range — the
+  most recent ones.
+
+**Deferred, deliberately:** Mode B's "filter by brand and SKU". `ProductProfile` has neither field —
+there is a `name` and, on `Product`, a `gtin`. Inventing a brand and an SKU on the product model to
+satisfy a filter would be the wrong order of work; SKUs become real in Stage 12's bulk listing check,
+which is where the model should gain them. Mode B gets the product filter and free-text search in the
+meantime. See flag 25.
 
 **Done when:** filtering 200 seeded scans by `verdict=FAIL` returns only scans with at least one
 FAIL, within 500 ms. Measure it and record the number.
+**Measured:** **0.020 ms per pass** — filtering and paging all 220 seeded scans by `verdict=FAIL`,
+mean of 200 passes after a warm-up, on the development machine through the mock transport. The test
+prints it (`__tests__/history.test.ts`) so the number in this document is one that was actually taken;
+it is timed in bulk because a single pass lands under the millisecond clock and would record 0 ms.
+That is the filter cost only — what remains on a device is the list render, which `getItemLayout`
+exists to bound and which item 2 of the checklist measures.
+**Verified:** lint 0 · tsc clean · 474 tests pass (44 new) · prettier clean · `expo export --platform
+android` bundles at 5.0 MB. No new dependency.
+**Not verified:** scroll smoothness through 220 rows on real hardware, and Devanagari in the filter
+chips.
+
+**Device checklist for this stage**
+
+1. Sign in as **industry** and open **History**. The list fills with past scans, newest first, each
+   showing four verdict counts.
+2. Scroll to the bottom fast. It should stay smooth and keep loading pages; time from tapping the tab
+   to the first rows appearing — that is the number FR-09 cares about on hardware.
+3. Filters → **Fail**. Every row shown has a non-zero count in the first (red) position.
+4. Filters → **Borderline**. The list changes, and it is *not* the same list as Fail — at least one
+   scan appears here that did not appear there. This is the acceptance test for the whole stage.
+5. Tapping the selected verdict chip again clears it; one tap undoes one tap.
+6. Type a product name into Search: the list narrows. Clear it: the list returns.
+7. Filters → **Last 7 days**, then **Today**. The counts change and the chip that is selected is the
+   one you tapped.
+8. Set filters that match nothing (a product plus a date range): "Nothing matches those filters", with
+   a Clear button — not the "No scans yet" empty state.
+9. The filter button reads "Filters (2)" when two are active, so a narrowed list never looks like the
+   whole archive.
+10. Sign in as **enforcement** and open **Inspections**: the same list, plus a **District** filter.
+    Filter by Nadia and check every row shows that district.
+11. Back in industry mode: **there is no District filter at all.**
+12. Tap any row: it opens that scan.
+13. In हिन्दी: the filter chips, "Today"/"Yesterday" and the empty states read in Hindi without
+    clipping.
 
 ---
 
@@ -907,6 +1074,24 @@ droppable; nothing before it is.
     request. Null means no report has been issued. If the backend would rather expose
     `GET /v1/scans/{id}/reports`, `editingLocked` changes in one place. **Agree before Stage 9**, which
     is what sets it.
+23. **Report generation is asynchronous and TRD §5 defines nothing to poll.** §5 has
+    `POST /v1/scans/{id}/report` and no way to ask again. Rendering an annotated PDF is S10 of the
+    pipeline, so Stage 9 assumes the POST returns a report with `status: 'pending'` and
+    `GET /v1/reports/{reportId}` returns the same shape until it leaves that state. `Report` also
+    gained `formats`, `requestedAt`, `generatedAt | null` and `error | null`. `formats` is kept
+    alongside `files` on purpose: a report that came back ready with one of two requested documents
+    must be visible as a short delivery rather than looking like the user only asked for one.
+    **Agree before Stage 13.**
+24. **`ScanListItem` needs a `productId`.** FR-09 filters by product, and the list row carried only a
+    `productName` — two products can share a name, and a filter matching on text would quietly fold
+    them together. Stage 10 added `productId: string | null`, null for a scan whose profile was typed
+    in and never matched to a catalogue product.
+25. **TRD §5 has no search parameter, and no brand or SKU anywhere.** Stage 10 assumes
+    `GET /v1/scans?q=` as free text over the product name. Separately, the frontend plan's Mode B row
+    asks for "filter by brand and SKU" and **neither field exists on `ProductProfile`** — there is a
+    `name`, and a `gtin` on `Product`. Inventing them to satisfy a filter would be the wrong order of
+    work; SKUs become real in Stage 12's bulk listing check, which is where the product model should
+    gain them. **Decide with the backend before Stage 12.**
 
 ---
 
@@ -923,3 +1108,5 @@ droppable; nothing before it is.
 | 2026-09-12 | Stage 6 completed. The in-memory draft was replaced by a SQLite row from the first shutter press; no outbox table; `Transport` grew `upload`; flag 18 added. |
 | 2026-09-12 | Stage 7 completed. `pipelineStage` added to the domain; crops are a transform rather than a file; the mock's `llm-unavailable` path implemented; the queue now polls processing scans to completion. Flags 19 and 20 added. |
 | 2026-09-12 | Stage 8 completed. One inverted transform serves both the outlines and the taps; four verdict groups kept structurally; a 10 mm scale bar that disappears without a marker; Mode A's evidence panel reads the *raw* image hash only. Flags 21 and 22 added, both API contract gaps. |
+| 2026-09-12 | Stage 9 completed. Provisional verdicts **block** a report rather than warning; a degraded-but-final run is issued flagged. Generation is async and polled. The mock writes genuinely valid PDF and DOCX files. `Transport` grew `download`. Flag 23 added. |
+| 2026-09-12 | Stage 10 completed. Single-select verdict filter over one count each; the seeded set gained a borderline-only bucket that can actually catch a merge; the hero scan's cross-org and Mode-B-location inconsistencies fixed. Filter measured at 0.020 ms per pass over 220 scans. Flags 24 and 25 added. |

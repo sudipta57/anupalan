@@ -15,6 +15,7 @@ export const SCENARIOS = [
   'no-marker',
   'low-confidence',
   'llm-unavailable',
+  'report-failed',
   'offline',
   'server-error',
 ] as const;
@@ -26,6 +27,9 @@ export const SCENARIO_LABELS: Record<Scenario, string> = {
   'no-marker': 'No marker detected',
   'low-confidence': 'Low-confidence field',
   'llm-unavailable': 'LLM unavailable',
+  // Not in architecture §11's table: report generation is S10 and can fail on its own, and the
+  // screen has to handle a `failed` report whether or not §11 lists it.
+  'report-failed': 'Report generation fails',
   offline: 'Offline',
   'server-error': 'Server error',
 };

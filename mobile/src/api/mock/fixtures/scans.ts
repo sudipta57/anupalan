@@ -43,9 +43,16 @@ function buildSummary(rand: () => number): FindingsSummary {
 
   // Most real labels pass most rules. A set where half the scans fail would make the history
   // screen look impressive and teach us nothing about the common case.
-  if (roll < 0.55)
+  if (roll < 0.5)
     return { pass: 12 + Math.floor(rand() * 2), fail: 0, borderline: 0, notAssessable: 1 };
-  if (roll < 0.85)
+
+  // **Borderline and nothing else.** Without this bucket every borderline in the set would sit
+  // beside a failure, and a verdict filter that merged the two — `fail > 0 || borderline > 0` —
+  // would return an identical list and pass every test written against this data. This is the one
+  // shape that catches the collapse CLAUDE.md §3.4 forbids, so the fixture has to contain it.
+  if (roll < 0.62) return { pass: 11, fail: 0, borderline: 1, notAssessable: 1 };
+
+  if (roll < 0.87)
     return { pass: 10, fail: 1 + Math.floor(rand() * 2), borderline: 1, notAssessable: 1 };
   return { pass: 7, fail: 3 + Math.floor(rand() * 3), borderline: 1, notAssessable: 2 };
 }
@@ -69,6 +76,7 @@ function generate(): ScanListItem[] {
     items.push({
       id: `scn_seed_${String(i).padStart(3, '0')}`,
       orgId: enforcement ? ENFORCEMENT_ORG.id : INDUSTRY_ORG.id,
+      productId: product.id,
       productName: product.profile.name,
       status,
       // Spread back over roughly six months, newest first.
@@ -89,6 +97,7 @@ function generate(): ScanListItem[] {
 const HERO_ITEM: ScanListItem = {
   id: HERO_SCAN.id,
   orgId: HERO_SCAN.orgId,
+  productId: HERO_SCAN.productId,
   productName: HERO_SCAN.profile.name,
   status: HERO_SCAN.status,
   capturedAt: HERO_SCAN.capturedAt,

@@ -43,10 +43,32 @@ export interface UploadSpec {
   signal?: AbortSignal;
 }
 
+/**
+ * Fetching one generated report to local storage.
+ *
+ * The mirror image of `UploadSpec`, and separate from `request` for the same reasons: it is file
+ * bytes rather than a JSON envelope, the URL is presigned by the API and served by object storage,
+ * and our `Authorization` header must not travel to a third-party host.
+ *
+ * It exists at all because a share sheet needs a **file**. Handing Android an https URL produces an
+ * intent that most apps cannot open, so the bytes come down first and the share is over a local
+ * `file://` URI (FR-08).
+ */
+export interface DownloadSpec {
+  /** The presigned source from the report's `files[].uri`. */
+  url: string;
+  headers: Record<string, string>;
+  /** `file://` destination. Overwritten if it already exists, so a re-share is not an error. */
+  fileUri: string;
+  signal?: AbortSignal;
+}
+
 export interface Transport {
   request<T>(spec: RequestSpec): Promise<T>;
   /** Resolves on success; rejects with an `ApiError` otherwise, so the queue's retry policy sees one shape. */
   upload(spec: UploadSpec): Promise<void>;
+  /** Writes the file at `spec.fileUri`. Rejects with an `ApiError` on any non-2xx or transport failure. */
+  download(spec: DownloadSpec): Promise<void>;
 }
 
 export const transport: Transport =

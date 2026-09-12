@@ -90,7 +90,7 @@ export interface Scan {
   status: ScanStatus;
   /**
    * Where in the pipeline, while `status` is `processing`. Null when the server does not say — see
-   * `PipelineStage` and flag 19 in `docs/04-frontend-plan.md`.
+   * `PipelineStage` and flag 19 in `docs/05-frontend-plan.md`.
    */
   pipelineStage: PipelineStage | null;
   profile: ProductProfile;
@@ -105,7 +105,7 @@ export interface Scan {
    *
    * Mode A locks editing once it is set: after issue the findings are the evidence record, and a
    * value corrected afterwards would leave a report in circulation that its own source no longer
-   * agrees with (`01-architecture.md` §10, and flag 22 in `docs/04-frontend-plan.md`).
+   * agrees with (`01-architecture.md` §10, and flag 22 in `docs/05-frontend-plan.md`).
    */
   reportIssuedAt: IsoDateTime | null;
   issues: ScanIssue[];
@@ -130,6 +130,14 @@ export interface Region {
 export interface ScanListItem {
   id: string;
   orgId: string;
+  /**
+   * Which product this scan was of, for the history filter (FR-09).
+   *
+   * An id rather than the name, because two products can share a name and a filter that matched on
+   * text would quietly fold them together. Null for a scan whose profile was entered by hand and
+   * never matched to a catalogue product. See flag 24 in `docs/05-frontend-plan.md`.
+   */
+  productId: string | null;
   productName: string;
   status: ScanStatus;
   capturedAt: IsoDateTime;

@@ -80,6 +80,7 @@ function RootNavigator() {
           <Stack.Screen name="queue" options={{ title: t('queue.title') }} />
           <Stack.Screen name="scan/[id]/index" options={{ title: t('processing.title') }} />
           <Stack.Screen name="scan/[id]/findings" options={{ title: t('findings.title') }} />
+          <Stack.Screen name="scan/[id]/report" options={{ title: t('report.title') }} />
           {/* A sheet, so the scan stays behind it — the verdicts being confirmed are the context. */}
           <Stack.Screen
             name="scan/[id]/confirm"

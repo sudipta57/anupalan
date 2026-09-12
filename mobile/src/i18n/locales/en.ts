@@ -287,6 +287,63 @@ export const en = {
       'The audit chain is computed where the image is stored, not on this phone — a hash this app calculated would only cover what this app chose to send. Until the backend is connected these are fixture values.',
   },
 
+  report: {
+    title: 'Report',
+    subtitle: 'Generate a PDF and a DOCX from this scan, then share them.',
+    intro:
+      'The report carries the findings table, the annotated label, both hashes and the rule pack version. It is the document someone else will read, so it is generated from the verdicts as they stand now.',
+
+    formatPdf: 'PDF',
+    formatPdfHint: 'For sending and printing. Annotated label and findings table.',
+    formatDocx: 'Word (DOCX)',
+    formatDocxHint: 'Same content, with the findings as a real editable table.',
+    formatJson: 'JSON',
+    formatJsonHint: 'Machine-readable. Fetched from the API, not shared from here.',
+    chooseFormats: 'Formats',
+    chooseFormatsBody: 'At least one. Both are generated together.',
+
+    generate: 'Generate the report',
+    generating: 'Generating…',
+    generatingBody:
+      'The annotated image and the findings table are rendered on the server. This usually takes a few seconds.',
+    regenerate: 'Generate again',
+
+    readyTitle: 'Report ready',
+    readyBody: 'Generated {at}.',
+    share: 'Share {format}',
+    sharing: 'Opening the share sheet…',
+    shareUnavailable: 'This device has nothing to share to.',
+    shareFailed: 'That file could not be prepared for sharing. Try again.',
+    downloadHint:
+      'The file is copied to this device before sharing, so it works offline afterwards.',
+
+    failedTitle: 'The report could not be generated',
+    failedBody:
+      'Nothing about the scan has changed. Its findings are still on the previous screen.',
+    timedOutTitle: 'This is taking longer than it should',
+    timedOutBody:
+      'The report service has not answered in ninety seconds. Asking again renders it a second time, so give it a moment first.',
+    emptyFile: 'This file came back empty and cannot be shared. Generate the report again.',
+    missingFormats: 'The server did not produce: {formats}.',
+
+    blockIncomplete: 'This scan has no findings yet',
+    blockIncompleteBody:
+      'A report can only be generated once the pipeline has finished. The scan screen shows where it is.',
+    blockProvisional: 'Confirm the low-confidence fields first',
+    blockProvisionalBody:
+      'A rule evaluated against a misread value can fail a pack that actually complies. A screen can carry that caveat; a PDF in someone else\u2019s inbox cannot be taken back, so the report waits until the fields are confirmed.',
+    blockNoFindings: 'There is nothing to report',
+    blockNoFindingsBody:
+      'This scan produced no findings at all, which is itself worth investigating before a report is issued.',
+    openConfirm: 'Confirm the fields',
+
+    integrity: 'What the report will carry',
+    verdictCounts: 'Verdicts',
+    issuedNotice: 'Issuing a report closes this record',
+    issuedNoticeBody:
+      'In enforcement mode, values can no longer be corrected once a report exists — the document embeds their hash.',
+  },
+
   queue: {
     title: 'Upload queue',
     subtitle: 'Scans wait here until there is a network. Nothing is lost by going offline.',
@@ -454,6 +511,27 @@ export const en = {
 
   history: {
     title: 'History',
+    subtitle: 'Every scan you have completed, newest first.',
+    search: 'Search',
+    searchPlaceholder: 'Product name',
+    filters: 'Filters',
+    filtersActive: 'Filters ({count})',
+    clear: 'Clear filters',
+    filterVerdict: 'Verdict',
+    filterVerdictHint:
+      'One at a time. Borderline is not a failure, so a failures filter never includes it.',
+    filterRange: 'Date',
+    rangeAny: 'Any date',
+    rangeToday: 'Today',
+    rangeWeek: 'Last 7 days',
+    rangeMonth: 'Last 30 days',
+    filterProduct: 'Product',
+    filterDistrict: 'District',
+    today: 'Today',
+    yesterday: 'Yesterday',
+    noMatches: 'Nothing matches those filters',
+    noMatchesBody:
+      'Every scan is still here. Widen the date range or clear the filters to see them.',
     empty: 'No scans yet',
     emptyBody: 'Scans you complete will be listed here, filterable by date, product and verdict.',
   },

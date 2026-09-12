@@ -482,9 +482,9 @@ of `Protected` — rejected because the screen mounts and fetches first. Setting
 rejected because Android truncates labels at five.
 **Consequences:** Two MMKV instances, so signing out cannot take preferences with it. The refresh
 token sits in unencrypted MMKV until `expo-secure-store` is approved — recorded as flag 11 in
-`04-frontend-plan.md`. One subscription in `AppProviders` empties the query cache whenever the org
+`05-frontend-plan.md`. One subscription in `AppProviders` empties the query cache whenever the org
 id changes, which is the only thing stopping cached org-scoped data from crossing accounts on a
-shared phone. Three contract gaps now need agreeing with the backend, all in `04-frontend-plan.md`:
+shared phone. Three contract gaps now need agreeing with the backend, all in `05-frontend-plan.md`:
 no refresh endpoint, no session endpoint, and snake_case in TRD §5 against camelCase in the client.
 **PR:** n/a (Stage 2) · **Requirement:** n/a
 
@@ -535,7 +535,7 @@ case is a shutter enabled by a stale all-green report.
 **Consequences:** The gate policy is fully tested with no device, including every threshold
 boundary. What is **not** tested anywhere is the camera itself — preview, permissions,
 `capturePhoto`, the disk write — so FR-01 is code-complete and not done until the device checklist
-in `04-frontend-plan.md` Stage 4 has been walked (flag 15). Captures are written to the document
+in `05-frontend-plan.md` Stage 4 has been walked (flag 15). Captures are written to the document
 directory, not the cache, because FR-04 requires them to survive a force-close and the system
 deletes caches under storage pressure. An abandoned capture stays on disk until Stage 6's queue
 adopts it; losing an inspector's photograph is the worse of the two failures.
@@ -672,3 +672,78 @@ the edge of a label focuses off-centre, which is correct and is documented on `f
 filed as a bug. Pinch smoothness is now a device question rather than a settled one. FR-05 is
 code-complete, not done, until the Stage 8 device checklist has been walked.
 **PR:** n/a (Stage 8) · **Requirement:** FR-05
+
+### 2026-09-12 — A provisional verdict blocks a report rather than warning on one, and the mock writes real files
+
+**Context:** FR-08 asks for PDF and DOCX generated from a completed scan and handed to the share
+sheet. Two questions sat underneath it. First: what should happen when the scan's verdicts are still
+provisional? Stage 7 already makes an unconfirmed low-confidence field mark every verdict on a scan
+provisional, and Stage 8's findings screen carries that as a banner. Second: what should the mock hand
+to the share sheet, given that bundling a `.pdf` needs a `metro.config.js` asset extension and
+approval (flag 13)?
+**Decision:** `blocksReport` refuses. A findings *screen* may show provisional verdicts behind a
+caveat, because the reader is holding the phone and the next scan replaces it; a PDF leaves the
+device, embeds a findings hash, quotes gazette citations beside a millimetre and cannot be retracted
+from an inbox, so a report over a misread MRP is CLAUDE.md §3.4's failure mode made permanent and
+distributable. A **degraded-but-final** run is not blocked: `01-architecture.md` §11 issues those
+flagged, and withholding one would leave an inspector with no record of an inspection they made — so
+no-marker and reduced-extraction warn and travel with the document. Generation is asynchronous:
+`Report` gained `status`, `formats`, `requestedAt`, `generatedAt | null` and `error | null`, and the
+app polls `GET /reports/{id}`. `Transport` grew a `download`, the mirror of Stage 6's `upload`, because
+a share sheet needs a file rather than an https URL. `scripts/make-sample-report.py` generates a real
+PDF 1.4 with the annotated label embedded as a JPEG and a real OOXML package whose findings table is a
+`<w:tbl>`, emitted as base64 and written by `File.write(…, { encoding: 'base64' })`.
+**Alternatives:** Generating the report with a disabled button and a caption — rejected: a control
+that looks available and is not teaches people to hunt for a way around it, and the explanation
+belongs where the decision is made. Blocking degraded runs too — rejected as above; it confuses "a
+question is unanswered" with "a limitation is stated". A POST that blocks until the PDF is rendered —
+rejected: it ties a share button to a render that takes seconds and can fail, with nothing to show
+either way. Resolving the mock's download without writing bytes — rejected: "both files open in an
+external viewer" would then pass in testing and fail in front of a judge. Bundling the sample files as
+assets — rejected for now: it needs a `metro.config.js` change and approval, and base64 costs 47 KB in
+a folder that is deleted at Stage 13 anyway. Offering JSON in the share sheet — rejected: it is a real
+report format whose home is the API, and in a share sheet it invites sending a machine artefact to a
+trader who cannot read it.
+**Consequences:** Two contract additions TRD §5 does not have (flag 23), and a `report-failed` mock
+scenario beyond §11's table, because S10 can fail on its own and the screen must handle it. Report
+files land in the cache rather than the document directory — the phone is not their archive — under a
+deterministic filename, so re-sharing overwrites instead of accumulating `report(1).pdf`. The report
+screen is reachable only from the findings screen, so nobody sends a document over verdicts they never
+opened. FR-08 is code-complete, not done, until the Stage 9 device checklist has been walked — nothing
+in a test runner can open a PDF.
+**PR:** n/a (Stage 9) · **Requirement:** FR-08
+
+### 2026-09-12 — The verdict filter is single-select, and the fixture now contains a scan that can prove it
+
+**Context:** FR-09 filters past scans by date, product, verdict and (Mode A) location. A verdict
+filter is the easiest place in the entire app to collapse BORDERLINE into FAIL, and the collapse does
+not look like a bug: a "problems" filter returning `fail > 0 || borderline > 0` gives a longer list in
+which every scan really does have something on it. Building the filter surfaced two further things —
+that the 220-scan fixture could not distinguish the merged filter from the correct one, and that the
+hero scan was internally inconsistent.
+**Decision:** The filter is single-select and `matchesVerdict` is a switch that reads exactly one
+field of `FindingsSummary`; the module deliberately exports no helper taking a set of verdicts, and
+the mock imports the same predicate so fixture data and app cannot disagree about what "has a FAIL"
+means. `buildSummary` gained a **borderline-without-failure** bucket: every borderline in the seeded
+set previously sat beside a failure, so a merged filter would have returned an identical list and
+passed every test written against that data. The hero scan became an enforcement inspection — it was
+owned by the industry org while recorded by the enforcement inspector (a cross-org row CLAUDE.md §3.7
+makes impossible) and carried a `geo` and `district` that §10 says Mode B never collects, contradicting
+`geoForScan`. One `ScanList` serves both tabs, and `toQuery` drops `district` for Mode B where the
+request is built rather than only hiding the control.
+**Alternatives:** A multi-select verdict filter — rejected: it lets someone ask for "FAIL and
+BORDERLINE" and read the answer as a count of problems, which is the forbidden collapse wearing a
+filter's clothes. A headline verdict per row instead of four counts — rejected: it needs a ranking
+rule, and any such rule is one step from "this scan failed" on a pack whose only mark was a
+BORDERLINE. Filtering client-side over the cached pages — rejected: the cost then grows with the
+archive, and the 500 ms criterion would quietly become a function of how long someone has used the
+app. `Date.now()` for the date presets — rejected: impure in a render, and React's own rule forbids
+it; `now` is a parameter everywhere. Answering a reversed date range with an empty list — rejected:
+the user asked a clear question and an empty list answers a different one, so the range is swapped.
+**Consequences:** `ScanListItem` gained a `productId` and `ListScansQuery` a `q` (flags 24 and 25).
+Mode B's "filter by brand and SKU" is deferred: neither field exists on `ProductProfile`, and
+inventing them for a filter is the wrong order of work — SKUs become real in Stage 12. The filter
+measures **0.020 ms per pass** over all 220 seeded scans, timed in bulk because one pass lands under
+the millisecond clock; what remains on a device is the list render, bounded by `getItemLayout` and
+confirmed only by the checklist.
+**PR:** n/a (Stage 10) · **Requirement:** FR-09

@@ -24,7 +24,7 @@ import type { AuthTokens } from '@/domain';
 import { getAuthBridge } from './auth-bridge';
 import { API_BASE_URL, API_PREFIX } from './config';
 import { ApiError } from './errors';
-import type { RequestSpec, Transport, UploadSpec } from './transport';
+import type { DownloadSpec, RequestSpec, Transport, UploadSpec } from './transport';
 
 const REFRESH_PATH = '/auth/refresh';
 
@@ -185,6 +185,34 @@ async function putFile(spec: UploadSpec): Promise<void> {
   }
 }
 
+/**
+ * Fetch one generated report to a local path.
+ *
+ * `idempotent: true` because re-sharing the same report is an ordinary thing to do and must not fail
+ * on "destination already exists". On Android the response streams straight into the target file, so
+ * a download that dies half way can leave a partial file behind — which is why the caller writes to a
+ * name derived from the report and overwrites it, rather than accumulating attempts.
+ *
+ * Unlike `File.upload`, this **rejects** on a non-2xx, so there is no status to check here. An expired
+ * presigned URL surfaces as an `ApiError` the screen can explain rather than a zero-byte PDF handed to
+ * a share sheet.
+ */
+async function getFile(spec: DownloadSpec): Promise<void> {
+  try {
+    await File.downloadFileAsync(spec.url, new File(spec.fileUri), {
+      headers: spec.headers,
+      idempotent: true,
+    });
+  } catch (cause) {
+    throw new ApiError({
+      code: 'download_failed',
+      message: 'That report could not be downloaded.',
+      status: 0,
+      details: cause,
+    });
+  }
+}
+
 export function createLiveTransport(): Transport {
   return {
     async request<T>(spec: RequestSpec): Promise<T> {
@@ -198,5 +226,6 @@ export function createLiveTransport(): Transport {
     },
 
     upload: putFile,
+    download: getFile,
   };
 }

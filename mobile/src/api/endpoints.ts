@@ -16,6 +16,7 @@ import type {
   CreateScanBody,
   CreateScanResponse,
   GetFindingsResponse,
+  GetReportResponse,
   GetScanResponse,
   ListProductsQuery,
   ListProductsResponse,
@@ -73,6 +74,9 @@ export const api = {
       path: `/scans/${scanId}/report`,
       body,
     }),
+
+  getReport: (reportId: string) =>
+    transport.request<GetReportResponse>({ method: 'GET', path: `/reports/${reportId}` }),
 
   askSahayak: (body: SahayakAskBody) =>
     transport.request<SahayakAskResponse>({ method: 'POST', path: '/sahayak/ask', body }),

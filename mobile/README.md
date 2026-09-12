@@ -151,7 +151,7 @@ Each `src/` folder carries an `index.ts` naming the TRD requirements it will imp
 shell, theme, i18n and shared primitives landed in Stage 0; domain types and the dummy-data engine
 in Stage 1. The feature screens arrive in this order: Capture → Context form → Processing →
 Findings → Report → History → Sahayak. Status per stage lives in
-[docs/04-frontend-plan.md](../docs/04-frontend-plan.md), which is updated in the same change that
+[docs/05-frontend-plan.md](../docs/05-frontend-plan.md), which is updated in the same change that
 completes a stage.
 
 ---

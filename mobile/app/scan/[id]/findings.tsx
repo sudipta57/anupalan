@@ -710,6 +710,21 @@ function Loaded({ scan, result }: { scan: Scan; result: FindingsResult }) {
           <Banner tone="info" title={t('findings.lockedTitle')} body={t('findings.lockedBody')} />
         ) : null}
 
+        {/* The only way to a report. Issuing one is a decision taken *after* reading the findings,
+            and a shortcut from the summary screen would let someone send a document over verdicts
+            they never opened. */}
+        <Card>
+          <Text variant="heading">{t('report.title')}</Text>
+          <Text variant="body" tone="muted">
+            {t('report.subtitle')}
+          </Text>
+          <Button
+            label={t('report.generate')}
+            variant="secondary"
+            onPress={() => router.push(`/scan/${scan.id}/report`)}
+          />
+        </Card>
+
         {showsEvidence(mode) ? <EvidencePanel scan={scan} result={result} /> : null}
 
         <AdvisoryDisclaimer detailed />

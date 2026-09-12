@@ -2,7 +2,7 @@
  * Location policy for a scan — Mode A only.
  *
  * Mode A is a field inspection, and its output may end up in an enforcement file, so a scan carries
- * where and when it was taken (`04-frontend-plan.md` Stage 5, `01-architecture.md` §10). Mode B is a
+ * where and when it was taken (`05-frontend-plan.md` Stage 5, `01-architecture.md` §10). Mode B is a
  * brand checking its own artwork before print: there is nothing to geo-tag and no justification for
  * collecting it, so **Mode B never collects location at all**.
  *

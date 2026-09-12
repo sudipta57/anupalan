@@ -51,6 +51,6 @@ export const storage: ClearableStore = wrap(createMMKV({ id: 'anupalan.preferenc
  * refresh token off disk. The right home for it is the Android Keystore via `expo-secure-store`,
  * which is a new dependency and so needs approval (CLAUDE.md §7). The store is deliberately
  * behind this one interface so that swap is a one-file change — see flag 11 in
- * `docs/04-frontend-plan.md`.
+ * `docs/05-frontend-plan.md`.
  */
 export const authStorage: ClearableStore = wrap(createMMKV({ id: 'anupalan.session' }));

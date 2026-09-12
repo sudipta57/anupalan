@@ -6,7 +6,7 @@
  *
  * The split is the same one every stage has used: anything that could be **wrong** is pure and pinned
  * here; anything that can only be **unplugged** — a pinch on glass, a Devanagari line breaking, an
- * image that fails to decode — is on the device checklist in `docs/04-frontend-plan.md`.
+ * image that fails to decode — is on the device checklist in `docs/05-frontend-plan.md`.
  *
  * The geometry gets the most attention because it is the part that fails quietly. A box drawn two
  * hundred pixels from the text it names still looks like a box, and a tap that resolves to the wrong

@@ -50,7 +50,7 @@ export type OtpVerifyResponse = Session;
  * Trading a refresh token for a new pair.
  *
  * **Not in the TRD §5 contract.** Refresh-on-401 is pointless without it, so the client assumes
- * this shape — see flag 8 in `docs/04-frontend-plan.md`. Agree it with the backend before Stage 13.
+ * this shape — see flag 8 in `docs/05-frontend-plan.md`. Agree it with the backend before Stage 13.
  */
 export interface RefreshBody {
   refreshToken: string;
@@ -74,7 +74,7 @@ export type ListProductsResponse = Page<Product>;
  * Creating a scan.
  *
  * `capturedAt`, `geo` and `district` are **not in the TRD §5 contract** — see flag 16 in
- * `docs/04-frontend-plan.md`. All three are fields of `Scan`, so the server has to learn them from
+ * `docs/05-frontend-plan.md`. All three are fields of `Scan`, so the server has to learn them from
  * somewhere, and the client is the only party that knows them:
  *
  * - `capturedAt` is when the shutter fired, not when the request arrived. On a queued scan those
@@ -120,8 +120,17 @@ export interface SubmitScanResponse {
  * selectable and none implies another — "failures" never silently includes BORDERLINE.
  */
 export type ListScansQuery = {
+  /**
+   * Exactly one verdict, never a set.
+   *
+   * A multi-select would let someone ask for "FAIL and BORDERLINE" and read the answer as a count of
+   * problems, which is the collapse CLAUDE.md §3.4 forbids wearing a filter's clothes. One verdict
+   * per question keeps the four values four.
+   */
   verdict?: Verdict;
   productId?: string;
+  /** Free-text over the product name. See flag 25 — TRD §5 defines no search parameter. */
+  q?: string;
   district?: string;
   from?: string;
   to?: string;
@@ -147,6 +156,14 @@ export interface CreateReportBody {
 }
 
 export type CreateReportResponse = Report;
+
+/**
+ * Polling one report to completion.
+ *
+ * TRD §5 defines the request and nothing to poll, so Stage 9 assumes `GET /v1/reports/{reportId}`
+ * returning the same shape until `status` leaves `pending`. See flag 23.
+ */
+export type GetReportResponse = Report;
 
 // ---------------------------------------------------------------- sahayak
 

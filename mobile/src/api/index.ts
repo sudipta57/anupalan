@@ -20,6 +20,6 @@ export { api } from './endpoints';
 export { imageSourceFor } from './asset-source';
 export { queryKeys } from './keys';
 export { transport } from './transport';
-export type { RequestSpec, Transport } from './transport';
+export type { DownloadSpec, RequestSpec, Transport, UploadSpec } from './transport';
 export * from './hooks';
 export type * from './types';

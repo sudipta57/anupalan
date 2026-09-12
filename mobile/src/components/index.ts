@@ -31,6 +31,8 @@ export {
 export type { IconProps } from './icons';
 export { RegionCrop } from './region-crop';
 export type { RegionCropProps } from './region-crop';
+export { SCAN_ROW_HEIGHT, ScanRow } from './scan-row';
+export type { ScanRowProps } from './scan-row';
 export { Screen } from './screen';
 export type { ScreenProps } from './screen';
 export { SegmentedControl } from './segmented-control';
