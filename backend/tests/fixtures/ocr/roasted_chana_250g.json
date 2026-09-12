@@ -1,0 +1,14 @@
+[
+  {"text": "Kalyani Foods Pvt Ltd", "polygon": [[120, 80], [520, 80], [520, 118], [120, 118]], "confidence": 0.97, "language": "en"},
+  {"text": "12 GT Road, Kalyani, Nadia", "polygon": [[120, 124], [548, 124], [548, 156], [120, 156]], "confidence": 0.94, "language": "en"},
+  {"text": "West Bengal 741235", "polygon": [[120, 160], [438, 160], [438, 192], [120, 192]], "confidence": 0.95, "language": "en"},
+  {"text": "Roasted Chana", "polygon": [[120, 230], [430, 230], [430, 286], [120, 286]], "confidence": 0.99, "language": "en"},
+  {"text": "भुना चना", "polygon": [[120, 292], [330, 292], [330, 344], [120, 344]], "confidence": 0.88, "language": "hi"},
+  {"text": "Net Qty: 250 g", "polygon": [[120, 380], [388, 380], [388, 424], [120, 424]], "confidence": 0.96, "language": "en"},
+  {"text": "MRP Rs. 120.00", "polygon": [[120, 440], [402, 440], [402, 484], [120, 484]], "confidence": 0.93, "language": "en"},
+  {"text": "(inclusive of all taxes)", "polygon": [[120, 488], [426, 488], [426, 516], [120, 516]], "confidence": 0.89, "language": "en"},
+  {"text": "Mfg: 03/2026", "polygon": [[120, 530], [352, 530], [352, 566], [120, 566]], "confidence": 0.92, "language": "en"},
+  {"text": "Best Before 9 months", "polygon": [[120, 572], [440, 572], [440, 604], [120, 604]], "confidence": 0.90, "language": "en"},
+  {"text": "Consumer Care: 1800110011", "polygon": [[120, 640], [560, 640], [560, 676], [120, 676]], "confidence": 0.91, "language": "en"},
+  {"text": "care@kalyanifoods.example", "polygon": [[120, 680], [548, 680], [548, 712], [120, 712]], "confidence": 0.86, "language": "en"}
+]

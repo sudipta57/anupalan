@@ -140,3 +140,59 @@ it. `render_html` is also independently useful — the layout can be opened in a
 development, and an HTML report is a plausible future delivery format. A second renderer must
 never be added that bypasses `ReportData`.
 **PR:** n/a (B11) · **Requirement:** FR-27
+
+### 2026-09-12 — Metric accuracy is bounded by a *relative* scale error, not an absolute one
+**Context:** FR-21 states "a printed test chart with known 10.00 mm bars measures 10.00 ± 0.25 mm".
+Implementing B5 against synthetic ground truth showed the dominant error is not a fixed
+millimetre budget: at 0° tilt, with no perspective at all, a coplanar object still read long.
+The cause is ArUco's corner localisation — roughly one pixel on a 200 px marker, i.e. **0.5%** —
+which propagates as a proportional scale error to everything in the frame.
+**Decision:** Read FR-21's ±0.25 mm as the 2.5% relative figure it is at 10 mm, and test it that
+way: a known 10 mm bar, coplanar with but independent of the marker. Measured 0.00–0.15 mm error
+across 0–25° tilt. Re-detecting the marker itself is explicitly *not* the test — the marker
+defined the scale, so it is guaranteed to come back right and proves nothing.
+**Alternatives:** Loosening the tolerance to an absolute ±0.5 mm so a 40 mm object passes —
+rejected as fitting the test to the code; it would also have hidden the fact that error scales
+with feature size.
+**Consequences:** Good news for the product: a 2 mm numeral inherits ~0.01 mm of scale error,
+far below the 0.25 mm default measurement uncertainty already in the rule pack, so glyph
+metrology is not scale-limited. It also gives the capture screen a real reason to tell users to
+move closer — a marker filling more pixels tightens the error proportionally. E1 must still be
+run on real photographs; synthetic images cannot exercise lens distortion or non-flat paper.
+**PR:** n/a (B5) · **Requirement:** FR-21
+
+### 2026-09-12 — Unmeasurable quality signals report None, never a reassuring default
+**Context:** ``quality()`` returns the FR-01 capture gates, including curvature, which
+`01-architecture.md` §12.2 uses to downgrade metric rules to NOT_ASSESSABLE on curved packs. But
+four coplanar marker corners always fit a homography exactly, so a marker carries **no**
+information about whether the package is curved.
+**Decision:** ``curvature`` is ``None`` until it is measured from the rectified text region
+(B7), and ``tilt_deg`` is ``None`` when no marker was found. ``None`` means "unknown"; it never
+means "fine".
+**Alternatives:** Returning ``0.0`` for curvature — rejected because it asserts flatness nobody
+measured, and §12.2's safeguard only works if the figure can be trusted.
+**Consequences:** Callers must handle ``None`` explicitly rather than comparing against a
+threshold. That is the point: an unhandled ``None`` is a visible bug, where a fabricated ``0.0``
+is a silent wrong answer in a legal report.
+**PR:** n/a (B5) · **Requirement:** FR-01, FR-21
+
+### 2026-09-12 — Security helpers fail closed; PaddleOCR is an optional extra
+**Context:** Two findings while building B4 and B6. First, ``strip_exif`` was written with a
+broad ``except`` that returned the original bytes on failure — and an invalid encoder argument
+made it fail on every call, so it silently returned **unstripped** images while appearing to
+work. Second, PaddleOCR pulls paddlepaddle plus native wheels and downloads model weights on
+first run, which CI must never do.
+**Decision:** ``strip_exif`` now raises ``StorageError`` if a payload is an image it cannot
+re-encode; only non-images pass through. A regression test pins the fail-closed behaviour.
+PaddleOCR moves to a ``[ocr]`` optional extra; ``services/vision/ocr.py`` resolves engines
+lazily, so the pipeline imports, type-checks and tests without it, with the stub adapter — which
+FR-22 requires to exist regardless — standing in.
+**Alternatives:** Logging the EXIF failure and continuing — rejected: a security function that
+fails open is worse than one that is absent, because it is believed. Making paddleocr a core
+dependency — rejected on CI cost and because it would make the interface's second implementation
+theoretical.
+**Consequences:** A malformed image now fails the upload path rather than being stored
+unstripped; that is the intended trade. ``app/services/vision/adapters/paddle.py`` sits at ~43%
+coverage locally since its body needs the real engine — the same shape as WeasyPrint's PDF path,
+and it needs a CI job with the extra installed before any pilot.
+**PR:** n/a (B4, B6) · **Requirement:** FR-20, FR-22, SR

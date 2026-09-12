@@ -118,6 +118,44 @@ sudo apt install -y libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libgdk-pixbuf-2.0
 To eyeball a report during development, render the HTML and open it in a browser — faster than
 producing a PDF to look at, and it is the same markup WeasyPrint consumes.
 
+### OCR and the `[ocr]` extra
+
+PaddleOCR is **not** a core dependency. It pulls `paddlepaddle` plus native wheels and downloads
+model weights on first run, which CI must never do. The pipeline imports, type-checks and tests
+without it:
+
+```bash
+pip install -e ".[dev]"          # everything except a real OCR engine
+pip install -e ".[dev,ocr]"      # add PaddleOCR, on a machine that actually runs it
+```
+
+Which engine runs is decided by `OCR_ENGINE` and nothing else (TRD FR-22 — swapping it changes no
+calling code):
+
+| `OCR_ENGINE` | Engine | Needs |
+|---|---|---|
+| `stub` | replays a committed dump from `tests/fixtures/ocr/` | nothing |
+| `paddle` | PaddleOCR PP-OCRv4 | the `[ocr]` extra |
+
+The stub is not scaffolding — FR-22 requires a second working implementation to prove the
+interface holds, and every downstream test uses it, because replaying a dump is deterministic and
+`evaluate()` must be byte-identical across runs.
+
+### A note on measurement accuracy
+
+`tests/test_rectify.py` validates rectification against **synthetic** images with known ground
+truth: 0.00–0.15 mm error on a 10 mm feature across 0–25° tilt, inside FR-21's ±0.25 mm.
+
+That is not the same as E1. Synthetic images cannot exercise lens distortion, motion blur,
+rolling shutter, or paper that is not flat, and **E1 has not been run** — it needs printed charts,
+a caliper and real captures (TRD §7). Until it is, the headline accuracy number is unproven on
+real photographs.
+
+One property worth internalising: the dominant error is *relative* (~0.5%, from ArUco corner
+localisation), not a fixed millimetre budget. A 2 mm numeral therefore inherits ~0.01 mm of scale
+error, well below the rule pack's 0.25 mm default uncertainty — and a marker filling more of the
+frame tightens it further, which is why the capture screen tells users to move closer.
+
 **Coverage floor.** `services/rules` and `services/vision` carry an 80% floor (`CLAUDE.md` §5) —
 these are the two places a bug is silent.
 
@@ -139,7 +177,9 @@ Update that file, not this section, when a package lands.
 | `app/config.py`, `app/db.py`, `app/main.py`, `app/worker.py`, `app/health.py` | Scaffolded and working. `GET /health` is real; no router is registered yet. |
 | `app/services/rules/` | **Implemented (B0–B3).** Rule pack validation with line-level errors, checksumming, the pure `evaluate()` interpreter over all seven rule kinds, findings assembly. 14 baseline cases green. |
 | `app/services/reporting/` | **Implemented (B11).** One `ReportData` structure; PDF (via HTML), DOCX and JSON all render from it, so they cannot disagree. Advisory disclaimer and both SHA-256 hashes in every format. |
-| `app/services/{vision,extraction,bis,llm}/` | Not started. |
+| `app/services/vision/` | **Implemented (B5, B6).** Marker detection + metric rectification; the `OCREngine` interface with two adapters. Glyph metrology (B7) not started. |
+| `app/services/storage.py` | **Implemented (B4).** Presigned R2 access, org-prefixed keys, sha256 on receipt, EXIF stripping. |
+| `app/services/{extraction,bis,llm}/` | Not started. |
 | `app/models/`, `app/repositories/`, `alembic/versions/` | Not started — no migration exists yet. |
 | `app/routers/*.py` | Docstrings only; zero routes registered. |
 

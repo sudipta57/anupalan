@@ -25,9 +25,11 @@ Audited against the working tree, not against the plan.
 | `app/models/`, `app/schemas/`, `app/repositories/` | **Empty `__init__.py`.** |
 | `app/services/rules/` | **Done (B0–B3).** `schema.py` validates with line-level errors, `loader.py` checksums and activates, `evaluate.py` interprets all seven rule kinds, `findings.py` assembles. 14 baseline cases green, 88% coverage. |
 | `app/services/reporting/` | **Implemented (B11).** `model.py` is the one structure PDF/DOCX/JSON all render from; `pdf.py` splits `render_html` (pure) from `render_pdf` (needs GTK3). Disclaimer and both hashes in every format. |
-| `app/services/{vision,extraction,bis,llm}/` | **Empty `__init__.py`.** |
+| `app/services/vision/` | **Implemented (B5, B6).** `marker.py` + `rectify.py` warp to `PX_PER_MM`; `ocr.py` is the FR-22 interface with stub and PaddleOCR adapters. Metrology (B7) not started. |
+| `app/services/storage.py` | **Implemented (B4).** Org-prefixed keys, presign-time limits, sha256 on receipt, fail-closed EXIF stripping. |
+| `app/services/{extraction,bis,llm}/` | **Empty `__init__.py`.** |
 | `alembic/` | Configured; `versions/` is empty. **Zero migrations.** |
-| `tests/` | `test_health.py`, `test_rules.py` (17), `test_rulepack_loader.py` (12), `test_findings.py` (7), `test_reporting.py` (11, one skipped without GTK3). `conftest.py` carries the fixture loaders and the `--update-golden` contract; `tests/fixtures/rulepacks/` holds the deliberately broken packs. |
+| `tests/` | 84 tests: `test_rules.py` (17), `test_rulepack_loader.py` (12), `test_findings.py` (7), `test_reporting.py` (11, one skipped without GTK3), `test_storage.py` (16), `test_rectify.py` (21), `test_ocr_interface.py` (15), `test_health.py` (1). `conftest.py` carries the fixture loaders and the `--update-golden` contract; `tests/fixtures/rulepacks/` holds the deliberately broken packs. |
 | `scripts/` | **Does not exist.** The three eval commands in `CLAUDE.md` §4 and `eval-results.md` have no module behind them. |
 | CI | ruff + mypy (strict on services) + pytest, no datastores. Green. |
 
@@ -79,9 +81,9 @@ track D — sahayak (independent of A/B, needs B12 for the pgvector tables)
 | ✅ B1 | Rule pack: validation, checksum, `RulePack` API | FR-26 | — | done | invalid pack rejected with a line number; previous pack stays active |
 | **✅ B2** | **`evaluate()` — the rules interpreter** | **FR-25** | B1 | **done** | **all 14 baseline cases pass; 1000-run byte-identity; no DB import in the module** |
 | ✅ B3 | Findings assembly + summary + `rulepack_version` stamping | FR-25 | B2 | done | every finding carries pack version, citation, bbox slot |
-| B4 | Object storage adapter (R2/S3), presign, sha256, EXIF strip | FR-20, SR | — | Oct 6 | presigned PUT/GET round-trips against the real bucket |
-| B5 | Marker detection + rectification to `PX_PER_MM` | FR-21 | P0 spike | Oct 6–8 | 10.00 mm bars measure 10.00 ± 0.25 mm on 20 captures |
-| B6 | `OCREngine` interface + PaddleOCR adapter + second adapter | FR-22 | — | Oct 8–10 | engine swap by config changes no calling code |
+| ✅ B4 | Object storage adapter (R2/S3), presign, sha256, EXIF strip | FR-20, SR | — | done | presigned PUT/GET round-trips against the real bucket |
+| ✅ B5 | Marker detection + rectification to `PX_PER_MM` | FR-21 | P0 spike | done (synthetic; E1 still owed) | 10.00 mm bars measure 10.00 ± 0.25 mm on 20 captures |
+| ✅ B6 | `OCREngine` interface + PaddleOCR adapter + second adapter | FR-22 | — | done | engine swap by config changes no calling code |
 | B7 | Glyph metrology + uncertainty + curvature downgrade | FR-23 | B5 | Oct 9–12 | ≥90% within ±0.3 mm on the E1 set |
 | B8 | `LLMProvider` interface + two adapters (hosted, open-weight) | §9 | — | Oct 10 | vendor name appears only in config + adapter |
 | B9 | Extraction: regex layer, normalisation, LLM layer, span validation | FR-24 | B8 | Oct 11–14 | regex recall ≥0.8, +LLM ≥0.95 on 20 fixtures; every value has a verified `source_span` |
@@ -678,9 +680,9 @@ DONE WHEN:   the §5 gates below are all green and the numbers are in docs/eval-
 | Package | Dependency | For | Notes |
 |---|---|---|---|
 | B1 | `jsonschema` | rule pack validation | small, pure Python |
-| B4 | `boto3` | R2 via the S3 API | |
-| B5, B7 | `opencv-contrib-python`, `numpy` | ArUco + homography + connected components | ArUco is in **contrib**; the plain wheel will not do |
-| B6 | `paddleocr`, `paddlepaddle` | OCR | large; decide model caching so CI never downloads weights |
+| ✅ B4 | `boto3`, `pillow` | R2 via the S3 API; EXIF stripping | **Added.** Pillow declared explicitly, not leaned on as a WeasyPrint transitive |
+| ✅ B5, B7 | `opencv-contrib-python`, `numpy` | ArUco + homography + connected components | **Added.** ArUco is in **contrib**; the plain wheel will not do |
+| ✅ B6 | `paddleocr`, `paddlepaddle` | OCR | **Added as the `[ocr]` extra, not a core dep** — CI must never download model weights. Lazy import; stub adapter stands in |
 | B8 | `httpx` (promote from dev) | LLM adapters | |
 | B9 | `python-dateutil`, possibly `regex` | month-year resolution, Unicode classes for Devanagari | |
 | ✅ B11 | `weasyprint`, `python-docx` | PDF, DOCX | **Added.** GTK3 native stack needed only by `render_pdf`; CI installs it, Windows dev skips that one test |
@@ -737,5 +739,7 @@ The ones from `CLAUDE.md` §8 that will actually bite in backend code, plus two 
 - OCR bounding boxes are not glyph heights. Measurement goes through connected components on the rectified image.
 - Neon's pooled endpoint is pgbouncer: keep `prepare_threshold=None`, and run migrations on `DATABASE_URL_DIRECT`.
 - Celery does not infer TLS from `rediss://`; `broker_use_ssl` is set off the URL scheme in `worker.py`.
+- **Metric error is relative, not absolute.** FR-21's ±0.25 mm is stated against a *10 mm* feature — it is a 2.5% figure. The dominant term is ArUco's corner localisation (~1 px on a 200 px marker = 0.5%), which scales with feature size, so a 40 mm object legitimately reads ~0.2 mm long. Do not treat ±0.25 mm as an absolute budget that holds at any size, and do not test it by re-detecting the marker — the marker defined the scale and is guaranteed to come back right.
+- **A quality signal that cannot be measured is `None`, never `0.0`.** `quality().curvature` is `None` because four marker corners carry no curvature information. `0.0` would assert a flatness nobody measured, and architecture §12.2's NOT_ASSESSABLE safeguard depends on that number being trustworthy.
 - **Recompute uses the scan's original pack version, not the active one.** The obvious implementation of `confirm-fields` is wrong in a way no test catches unless you write that test (B15).
 - **"Does not apply to you" and "we could not measure it" are different outcomes.** Verdicts stay four-valued, so the first is the *absence* of a finding plus an entry in `not_applicable_rule_ids`, and the second is a `NOT_ASSESSABLE` finding that still states what would have been required. Collapsing them turns a clean report into an accusation; treating absence as a pass hides a rule that was never checked.

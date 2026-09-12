@@ -100,9 +100,29 @@ class Settings(BaseSettings):
     """Optional custom domain for public reads. Buckets stay private; access is by presigned URL
     (docs/01-architecture.md §10). R2 rejects per-object ACLs, so there is no public-read flag."""
 
+    UPLOAD_MAX_BYTES: int = 15 * 1024 * 1024
+    """Largest asset accepted, enforced when the presigned URL is issued rather than after the
+    bytes arrive — a limit checked post-upload has already cost the bandwidth it was meant to
+    save."""
+
+    UPLOAD_ALLOWED_CONTENT_TYPES: list[str] = Field(
+        default_factory=lambda: ["image/jpeg", "image/png", "image/webp", "image/heic"]
+    )
+    """MIME allow-list for scan assets (docs/01-architecture.md §10). An allow-list, never a
+    deny-list: the set of things a camera legitimately produces is small and known."""
+
     # ------------------------------------------------------------------ metrology
     PX_PER_MM: int = 20
     """Pixels per millimetre in the rectified plane. Never write this number at a call site."""
+
+    # ------------------------------------------------------------------ ocr
+    OCR_ENGINE: str = "paddle"
+    """Which OCREngine implementation to use: ``paddle`` in production, ``stub`` in tests.
+
+    TRD FR-22 requires that swapping the engine changes no calling code, so this name is the
+    only thing that selects one. The engine itself is resolved by
+    ``services.vision.ocr.get_engine``.
+    """
 
     # ------------------------------------------------------------------ rule packs
     RULEPACK_PATH: Path = _REPO_ROOT / "rulepacks" / "lm-2011-v1.yaml"

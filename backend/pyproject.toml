@@ -28,9 +28,27 @@ dependencies = [
     # HTML rendering and every other format work on a machine without those libraries.
     "python-docx",
     "weasyprint",
+    # Object storage (B4). Speaks the S3 API; the provider is a config choice, not a code one.
+    "boto3",
+    # EXIF stripping (B4) and image handling. Declared explicitly rather than relied on as a
+    # WeasyPrint transitive: services/storage.py must not depend on another package's tree.
+    "pillow",
+    # Vision (B5, B7). ArUco lives in contrib — the plain opencv-python wheel will not do.
+    "opencv-contrib-python",
+    "numpy",
 ]
 
 [project.optional-dependencies]
+# PaddleOCR is deliberately NOT a core dependency. It pulls paddlepaddle plus native wheels and
+# downloads model weights on first run, which CI must never do. services/vision/ocr.py resolves
+# engines lazily, so the pipeline imports, type-checks and tests without it — the stub adapter
+# stands in (TRD FR-22 requires a second implementation anyway). Install this extra on a machine
+# that actually runs OCR.
+ocr = [
+    "paddleocr",
+    "paddlepaddle",
+]
+
 dev = [
     "pytest",
     "pytest-asyncio",
