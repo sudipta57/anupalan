@@ -19,9 +19,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "in.anupalan.app",
-      "permissions": [
-        "android.permission.CAMERA"
-      ]
+      "permissions": ["android.permission.CAMERA"]
     },
     "web": {
       "output": "static",
@@ -38,11 +36,20 @@
         }
       ],
       "expo-sqlite",
-      "expo-dev-client"
+      "expo-dev-client",
+      "expo-sharing",
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ed2f5c98-87bf-4300-bd6a-f4ca13f643d2"
+      }
+    },
+    "owner": "sudiptagh"
   }
 }
