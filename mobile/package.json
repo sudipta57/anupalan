@@ -9,11 +9,16 @@
     "expo-constants": "~57.0.18",
     "expo-dev-client": "~57.0.19",
     "expo-device": "~57.0.2",
+    "expo-file-system": "~57.0.7",
     "expo-font": "~57.0.4",
     "expo-glass-effect": "~57.0.3",
     "expo-image": "~57.0.5",
+    "expo-image-manipulator": "~57.0.17",
     "expo-linking": "~57.0.10",
+    "expo-localization": "~57.0.2",
+    "expo-location": "~57.0.17",
     "expo-router": "~57.0.21",
+    "expo-sharing": "~57.0.19",
     "expo-splash-screen": "~57.0.9",
     "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
@@ -36,7 +41,8 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@types/jest": "^30.0.0",
+    "@testing-library/react-native": "^14.0.1",
+    "@types/jest": "29.5.14",
     "@types/react": "~19.2.2",
     "eslint": "^9.39.5",
     "eslint-config-expo": "^57.0.2",
@@ -50,14 +56,15 @@
     "start": "expo start --dev-client",
     "android": "expo start --android --dev-client",
     "ios": "expo start --ios --dev-client",
-    "web": "expo start --web",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
+    "types:routes": "node ./scripts/generate-route-types.mjs",
+    "typecheck": "npm run types:routes && tsc --noEmit",
     "gen:api": "node ./scripts/gen-api.mjs",
-    "reset-project": "node ./scripts/reset-project.js"
+    "verify:bundle": "node ./scripts/verify-bundle.mjs"
   },
   "private": true,
   "jest": {
@@ -74,6 +81,9 @@
     "moduleNameMapper": {
       "^@/assets/(.*)$": "<rootDir>/assets/$1",
       "^@/(.*)$": "<rootDir>/src/$1"
-    }
+    },
+    "setupFiles": [
+      "<rootDir>/jest.setup.js"
+    ]
   }
 }

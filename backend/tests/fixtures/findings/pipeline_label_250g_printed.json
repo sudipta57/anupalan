@@ -1,0 +1,130 @@
+{
+  "extractions": [
+    {
+      "field_code": "consumer_care_email",
+      "source": "regex",
+      "value_norm": "care@kalyanifoods.example"
+    },
+    {
+      "field_code": "consumer_care_name",
+      "source": "regex",
+      "value_norm": "Consumer Care"
+    },
+    {
+      "field_code": "consumer_care_phone",
+      "source": "regex",
+      "value_norm": "1800110011"
+    },
+    {
+      "field_code": "mfg_month_year",
+      "source": "regex",
+      "value_norm": "03/2026"
+    },
+    {
+      "field_code": "mrp",
+      "source": "regex",
+      "value_norm": "12000"
+    },
+    {
+      "field_code": "net_quantity",
+      "source": "regex",
+      "value_norm": "250 g"
+    }
+  ],
+  "findings": [
+    {
+      "citation": "Rule 6(1)(a), Legal Metrology (Packaged Commodities) Rules, 2011",
+      "observed": "absent",
+      "required": "present",
+      "rule_id": "LM-6-1-A-MANUFACTURER",
+      "verdict": "FAIL"
+    },
+    {
+      "citation": "Rule 6(1)(b), LMPC Rules, 2011",
+      "observed": "absent",
+      "required": "present",
+      "rule_id": "LM-6-1-B-COMMON-NAME",
+      "verdict": "FAIL"
+    },
+    {
+      "citation": "Rule 6(1)(e) read with Rule 18, LMPC Rules, 2011",
+      "observed": "120.00",
+      "required": null,
+      "rule_id": "LM-MRP-INCLUSIVE-WORDING",
+      "verdict": "FAIL"
+    },
+    {
+      "citation": "Rule 9(1) proviso, LMPC Rules, 2011",
+      "observed": null,
+      "required": "—",
+      "rule_id": "LM-9-QTY-CLEAR-SPACE",
+      "verdict": "NOT_ASSESSABLE"
+    },
+    {
+      "citation": "Rule 6(1)(c), LMPC Rules, 2011",
+      "observed": "present",
+      "required": "present",
+      "rule_id": "LM-6-1-C-MFG-DATE",
+      "verdict": "PASS"
+    },
+    {
+      "citation": "Rule 6(1)(d), LMPC Rules, 2011",
+      "observed": "present",
+      "required": "present",
+      "rule_id": "LM-6-1-D-NET-QUANTITY",
+      "verdict": "PASS"
+    },
+    {
+      "citation": "Rule 6(1)(e), LMPC Rules, 2011",
+      "observed": "present",
+      "required": "present",
+      "rule_id": "LM-6-1-E-MRP",
+      "verdict": "PASS"
+    },
+    {
+      "citation": "Rule 6(1)(f), LMPC Rules, 2011",
+      "observed": "present",
+      "required": null,
+      "rule_id": "LM-6-1-F-CONSUMER-CARE",
+      "verdict": "PASS"
+    },
+    {
+      "citation": "Rule 9(2)(i) read with Table-I, LMPC Rules, 2011 (as substituted by G.S.R. 629(E) dated 23.06.2017)",
+      "observed": "3.25",
+      "required": "2.0",
+      "rule_id": "LM-9-2-TABLE1",
+      "verdict": "PASS"
+    },
+    {
+      "citation": "Rule 9(3) proviso, LMPC Rules, 2011",
+      "observed": "0.5606",
+      "required": "0.3333",
+      "rule_id": "LM-9-3-WIDTH",
+      "verdict": "PASS"
+    },
+    {
+      "citation": "Rule 9(3), LMPC Rules, 2011 (as substituted by G.S.R. 629(E) dated 23.06.2017)",
+      "observed": "2.45",
+      "required": "1.0",
+      "rule_id": "LM-9-LETTER-HEIGHT",
+      "verdict": "PASS"
+    },
+    {
+      "citation": "Rule 6(1)(c), LMPC Rules, 2011",
+      "observed": "03/2026",
+      "required": null,
+      "rule_id": "LM-MFG-DATE-FORMAT",
+      "verdict": "PASS"
+    },
+    {
+      "citation": "Rule 8 read with the Second Schedule, LMPC Rules, 2011",
+      "observed": "250 g",
+      "required": null,
+      "rule_id": "LM-QTY-UNIT-SYMBOL",
+      "verdict": "PASS"
+    }
+  ],
+  "reduced_extraction": true,
+  "rulepack_version": "LM-2011-v1.0",
+  "status": "complete"
+}

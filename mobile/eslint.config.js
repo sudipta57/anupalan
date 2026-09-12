@@ -12,6 +12,13 @@ module.exports = defineConfig([
     ignores: ['dist/*', 'node_modules/*', '.expo/*', 'android/*', 'ios/*', 'expo-env.d.ts'],
   },
   {
+    // Flat config ignores /* eslint-env */ comments, so jest's globals are declared here.
+    files: ['jest.setup.js'],
+    languageOptions: {
+      globals: { jest: 'readonly', module: 'writable', require: 'readonly' },
+    },
+  },
+  {
     // CLAUDE.md §5: no `any` in src/api or src/domain.
     //
     // src/api is generated from the backend's OpenAPI schema and src/domain mirrors the Pydantic

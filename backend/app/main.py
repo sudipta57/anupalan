@@ -20,6 +20,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
 from app.health import HealthReport, check_health
+from app.routers import admin as admin_router
+from app.routers import auth as auth_router
+from app.routers import scans as scans_router
+from app.schemas.base import BodyOrgIdError
+from app.services.auth.rbac import PermissionDeniedError
 
 logger = logging.getLogger(__name__)
 
@@ -50,15 +55,21 @@ def error_response(
     code: str,
     message: str,
     details: Any = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     """Build the single error envelope every endpoint returns (TRD NFR-07).
 
     The shape is fixed: ``{"error": {"code", "message", "details"}}``. ``mobile/`` parses
     exactly this, so do not add or rename top-level keys.
+
+    ``headers`` exists because some errors are not only a body. A 401 has to carry
+    ``WWW-Authenticate`` to be a well-formed 401, and a 429 will want ``Retry-After``; an envelope
+    that dropped them would turn a protocol-correct response into a merely informative one.
     """
     return JSONResponse(
         status_code=status_code,
         content={"error": {"code": code, "message": message, "details": details}},
+        headers=headers,
     )
 
 
@@ -72,6 +83,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
         code=f"http_{exc.status_code}",
         message=message,
         details=None if isinstance(detail, str) else detail,
+        headers=getattr(exc, "headers", None),
     )
 
 
@@ -85,6 +97,41 @@ async def validation_exception_handler(
         code="validation_error",
         message="Request validation failed",
         details=exc.errors(),
+    )
+
+
+@app.exception_handler(BodyOrgIdError)
+async def body_org_id_handler(request: Request, exc: BodyOrgIdError) -> JSONResponse:
+    """Render a body-supplied ``org_id`` as 400.
+
+    A request that tries to name its own tenant is rejected outright rather than having the field
+    quietly dropped. Dropping it would be just as safe and would hide the attempt — and an attempt
+    to set ``org_id`` is worth seeing in a log.
+    """
+    return error_response(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        code="org_id_not_accepted",
+        message=str(exc),
+        details={"field": exc.field},
+    )
+
+
+@app.exception_handler(PermissionDeniedError)
+async def permission_denied_handler(
+    request: Request, exc: PermissionDeniedError
+) -> JSONResponse:
+    """Render an RBAC refusal as 403 in the envelope.
+
+    403 and not 404, deliberately. The 404-not-403 rule (CLAUDE.md §3.7) is about *another org's*
+    rows, where the existence of the row is itself the secret. Inside your own org, being told
+    your role is insufficient reveals nothing an attacker could not guess and is the only way a
+    user learns what to ask their administrator for.
+    """
+    return error_response(
+        status_code=status.HTTP_403_FORBIDDEN,
+        code="permission_denied",
+        message=str(exc),
+        details={"permission": exc.permission.value, "role": exc.role},
     )
 
 
@@ -116,6 +163,15 @@ async def health() -> HealthReport:
     doubles as proof that the pack on disk parsed and is the version you expect.
     """
     return check_health()
+
+
+# --------------------------------------------------------------------------- routers
+
+# Registered as they land. Everything a router needs beyond validation and response shaping lives
+# in app/services/ so the Celery worker shares it (CLAUDE.md §2).
+app.include_router(auth_router.router)
+app.include_router(scans_router.router)
+app.include_router(admin_router.router)
 
 
 __all__ = ["app", "error_response"]
