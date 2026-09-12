@@ -1,0 +1,16 @@
+meta:
+  code: TEST
+  version: "0.1"
+rules:
+  - id: TEST-DUP
+    kind: presence
+    fields: [mrp]
+    severity: major
+    citation: "Rule 6(1)(e)"
+    message: "first"
+  - id: TEST-DUP
+    kind: presence
+    fields: [net_quantity]
+    severity: major
+    citation: "Rule 6(1)(d)"
+    message: "second"

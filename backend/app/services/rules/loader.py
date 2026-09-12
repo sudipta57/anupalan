@@ -1,46 +1,46 @@
-"""Rule pack loading and validation — the minimal half of TRD FR-26.
+"""Rule pack loading, activation and checksumming — TRD FR-26.
 
 Rule packs are **data**, versioned independently of code, living in ``rulepacks/`` and never
-inside ``app/`` (CLAUDE.md §2). This module reads one off disk, parses it, checks that it
-identifies itself, and hands back an immutable object.
+inside ``app/`` (CLAUDE.md §2). This module reads one off disk, validates it through
+``schema.parse`` (which is where the line-level errors come from), and holds the active pack.
 
-What this module deliberately does **not** do:
+The load-bearing behaviour is in ``activate``: the new pack is parsed to completion **before**
+anything is swapped, so a rejected upload leaves the previous pack serving. A bad pack degrades
+the system to yesterday's rules, never to no rules.
 
-* **No evaluation logic.** Interpreting ``presence | format | metric | conditional | composite``
-  rules is ``evaluate.py`` (TRD FR-25, P2.4).
+What this module deliberately does not do:
+
+* **No evaluation logic.** Interpreting rules is ``evaluate.py``.
 * **No threshold reading at import time.** Thresholds, table rows and effective dates are read
   from the pack by the evaluator at evaluation time, never lifted into module constants
   (CLAUDE.md §3.2).
 
-Still to come under FR-26: JSON-schema validation of the full rule list with line-level errors,
-checksumming, the ``rulepacks`` table, and ``POST /v1/admin/rulepacks`` hot-swap with the
-previous pack staying active when a new one is invalid.
+Still to come under FR-26: the ``rulepacks`` table and ``POST /v1/admin/rulepacks``, which will
+call ``validate_pack`` then ``activate``.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
-from typing import Any, cast
-
-import yaml
+from typing import Any
 
 from app.config import settings
-
-
-class RulePackError(Exception):
-    """A rule pack is missing, unparseable, or does not identify itself.
-
-    Raised rather than tolerated: a pack that cannot say which version it is cannot stamp a
-    finding, and every finding must carry ``rulepack_version`` (CLAUDE.md §3.6).
-    """
+from app.services.rules.schema import (
+    ParsedPack,
+    Rule,
+    RulePackError,
+    Table,
+    parse,
+    validate_pack,
+)
 
 
 @dataclass(frozen=True)
 class RulePack:
-    """A parsed, identified rule pack.
+    """A parsed, validated, identified rule pack.
 
     Frozen because a pack is a published artefact. Mutating a loaded pack would mean two scans
     in one process could be evaluated against different rules under the same version label.
@@ -48,7 +48,10 @@ class RulePack:
 
     code: str
     version: str
-    path: Path
+    path: Path | None
+    checksum: str
+    rules: tuple[Rule, ...]
+    tables: Mapping[str, Table]
     data: Mapping[str, Any]
 
     @property
@@ -59,88 +62,133 @@ class RulePack:
     @property
     def meta(self) -> Mapping[str, Any]:
         """The pack's ``meta`` block."""
-        return cast(Mapping[str, Any], self.data.get("meta", {}))
+        meta = self.data.get("meta", {})
+        return meta if isinstance(meta, Mapping) else {}
+
+    @property
+    def measurement(self) -> Mapping[str, Any]:
+        """The ``meta.measurement`` block: px/mm, default uncertainty, borderline policy."""
+        block = self.meta.get("measurement", {})
+        return block if isinstance(block, Mapping) else {}
+
+    @property
+    def default_uncertainty_mm(self) -> float:
+        """Baseline measurement uncertainty, from the pack.
+
+        Raises:
+            RulePackError: the pack does not declare one. There is no code-side default —
+                inventing a tolerance is inventing a legal threshold (CLAUDE.md §3.2).
+        """
+        value = self.measurement.get("default_uncertainty_mm")
+        if not isinstance(value, int | float):
+            raise RulePackError(
+                f"{self.version_label}: meta.measurement.default_uncertainty_mm is missing"
+            )
+        return float(value)
+
+    def rule(self, rule_id: str) -> Rule:
+        """Return one rule by id."""
+        for rule in self.rules:
+            if rule.id == rule_id:
+                return rule
+        raise RulePackError(f"{self.version_label}: no rule {rule_id!r}")
+
+    def table(self, name: str) -> Table:
+        """Return one lookup table by name."""
+        try:
+            return self.tables[name]
+        except KeyError as exc:
+            raise RulePackError(f"{self.version_label}: no table {name!r}") from exc
+
+    @property
+    def rule_ids(self) -> tuple[str, ...]:
+        return tuple(rule.id for rule in self.rules)
 
 
-def _require_str(meta: Mapping[str, Any], key: str, path: Path) -> str:
-    """Return ``meta[key]`` as a non-empty string, or raise ``RulePackError``."""
-    if key not in meta:
-        raise RulePackError(f"{path}: meta.{key} is missing")
-    value = meta[key]
-    # YAML turns an unquoted 1.0 into a float, which would stamp findings "LM-2011-v1.0"
-    # one day and "LM-2011-v1" the next. Insist on a string in the file.
-    if not isinstance(value, str):
-        raise RulePackError(
-            f"{path}: meta.{key} must be a string, got {type(value).__name__} "
-            f"({value!r}) — quote it in the YAML"
-        )
-    if not value.strip():
-        raise RulePackError(f"{path}: meta.{key} is empty")
-    return value
-
-
-def load_pack(path: Path) -> RulePack:
-    """Parse the YAML rule pack at ``path`` and validate that it identifies itself.
-
-    Validates only that ``meta.code`` and ``meta.version`` are present, non-empty strings.
-    Full rule-list schema validation is the rest of FR-26.
-
-    Raises:
-        RulePackError: the file is missing, is not a YAML mapping, or lacks meta.code /
-            meta.version.
-    """
-    if not path.is_file():
-        raise RulePackError(f"{path}: rule pack not found")
-
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            raw: object = yaml.safe_load(handle)
-    except yaml.YAMLError as exc:
-        raise RulePackError(f"{path}: invalid YAML: {exc}") from exc
-    except OSError as exc:
-        # Unreadable is a rule pack problem, not a crash: a non-root container given a pack it
-        # cannot read must degrade through /health like any other unavailable pack, not 500.
-        raise RulePackError(f"{path}: cannot read rule pack: {exc}") from exc
-
-    if not isinstance(raw, dict):
-        raise RulePackError(f"{path}: expected a YAML mapping at the top level")
-
-    data = cast(dict[str, Any], raw)
-    meta_raw = data.get("meta")
-    if not isinstance(meta_raw, dict):
-        raise RulePackError(f"{path}: meta block is missing or is not a mapping")
-    meta = cast(dict[str, Any], meta_raw)
-
+def _from_parsed(parsed: ParsedPack, raw: bytes, path: Path | None) -> RulePack:
     return RulePack(
-        code=_require_str(meta, "code", path),
-        version=_require_str(meta, "version", path),
+        code=parsed.code,
+        version=parsed.version,
         path=path,
-        data=data,
+        # Over the file bytes, not the parsed dict: the checksum must identify the artefact that
+        # was published and reviewed, including its comments.
+        checksum=hashlib.sha256(raw).hexdigest(),
+        rules=parsed.rules,
+        tables=parsed.tables,
+        data=parsed.data,
     )
 
 
-@lru_cache(maxsize=1)
-def _load_active(path: Path) -> RulePack:
-    """Cache the active pack per path, so boot parses the YAML once."""
-    return load_pack(path)
+def load_bytes(raw: bytes, *, path: Path | None = None) -> RulePack:
+    """Parse and validate a pack from raw bytes."""
+    return _from_parsed(parse(raw, path=path), raw, path)
+
+
+def load_pack(path: Path) -> RulePack:
+    """Parse and validate the YAML rule pack at ``path``.
+
+    Raises:
+        RulePackError: the file is missing or unreadable, or the pack is invalid. The message
+            names the file and the line.
+    """
+    if not path.is_file():
+        raise RulePackError(f"{path}: rule pack not found")
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        # Unreadable is a rule pack problem, not a crash: a process given a pack it cannot read
+        # must degrade through /health like any other unavailable pack, not 500.
+        raise RulePackError(f"{path}: cannot read rule pack: {exc}") from exc
+    return load_bytes(raw, path=path)
+
+
+# --------------------------------------------------------------------------- active pack
+
+_active: RulePack | None = None
 
 
 def active_pack() -> RulePack:
-    """Return the currently active rule pack, as configured by ``RULEPACK_PATH``.
+    """Return the currently active pack, loading the configured one on first use.
 
-    Cached: a pack is data loaded at boot, not re-read per request. Hot-swap via
-    ``POST /v1/admin/rulepacks`` (FR-26) will clear the cache through ``reload()``.
+    A pack is data loaded at boot, not re-read per request.
 
     Raises:
         RulePackError: the configured pack is missing or invalid.
     """
-    return _load_active(settings.RULEPACK_PATH)
+    global _active
+    if _active is None:
+        _active = load_pack(settings.RULEPACK_PATH)
+    return _active
+
+
+def activate(path: Path) -> RulePack:
+    """Make the pack at ``path`` active, or raise and leave the current one in place.
+
+    The parse happens before the swap, which is the whole of FR-26's "the previous pack stays
+    active" guarantee: there is no window in which a half-validated pack is serving.
+    """
+    global _active
+    pack = load_pack(path)
+    _active = pack
+    return pack
 
 
 def reload() -> RulePack:
-    """Drop the cache and re-read the active pack from disk."""
-    _load_active.cache_clear()
+    """Drop the active pack and re-read the one named by ``RULEPACK_PATH``."""
+    global _active
+    _active = None
     return active_pack()
 
 
-__all__ = ["RulePack", "RulePackError", "active_pack", "load_pack", "reload"]
+__all__ = [
+    "Rule",
+    "RulePack",
+    "RulePackError",
+    "Table",
+    "activate",
+    "active_pack",
+    "load_bytes",
+    "load_pack",
+    "reload",
+    "validate_pack",
+]

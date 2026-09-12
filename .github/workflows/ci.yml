@@ -46,6 +46,16 @@ jobs:
       # degraded status when a dependency is unreachable, and the health test asserts the rule
       # pack version rather than connectivity. Integration tests that need real datastores get
       # their own job, against a Neon branch, when the data layer lands (P2.2).
+      # WeasyPrint (FR-27 PDF output) renders through the GTK3 native stack, which pip cannot
+      # install. Without these, tests/test_reporting.py skips its one rasterisation test and the
+      # PDF path is never actually exercised anywhere — CI is the only place it reliably can be,
+      # since developer machines are commonly Windows.
+      - name: Install WeasyPrint native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libgdk-pixbuf-2.0-0
+
       - name: pytest
         run: pytest
 

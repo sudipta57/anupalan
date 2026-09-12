@@ -1,0 +1,19 @@
+meta:
+  code: TEST
+  version: "0.1"
+  effective_from: "2020-01-01"
+  measurement:
+    px_per_mm: 20
+    default_uncertainty_mm: 0.25
+tables:
+  unit_symbols:
+    mass: [g, kg]
+    rejected_variants:
+      gms: g
+rules:
+  - id: TEST-PRESENCE
+    kind: presence
+    fields: [mrp]
+    severity: major
+    citation: "Rule 6(1)(e), LMPC Rules, 2011"
+    message: "Retail sale price must be declared."

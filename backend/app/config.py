@@ -100,9 +100,139 @@ class Settings(BaseSettings):
     """Optional custom domain for public reads. Buckets stay private; access is by presigned URL
     (docs/01-architecture.md §10). R2 rejects per-object ACLs, so there is no public-read flag."""
 
+    UPLOAD_MAX_BYTES: int = 15 * 1024 * 1024
+    """Largest asset accepted, enforced when the presigned URL is issued rather than after the
+    bytes arrive — a limit checked post-upload has already cost the bandwidth it was meant to
+    save."""
+
+    UPLOAD_ALLOWED_CONTENT_TYPES: list[str] = Field(
+        default_factory=lambda: ["image/jpeg", "image/png", "image/webp", "image/heic"]
+    )
+    """MIME allow-list for scan assets (docs/01-architecture.md §10). An allow-list, never a
+    deny-list: the set of things a camera legitimately produces is small and known."""
+
     # ------------------------------------------------------------------ metrology
     PX_PER_MM: int = 20
     """Pixels per millimetre in the rectified plane. Never write this number at a call site."""
+
+    # ------------------------------------------------------------------ metrology tuning
+    GLYPH_MIN_AREA_PX: int = 12
+    """Connected components smaller than this are noise, not glyphs (P0 spike §2)."""
+
+    GLYPH_MIN_HEIGHT_PX: int = 4
+    """Components shorter than this are speckle. At 20 px/mm this is 0.2 mm."""
+
+    BASELINE_TOLERANCE_PX: int = 3
+    """How far apart two component bottoms can be and still share a text baseline."""
+
+    CAP_HEIGHT_RATIO: float = 0.75
+    """Fraction of a text line's tallest glyph at which a component counts as cap height.
+
+    Rule 9's tables are about the height of the *numerals* in a declaration. Where connected
+    components cannot be matched to individual characters, this separates cap-height glyphs from
+    punctuation and x-height lowercase — without it, the two dots of a colon are measured as
+    numerals and a compliant label fails on a 0.75 mm "numeral".
+    """
+
+    MARK_HEIGHT_RATIO: float = 0.4
+    """Below this fraction of the line's cap height, a component is punctuation, not a letter.
+
+    x-height lowercase sits around 0.5-0.7 of cap height; a comma or a colon dot is far below
+    that. Rule 9(3) sets a minimum letter height, and a full stop measured as a letter would fail
+    a label that is entirely compliant.
+    """
+
+    CURVATURE_MAX_RESIDUAL_MM: float = 0.45
+    """Above this baseline bow, the surface is not planar enough to measure on.
+
+    An **engineering tuning parameter, not a legal threshold** — it decides whether a measurement
+    can be taken at all, never what the measurement must be. Legal thresholds live in the rule
+    pack (CLAUDE.md §3.2). A planar homography under-measures on a curved pack
+    (docs/01-architecture.md §12.2), so past this the metric rules go NOT_ASSESSABLE rather than
+    reporting a confident wrong number.
+    """
+
+    BLUR_REFERENCE: float = 120.0
+    """Variance-of-Laplacian at which capture is considered sharp (TRD FR-01 gate)."""
+
+    TILT_REFERENCE_DEG: float = 25.0
+    """Viewing angle at which capture is considered maximally tilted (TRD FR-01 gate)."""
+
+    # ------------------------------------------------------------------ auth
+    SECRET_KEY: str = ""
+    """The one server secret. Signs access tokens, and peppers the OTP and refresh-token hashes.
+
+    Deliberately **one** value rather than three: three secrets is three things to rotate and
+    three chances for one of them to be left at a default. It is never used directly —
+    ``services/auth/tokens.derive_key`` HMACs it with a purpose label, so the key that signs a JWT
+    and the key that peppers an OTP are different keys that happen to share an origin. Reusing a
+    single key across purposes is how a signature oracle turns into a hash oracle.
+
+    Unset means no token can be issued: ``services/auth`` raises rather than falling back to a
+    development default, because a development default that reaches production is an authentication
+    system with a published key.
+    """
+
+    ACCESS_TOKEN_TTL_SECONDS: int = 900
+    """15 minutes. Short because an access token is stateless and therefore cannot be revoked —
+    revocation acts on the refresh family instead, and this is how long a stolen access token
+    outlives it."""
+
+    REFRESH_TOKEN_TTL_SECONDS: int = 60 * 60 * 24 * 30
+    """30 days. An inspector in the field should not be logged out mid-inspection because they
+    were offline for a fortnight (FR-04)."""
+
+    OTP_LENGTH: int = 6
+    OTP_TTL_SECONDS: int = 300
+    OTP_MAX_ATTEMPTS: int = 5
+    """Wrong guesses before a code is dead. Six digits is 10^6 of entropy, so the guard against
+    brute force is this number and the rate limits below — not the cost of the hash."""
+
+    OTP_RATE_WINDOW_SECONDS: int = 3600
+    OTP_MAX_PER_PHONE: int = 5
+    """Codes per number per window. Also the cap on using this endpoint to send someone SMS."""
+
+    OTP_MAX_PER_IP: int = 20
+    """Codes per source address per window. Both axes are needed: per-phone alone lets one caller
+    sweep many numbers, per-IP alone lets many callers sweep one number."""
+
+    OTP_ECHO_IN_RESPONSE: bool = False
+    """Return the code in the API response instead of sending it.
+
+    For local development and the demo, where there is no SMS gateway wired up. Refused outright
+    when ``ENV`` is ``production`` — see ``services/auth/otp.py``, which checks rather than
+    trusting whoever set the variable.
+    """
+
+    # ------------------------------------------------------------------ llm
+    # No vendor name appears here or anywhere outside the adapter files (CLAUDE.md §9). The
+    # provider is a base URL and a model name; a hosted vendor and a local vLLM/Ollama server are
+    # the same adapter pointed somewhere different, which is what keeps the open-weight path
+    # working without a second code path to rot.
+    LLM_PROVIDER: str = "chat_completions"
+    """Which LLMProvider implementation to use: ``chat_completions`` or ``stub``."""
+
+    LLM_BASE_URL: str = ""
+    """Chat-completions endpoint base, e.g. a hosted API or ``http://localhost:11434/v1``."""
+
+    LLM_API_KEY: str = ""
+    LLM_MODEL_BUDGET: str = ""
+    """Model for extraction and explanations — the two high-volume, low-difficulty call sites."""
+
+    LLM_MODEL_MID: str = ""
+    """Model for Sahayak answers, where citation accuracy matters more than cost."""
+
+    LLM_TIMEOUT_SECONDS: float = 30.0
+    LLM_MAX_RETRIES: int = 2
+
+    # ------------------------------------------------------------------ ocr
+    OCR_ENGINE: str = "paddle"
+    """Which OCREngine implementation to use: ``paddle`` in production, ``stub`` in tests.
+
+    TRD FR-22 requires that swapping the engine changes no calling code, so this name is the
+    only thing that selects one. The engine itself is resolved by
+    ``services.vision.ocr.get_engine``.
+    """
 
     # ------------------------------------------------------------------ rule packs
     RULEPACK_PATH: Path = _REPO_ROOT / "rulepacks" / "lm-2011-v1.yaml"

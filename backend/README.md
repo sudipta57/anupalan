@@ -1,0 +1,237 @@
+# Anupalan backend
+
+FastAPI + Celery, one codebase, two entrypoints. Compliance engine for packaged commodities in
+India — see the repo root [`README.md`](../README.md) and [`CLAUDE.md`](../CLAUDE.md) for what
+this project is. This file is only about running and testing what lives in `backend/`.
+
+**Read before touching anything here:**
+
+- [`../CLAUDE.md`](../CLAUDE.md) — non-negotiables, layout, conventions. Loaded automatically by
+  Claude Code every session; humans should read it once too.
+- [`../docs/04-backend-implementation-plan.md`](../docs/04-backend-implementation-plan.md) — the
+  backend work-package sequence (B0–B23) and one handoff card per package. Check it before
+  starting anything.
+- [`../docs/01-architecture.md`](../docs/01-architecture.md) §5, §8, §9 — the pipeline, data
+  model and the settled technology decisions.
+- [`../docs/02-trd.md`](../docs/02-trd.md) — every requirement's acceptance test.
+
+---
+
+## 1. Setup
+
+There is no local infrastructure to stand up. Postgres is **Neon**, Redis is **Redis Cloud**,
+object storage is **Cloudflare R2** — all managed services, provisioned once per
+[`../infra/README.md`](../infra/README.md).
+
+```bash
+cd backend
+python3.12 -m venv .venv                     # Python 3.12 required (pyproject.toml)
+source .venv/bin/activate                    # Windows: .venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+
+cp .env.example .env                         # paste the real Neon / Redis Cloud / R2 values
+```
+
+`.env` (not `.env.local` or any other name — `app/config.py` reads exactly `.env`) needs, at
+minimum, `DATABASE_URL`, `DATABASE_URL_DIRECT`, `REDIS_URL`, and the `S3_*` block. Both database
+URLs use the `postgresql+psycopg://` scheme (psycopg 3, not psycopg2) — copying a URL straight
+out of the Neon console usually gives you plain `postgresql://`, which will fail with
+`ModuleNotFoundError: No module named 'psycopg2'`.
+
+Confirm connectivity before writing any code:
+
+```bash
+make -C .. check
+```
+
+This calls `app.health.check_health()` directly — the same path `GET /health` uses — and prints
+the JSON. `db`/`redis` show `error` rather than crashing if a URL is unset or unreachable; the API
+itself always answers 200 with `status: degraded` in that case, by design (it's a report, not a
+gate).
+
+---
+
+## 2. Running
+
+```bash
+uvicorn app.main:app --reload              # API on :8000 — docs at /docs, health at /health
+celery -A app.worker worker -l info        # worker, in a second shell
+```
+
+Or via the root `Makefile` (`make api`, `make worker` — note the Makefile assumes a Unix-style
+venv layout, `.venv/bin/`; on Windows call the two commands above directly, since Windows venvs
+put executables in `.venv\Scripts\`).
+
+```
+GET /health  ->  {"status":"ok","db":"ok","redis":"ok","rulepack":"LM-2011-v1.0"}
+```
+
+---
+
+## 3. Testing
+
+```bash
+pytest                              # everything
+pytest tests/test_rules.py -v       # one suite, verbose
+pytest --update-golden              # rewrite a golden fixture — see below; this run FAILS on purpose
+ruff check .
+mypy app/services                   # --strict is scoped to services/ (pyproject.toml)
+```
+
+**Do not edit a test to make it pass.** Tests are the specification here — `CLAUDE.md` §6. If one
+looks wrong, say so and stop.
+
+**Golden files.** `tests/fixtures/findings/*.json` pin committed pipeline output. A diff in one
+must be a deliberate, reviewed change, never a silent update — see
+[`tests/fixtures/README.md`](tests/fixtures/README.md) for the exact procedure. `--update-golden`
+rewrites and then fails the run it rewrote, so a rewrite can never be mistaken for a pass; review
+the diff, then re-run without the flag.
+
+### PDF rendering and the GTK3 native stack
+
+`services/reporting/pdf.py` uses WeasyPrint, which rasterises through GTK3 (pango, cairo,
+gdk-pixbuf). Those are system libraries — `pip` cannot install them, and a stock Windows
+workstation does not have them.
+
+This does **not** block report work. `pdf.py` is split:
+
+| Function | Needs GTK3? | What it does |
+|---|---|---|
+| `render_html(data) -> str` | no | the complete report as HTML — pure, deterministic, testable anywhere |
+| `render_pdf(data) -> bytes` | yes | hands that HTML to WeasyPrint |
+
+Every content assertion in `tests/test_reporting.py` runs against the HTML. Only
+`test_pdf_actually_rasterises` needs the native stack, and it skips with a reason when the
+libraries are absent — which is what you will see on Windows:
+
+```
+tests/test_reporting.py ..........s
+```
+
+CI (Ubuntu) installs the libraries, so the PDF path is exercised on every push. To render a PDF
+locally, either work under WSL or install the stack there:
+
+```bash
+sudo apt install -y libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libgdk-pixbuf-2.0-0
+```
+
+To eyeball a report during development, render the HTML and open it in a browser — faster than
+producing a PDF to look at, and it is the same markup WeasyPrint consumes.
+
+### OCR and the `[ocr]` extra
+
+PaddleOCR is **not** a core dependency. It pulls `paddlepaddle` plus native wheels and downloads
+model weights on first run, which CI must never do. The pipeline imports, type-checks and tests
+without it:
+
+```bash
+pip install -e ".[dev]"          # everything except a real OCR engine
+pip install -e ".[dev,ocr]"      # add PaddleOCR, on a machine that actually runs it
+```
+
+Which engine runs is decided by `OCR_ENGINE` and nothing else (TRD FR-22 — swapping it changes no
+calling code):
+
+| `OCR_ENGINE` | Engine | Needs |
+|---|---|---|
+| `stub` | replays a committed dump from `tests/fixtures/ocr/` | nothing |
+| `paddle` | PaddleOCR PP-OCRv4 | the `[ocr]` extra |
+
+The stub is not scaffolding — FR-22 requires a second working implementation to prove the
+interface holds, and every downstream test uses it, because replaying a dump is deterministic and
+`evaluate()` must be byte-identical across runs.
+
+### Running the pipeline
+
+`app/services/pipeline.py` holds all ten stages and takes its dependencies as arguments, so it
+runs with no broker and no database:
+
+```python
+from app.services.pipeline import process_scan
+outcome = process_scan(scan_id, store=..., storage=..., ocr=..., pack=..., llm=...)
+```
+
+`store` is a `ScanStore` — a Protocol with `load`, `mark` and `save_outcome`. **The database
+adapter is B12 and does not exist yet**, so `app/tasks/scan.py` imports a repository that is not
+there and the Celery worker cannot process a scan end to end. Everything below that line works:
+`tests/test_pipeline.py` runs the whole pipeline against an in-memory store.
+
+The golden file `tests/fixtures/findings/pipeline_label_250g_printed.json` pins the output for a
+committed synthetic label. Regenerate the label and its matching OCR dump together — they must
+stay consistent, or measurement silently reads an empty region:
+
+```bash
+.venv/Scripts/python.exe tests/fixtures/generate_label_fixture.py
+```
+
+### A note on measurement accuracy
+
+`tests/test_rectify.py` validates rectification against **synthetic** images with known ground
+truth: 0.00–0.15 mm error on a 10 mm feature across 0–25° tilt, inside FR-21's ±0.25 mm.
+
+That is not the same as E1. Synthetic images cannot exercise lens distortion, motion blur,
+rolling shutter, or paper that is not flat, and **E1 has not been run** — it needs printed charts,
+a caliper and real captures (TRD §7). Until it is, the headline accuracy number is unproven on
+real photographs.
+
+One property worth internalising: the dominant error is *relative* (~0.5%, from ArUco corner
+localisation), not a fixed millimetre budget. A 2 mm numeral therefore inherits ~0.01 mm of scale
+error, well below the rule pack's 0.25 mm default uncertainty — and a marker filling more of the
+frame tightens it further, which is why the capture screen tells users to move closer.
+
+**Coverage floor.** `services/rules` and `services/vision` carry an 80% floor (`CLAUDE.md` §5) —
+these are the two places a bug is silent.
+
+```bash
+pip install pytest-cov   # not yet in pyproject.toml — ask before adding it for real
+pytest --cov=app.services.rules --cov-report=term-missing
+```
+
+---
+
+## 4. What exists right now
+
+Kept brief on purpose — the authoritative, continuously-updated version of this table is
+[`../docs/04-backend-implementation-plan.md`](../docs/04-backend-implementation-plan.md) §0.
+Update that file, not this section, when a package lands.
+
+| Area | State |
+|---|---|
+| `app/config.py`, `app/db.py`, `app/main.py`, `app/worker.py`, `app/health.py` | Scaffolded and working. `GET /health` is real; no router is registered yet. |
+| `app/services/rules/` | **Implemented (B0–B3).** Rule pack validation with line-level errors, checksumming, the pure `evaluate()` interpreter over all seven rule kinds, findings assembly. 14 baseline cases green. |
+| `app/services/reporting/` | **Implemented (B11).** One `ReportData` structure; PDF (via HTML), DOCX and JSON all render from it, so they cannot disagree. Advisory disclaimer and both SHA-256 hashes in every format. |
+| `app/services/vision/` | **Implemented (B5–B7).** Marker detection, metric rectification, the `OCREngine` interface with two adapters, and glyph metrology with an uncertainty band and a curvature guard. |
+| `app/services/storage.py` | **Implemented (B4).** Presigned R2 access, org-prefixed keys, sha256 on receipt, EXIF stripping. |
+| `app/services/extraction/` | **Implemented (B9).** Regex, then the LLM for what regex missed, then human confirmation. Every source span is verified against the real OCR text. |
+| `app/services/llm/` | **Implemented (B8).** Vendor-neutral provider interface. A failure returns `ok=False`; it never raises, so a scan survives the model being down. |
+| `app/services/pipeline.py` | **Implemented (B10).** All ten stages, pinned by a golden-file test. Persistence is a `ScanStore` port — the database adapter arrives with B12. |
+| `app/services/bis/` | Not started. |
+| `app/models/`, `app/repositories/`, `alembic/versions/` | Not started — no migration exists yet. |
+| `app/routers/*.py` | Docstrings only; zero routes registered. |
+
+---
+
+## 5. Layout
+
+```
+backend/
+├── app/
+│   ├── main.py            FastAPI entrypoint — CORS, error envelope, /health
+│   ├── worker.py           Celery entrypoint — imports app/services/, never its own logic
+│   ├── config.py           all settings; PX_PER_MM and RULEPACK_PATH live here, nowhere else
+│   ├── db.py               Neon engine + session scope
+│   ├── routers/            one module per resource group; no pipeline logic lives here
+│   ├── services/           the pipeline — vision, extraction, rules, reporting, bis, llm
+│   ├── models/             SQLAlchemy
+│   ├── schemas/             Pydantic
+│   └── repositories/       org-scoped data access — the only way a router touches the DB
+├── alembic/                migrations, run against DATABASE_URL_DIRECT
+├── tests/
+│   ├── conftest.py         fixture loaders + the golden-file / --update-golden contract
+│   └── fixtures/           committed profiles, OCR dumps, golden findings, broken rule packs
+└── pyproject.toml
+```
+
+Two rules that don't show up in a file tree: the Celery worker is not a separate project — it
+imports `app/services/` so pipeline code is written once — and rule packs live in
+`../rulepacks/`, never inside `app/`, because they're data with legal consequences, not code.
