@@ -142,6 +142,8 @@ So the corpus is built only from public, non-priced material:
 What Sahayak answers: does a QCO cover this product, which IS number applies, ISI vs CRS vs FMCS, the application process, fees, which labs, hallmarking questions.
 What Sahayak refuses: the technical content of a standard — test limits, clause text, tolerance tables. It says so plainly and points to the BIS purchase route. **Frame this refusal as a feature in the pitch**; it demonstrates you understand the IP boundary the ministry lives inside.
 
+Applicability is a **table lookup**, not retrieval (B20). The QCO/CRS lists live in `bis/qco-crs-v1.yaml` — data at the repository root, versioned and checksummed the way `rulepacks/` is, for the same reason: "does this product need the ISI mark" is answered by a published list, a brand plans a launch around the answer, and no category, IS number or scheme name may sit in a `.py` file where it changes only on a deploy. Retrieval is used for the explanation and the next steps around that answer, never for the answer. The lists carry catalogue metadata only — IS number, title and scheme — and no standard's content.
+
 Retrieval design: hybrid BM25 + dense (pgvector, multilingual-e5 or BGE-M3 for Hindi/English), reciprocal-rank fusion, then a cross-encoder rerank on the top 30. Generation is citation-required: every sentence in the answer maps to a retrieved chunk id, and if no chunk supports a claim, the assistant declines rather than fills in. Answers carry a freshness stamp because QCOs are amended constantly.
 
 ---
@@ -151,9 +153,10 @@ Retrieval design: hybrid BM25 + dense (pgvector, multilingual-e5 or BGE-M3 for H
 ```
 orgs(id, name, mode[enforcement|industry], state, created_at)
 users(id, org_id, role[admin|inspector|analyst|viewer], phone, email, full_name, is_active, ...)
-products(id, org_id, name, category_code, gtin, is_imported, pack_type, surface, net_qty_value, net_qty_unit)
+products(id, org_id, name, brand, category_code, gtin, is_imported, pack_type, surface,
+         net_qty_value, net_qty_unit)
 scans(id, org_id, product_id, user_id, status, captured_at, geo_lat, geo_lon, geo_accuracy_m,
-      device_meta, marker_type, marker_mm, profile, error)
+      district, device_meta, marker_type, marker_mm, profile, error)
 scan_assets(id, scan_id, org_id, kind[raw|rectified|annotated], s3_key, sha256, content_type,
             size_bytes, width_px, height_px, px_per_mm)
 ocr_results(id, scan_id, org_id, asset_id, engine, version, raw_json, mean_conf)
@@ -188,6 +191,8 @@ Five properties of this schema carry requirements that would otherwise depend on
 
 - **`idempotency_keys` records what a creating POST produced**, fingerprinted by request body. The mobile app retries on a flaky connection and, with FR-04's offline queue, may retry a scan submitted days earlier — so a request arriving twice is the normal case. A replayed key returns the original response verbatim, presigned URLs included; a replayed key with a *different* body is a 409, because silently returning the earlier scan would answer a question the caller did not ask.
 
+- **`scans.district` and `products.brand` are recorded, never derived** (B17, migration 0003). FR-30 groups violations by district in Mode A and by brand in Mode B, and neither could be faked from what was already there. A district resolved from `geo_lat`/`geo_lon` against a boundary file of unknown vintage attributes an inspection to the wrong jurisdiction; a brand read off `products.name` splits `Tata Salt 1 kg` and `Tata Salt 500 g` into two brands and merges nothing. Both are nullable and both dashboards group a NULL under *unknown* rather than dropping the row, so the buckets always sum to the headline total.
+
 Four of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` (B12) and `idempotency_keys` (B14) — were added as reviewed deviations from the original model; `geo_point` became three columns to avoid a PostGIS dependency. Enumerated columns are `VARCHAR` + `CHECK` rather than native Postgres `ENUM`, so extending a value is a one-line migration and the same models build a SQLite schema for the org-isolation suite that CI runs without any datastore.
 
 ---
@@ -221,7 +226,8 @@ Four of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` (B
 - Evidence integrity (Mode A): SHA-256 of the raw image recorded at upload; `audit_log` is hash-chained (`hash = H(prev_hash || row)`); reports embed both hashes. Anyone can verify a report was not altered after issue. Because the API never proxies image bytes — it signs an upload URL and the client uploads straight to object storage — the raw hash is **declared by the client at create time and verified by the worker** against the stored object before any processing; a mismatch fails the scan rather than attaching a hash the evidence does not have. The chain is per-org, starting from a fixed genesis value, and `GET /v1/admin/audit/verify` reports the **first broken link** with its entry id and whether the row was edited (`hash_mismatch`) or removed (`broken_link`) — everything before that point is still provably intact. The canonical row rendering the hash covers is versioned and must never be edited in place, since changing it would invalidate every chain already written.
 - Location and device data: collected only in Mode A, disclosed in-app, retention configurable per org.
 - DPDP Act 2023 posture: the data is about products, not people, which is a genuine advantage over most health/fintech entries. The only personal data is user accounts and inspector location. Say this explicitly to judges.
-- Rate limiting per org and per IP; upload size and MIME allow-list; EXIF stripped from anything served publicly.
+- Rate limiting per org **and** per IP (B23, `services/ratelimit.py`): 120 req/min per address, 600 per org, fixed window, Redis-backed so the limit is the limit across every instance. Both axes are needed — per-IP alone lets one org flood from many addresses, per-org alone lets one address sweep many orgs. An unauthenticated flood is charged to its address and never to the org id it claimed, or anyone could exhaust a tenant's quota by sending their id. `/health` is exempt, because a load balancer throttled into declaring the service dead turns a rate limit into an outage. The limiter **fails open** if its own store is unreachable, and refuses the in-memory backend when `ENV` is production, where N workers would each admit the full ceiling.
+- Upload size and MIME allow-list, both enforced when the presigned URL is **issued** rather than after the bytes arrive; EXIF stripped from anything served, fail-closed — if metadata cannot be removed, the bytes are not returned.
 
 ---
 
@@ -237,6 +243,9 @@ Four of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` (B
 | Offline | Scans queue locally, upload and process on reconnect; queue survives app restart |
 | Database suspended (Neon scale-to-zero) | First query pays a cold start; `pool_pre_ping` and `pool_recycle` reconnect transparently. A scan in flight retries rather than failing |
 | Database or broker unreachable | `GET /health` answers 200 with `status: degraded` and names the failed component. The API reports rather than failing closed, so a probe can distinguish a dead process from a dead dependency |
+| Rate limiter's store unreachable | Requests are admitted and a warning is logged. A limiter that takes the API down when Redis blinks has converted a partial outage into a total one |
+| Corpus ingested but not embedded | Sahayak retrieval runs lexical-only. A narrower assistant, not a broken one |
+| Embedding or reranking runtime absent | Probed once per process; retrieval falls back to the fused order and logs it |
 
 ---
 

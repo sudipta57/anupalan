@@ -234,6 +234,60 @@ class Settings(BaseSettings):
     ``services.vision.ocr.get_engine``.
     """
 
+    # ------------------------------------------------------------------ rate limiting
+    # Two axes, both required (B23, NFR-01). Per-IP alone lets one org flood from many addresses;
+    # per-org alone lets one address sweep many orgs. See services/ratelimit.py.
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_BACKEND: str = "memory"
+    """``redis`` in any deployment with more than one worker, ``memory`` for local development,
+    ``off`` to disable. ``memory`` counts per process, so N workers admit N times the ceiling —
+    ``get_limiter`` refuses it when ``ENV`` is production rather than letting a deployment find
+    that out under load."""
+
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+    RATE_LIMIT_PER_IP: int = 120
+    """Requests per minute from one address. An inspector's phone retrying an upload is nowhere
+    near this; a script is."""
+
+    RATE_LIMIT_PER_ORG: int = 600
+    """Requests per minute from one organisation, across every user and device it has."""
+
+    RATE_LIMIT_EXEMPT_PATHS: list[str] = Field(
+        default_factory=lambda: ["/health", "/docs", "/openapi.json", "/redoc"]
+    )
+    """Never limited. ``/health`` in particular: a load balancer polling it must not be throttled
+    into declaring the service dead, which would turn a rate limit into an outage."""
+
+    # ------------------------------------------------------------------ sahayak (bis)
+    # No model name from a vendor appears here either: an embedder and a reranker are names in a
+    # registry, resolved exactly the way OCR_ENGINE and LLM_PROVIDER are, so an on-premise
+    # deployment swaps a string rather than a code path.
+    BIS_EMBEDDER: str = "bge_m3"
+    """Which Embedder implementation to use: ``bge_m3`` in production, ``hashing`` in tests.
+
+    ``hashing`` is a deterministic stand-in that needs no model weights and refuses to be selected
+    in production — see ``services/bis/embedding.py``. CI must never download a 2 GB model.
+    """
+
+    BIS_RERANKER: str = "cross_encoder"
+    """Which Reranker implementation to use: ``cross_encoder`` in production, ``overlap`` in
+    tests."""
+
+    BIS_RETRIEVAL_CANDIDATES: int = 30
+    """How many fused candidates go to the reranker (architecture §7: rerank the top 30)."""
+
+    BIS_RETRIEVAL_TOP_K: int = 6
+    """How many chunks reach the generator (architecture §7: top 30 -> top 6)."""
+
+    BIS_RRF_K: int = 60
+    """Reciprocal-rank-fusion constant. 60 is the value the RRF paper uses and every
+    implementation since has kept; it is here so it is visible, not so it is tuned."""
+
+    BIS_LISTS_PATH: Path = _REPO_ROOT / "bis" / "qco-crs-v1.yaml"
+    """The QCO/CRS applicability lists (B20). Data in ``bis/``, versioned independently of code,
+    for the same reason rule packs are: "does this product need the ISI mark" is a lookup against
+    a published list, and a published list belongs in a file somebody can review and diff."""
+
     # ------------------------------------------------------------------ rule packs
     RULEPACK_PATH: Path = _REPO_ROOT / "rulepacks" / "lm-2011-v1.yaml"
     """Active rule pack. Data, versioned independently of code (CLAUDE.md §2)."""

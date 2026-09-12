@@ -60,6 +60,8 @@ class Scan(TimestampMixin, Base):
         # at the same cost, and a plain index is one alembic autogenerate cannot disagree about.
         sa.Index("ix_scans_org_captured", "org_id", "captured_at"),
         sa.Index("ix_scans_org_status", "org_id", "status"),
+        # B17. Every dashboard query is org-scoped before it groups, so the org leads.
+        sa.Index("ix_scans_org_district", "org_id", "district"),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -85,6 +87,17 @@ class Scan(TimestampMixin, Base):
     geo_lat: Mapped[float | None] = mapped_column(sa.Double, nullable=True)
     geo_lon: Mapped[float | None] = mapped_column(sa.Double, nullable=True)
     geo_accuracy_m: Mapped[float | None] = mapped_column(sa.Double, nullable=True)
+
+    district: Mapped[str | None] = mapped_column(sa.String(100), nullable=True)
+    """Revenue district the inspection happened in — FR-30's Mode A dashboard axis.
+
+    Recorded, never derived. The coordinates above could in principle be resolved to a district,
+    but that resolution would be a guess made by a boundary file of unknown vintage, and an
+    enforcement dashboard that attributes an inspection to the wrong district is worse than one
+    that admits it does not know. Nullable throughout: a Mode B scan of a package on a desk has no
+    district, and a Mode A scan whose officer did not record one groups under ``unknown`` rather
+    than dropping out of the totals.
+    """
 
     device_meta: Mapped[dict[str, Any]] = mapped_column(
         json_type(), nullable=False, default=dict, server_default=sa.text("'{}'")

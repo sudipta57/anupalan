@@ -448,6 +448,89 @@ changes the wording and never the report's existence (`01-architecture.md` §11)
 defaults to adverse findings only, since explaining a dozen passes is a dozen calls for text
 nobody reads.
 **PR:** n/a (B11) · **Requirement:** FR-27
+
+### 2026-09-12 — `scans.district` and `products.brand` are recorded columns, not derived values
+**Context:** FR-30 groups violations by district (Mode A) and by brand (Mode B). The schema had
+neither column: `scans` carries coordinates and `products` carries a name.
+**Decision:** Migration 0003 adds `scans.district` (VARCHAR 100) and `products.brand` (VARCHAR 200),
+both nullable, each with an org-led index. Both dashboards group a NULL under `null` — rendered as
+*unknown* — rather than excluding the row.
+**Alternatives:** Resolving a district from `geo_lat`/`geo_lon` — rejected: the resolution is only
+as good as the boundary file behind it, and attributing an inspection to the wrong officer's
+jurisdiction is a worse failure than admitting the district is unknown. Reading a brand off
+`products.name` — rejected: "Tata Salt 1 kg" and "Tata Salt 500 g" are two products of one brand,
+and a packaging agency's account covers many brands, so the axis would merge nothing and split
+everything. Storing either in `scans.device_meta` JSON — rejected: unindexed and dialect-specific
+to query, against FR-30's 1 s budget on 50,000 findings.
+**Consequences:** Both fields are optional at capture, so the dashboards degrade to an `unknown`
+bucket rather than to an error. Excluding NULLs was considered and rejected: buckets that do not
+sum to the headline total are how a dashboard under-reports without anyone noticing.
+**PR:** n/a (B17) · **Requirement:** FR-30
+
+### 2026-09-12 — Dashboard aggregates count only the current evaluation revision
+**Context:** `findings` is append-only, so a scan corrected through `confirm-fields` keeps the
+findings of every earlier revision. Summing the table counts that scan once per revision and keeps
+reporting a violation that was withdrawn.
+**Decision:** Every aggregate in `repositories/aggregates.py` is restricted to the findings of each
+scan's **highest** revision, recovered by `MAX(revision)` per scan — the same definition of
+"current" that `FindingRepository.current` uses.
+**Alternatives:** A `is_current` flag on `findings` — rejected: a flag can be wrong, can be missed
+on one write path, and needs a backfill; the ordering cannot be wrong. Deleting superseded findings
+— rejected outright, it is what append-only forbids.
+**Consequences:** Every dashboard query carries a subquery over `scan_evaluations`. Measured at
+0.14 s for 50,000 findings, well inside FR-30's 1 s.
+**PR:** n/a (B17) · **Requirement:** FR-30
+
+### 2026-09-12 — The BIS applicability lists are data in `bis/`, a new top-level directory
+**Context:** FR-29's applicability must be a deterministic table lookup, not retrieval. That table
+had nowhere to live: `rulepacks/` is Legal Metrology rule text gated behind legal review
+(`CLAUDE.md` §7), and a Python dict would put IS numbers and QCO categories where CLAUDE.md §3.2
+says thresholds must never go.
+**Decision:** A new top-level `bis/` directory holding `qco-crs-v1.yaml`, loaded through
+`settings.BIS_LISTS_PATH`, validated and checksummed over its raw bytes the way a rule pack is. Its
+version label is stamped on every applicability answer, alongside the id of the row that decided it.
+**Alternatives:** Inside `rulepacks/` — rejected: it is not rule text and would drag BIS list edits
+through a legal-review gate written for Legal Metrology clauses. A seeded `bis_applicability` table
+— rejected: a schema change, and it would make a deterministic lookup depend on a database being
+seeded rather than on a file somebody reviewed.
+**Consequences:** One directory added to the `CLAUDE.md` §2 layout. A QCO amendment is a reviewed
+data edit and needs no deploy, which is the same property NFR-06 gives rule packs. The lists carry
+their own `as_of`, which becomes the freshness stamp on the answer.
+**PR:** n/a (B20) · **Requirement:** FR-29
+
+### 2026-09-12 — Sahayak's citations are post-validated, not requested
+**Context:** FR-28 requires every claim to map to a retrieved chunk id. Asking a model for
+citations produces citations; it does not produce *true* ones, and an answer that carries a
+fabricated chunk id is more dangerous than one with no citation at all, because it looks sourced.
+**Decision:** `services/bis/answer.py` validates after generation: every cited id must be one of
+the chunks actually retrieved, and every number in the answer must appear in a cited chunk or in
+the question. A failure of either is a refusal — the answer is withheld and the retrieved passages
+are handed over instead. Requests for the technical content of a standard are refused *before*
+retrieval runs.
+**Alternatives:** Trusting the schema-constrained response — rejected: a schema constrains shape,
+not truth. Stripping bad citations and publishing the rest — rejected: the sentence that cited a
+fabricated source is the sentence that needed one.
+**Consequences:** Five named refusal reasons rather than one flag, so refusals are countable —
+`priced_standard_content` in particular is the IP boundary working, and the backend plan's release
+gate asks for 10/10 on it. `confidence` reports mean reranker score across cited chunks and is null
+without a reranker; it is a retrieval signal and never a probability that the answer is correct.
+**PR:** n/a (B20) · **Requirement:** FR-28
+
+### 2026-09-12 — The embedder and reranker runtimes stay out of `pyproject.toml`
+**Context:** B19 needs BGE-M3 embeddings and a cross-encoder reranker. Both are heavy, both
+download model weights on first use, and CI must never do that. The backend plan §4 lists them as
+an outstanding dependency ask, and `CLAUDE.md` §7 makes adding one an ask rather than a decision.
+**Decision:** `Embedder` and `Reranker` protocols with two adapters each — a lazily-imported
+production adapter whose package is not declared, and a deterministic stand-in (`hashing`,
+`overlap`) selected by config. The missing runtime raises a message naming the outstanding ask.
+The `hashing` embedder refuses to be selected when `ENV=production`, checked against `ENV` rather
+than trusting the setting, the way OTP echo is.
+**Alternatives:** Declaring an optional `[bis]` extra now, as `[ocr]` was — rejected until the ask
+is answered, since pinning model revisions is part of that ask and an unpinned revision silently
+changes what the corpus was indexed with.
+**Consequences:** Retrieval runs lexical-only until the runtimes are installed, which is a narrower
+assistant rather than a broken one. `routers/deps.py` probes each once per process and falls back.
+**PR:** n/a (B19) · **Requirement:** FR-28
 ### 2026-09-12 — Mobile mocks the backend at a transport seam rather than with MSW
 **Context:** `03-implementation-plan.md` §P3.6 suggests mocking the API with MSW generated from the
 OpenAPI schema so the app never waits on the backend. The backend is being built in parallel, so
@@ -673,6 +756,72 @@ filed as a bug. Pinch smoothness is now a device question rather than a settled 
 code-complete, not done, until the Stage 8 device checklist has been walked.
 **PR:** n/a (Stage 8) · **Requirement:** FR-05
 
+### 2026-09-12 — A listing check cannot receive a measurement, by signature
+**Context:** FR-10 runs the rules engine over marketplace listing text. A listing is text: no
+photograph, no marker, no homography, no millimetre. Every metric and geometry rule is
+unanswerable, and a PASS there would tell a seller their font size is compliant on the strength of
+the words "500 g" in a product description.
+**Decision:** `services/listings.check_listing` takes **no measurements parameter**. It calls
+`evaluate()` with an empty sequence, which is the documented no-marker case. A test asserts the
+signature as well as the verdicts across a 50-row run.
+**Alternatives:** Passing an empty list at each call site and trusting review — rejected: that is a
+rule that holds until someone adds a keyword argument in a hurry. A runtime assertion over the
+findings — kept as the test, not as production code: the structural guarantee makes it
+unreachable, and an assertion that cannot fire is an assertion that rots.
+**Consequences:** `physical_rule_ids()` walks nested `then`/`rules` bodies, because a metric rule
+inside a `conditional` is still a metric rule and a top-level `kind` check would miss it. The
+endpoint's response carries `"scale": "none"` so a client cannot render these verdicts as though
+they came from a measured photograph. Regex-only extraction on this path: the LLM layer exists to
+repair OCR noise, and a listing has none.
+**PR:** n/a (B21) · **Requirement:** FR-10
+
+### 2026-09-12 — The bulk listing check is gated on PRODUCT_READ, not PRODUCT_WRITE
+**Context:** FR-10 is the flagship Mode B feature and needed a permission. `PRODUCT_WRITE` is held
+by inspector and admin; `analyst` — the desk role an industry org actually staffs — has only
+`PRODUCT_READ`.
+**Decision:** `PRODUCT_READ`. The check persists nothing, creates nothing, and reads only text the
+caller supplied in the request body.
+**Alternatives:** A new `LISTING_CHECK` permission — the most honest modelling, and rejected here
+because the role matrix in `tests/test_auth.py` is deliberately written out rather than derived,
+and extending it is a change to the auth specification that should be made on its own and reviewed
+as one, not folded into a feature. `PRODUCT_WRITE` — rejected: it locks the flagship Mode B feature
+away from the role that exists to run it, for a call that leaves no trace.
+**Consequences:** A viewer can run a bulk check. That is a compute cost, which B23's rate limits
+bound, rather than an access-control concern — there is no data of anyone else's to reach. Revisit
+if an org asks to restrict it, at which point the new permission is the right change.
+**PR:** n/a (B21) · **Requirement:** FR-10
+
+### 2026-09-12 — Rate limiting fails open, and the in-memory backend is refused in production
+**Context:** NFR-01 and architecture §10 want limits per org and per IP. Two failure modes had to
+be chosen deliberately: what happens when the limiter's own store is unreachable, and what happens
+when the cheap backend reaches production.
+**Decision:** An unreachable Redis **admits** the request and logs a warning. The in-memory backend
+**raises** when `ENV` is production, checked against `ENV` rather than trusting the setting.
+**Alternatives:** Failing closed on a backend outage — rejected: a rate limiter that takes the API
+down when Redis blinks has converted a partial outage into a total one, and the actual abuse risk
+here is an inspector's phone retrying an upload, which a hard fail does not protect against.
+Letting the memory backend run in production — rejected: N workers each admit the full ceiling, so
+the configured limit is silently multiplied by the worker count and nobody finds out until load.
+**Consequences:** Fixed window, not a sliding log: it admits up to twice the limit across a
+boundary, which is the right trade for stopping a runaway client rather than metering billing. An
+unauthenticated flood is charged to its address and never to the org id it claimed, or anyone could
+exhaust a tenant's quota by sending their id. `conftest.py` disables the limiter for every suite
+except `test_hardening.py`, because the whole test run comes from one client address.
+**PR:** n/a (B23) · **Requirement:** NFR-01
+
+### 2026-09-12 — E1's truth file names a region per line, not just a height
+**Context:** E1 compares a measured cap height against a caliper-measured one. Something has to
+decide which measured glyph belongs to which truth height.
+**Decision:** `truth.csv` carries the row's region in the rectified plane (`x_mm`, `y_mm`, `w_mm`,
+`h_mm`) and the script measures inside it. Required, not optional.
+**Alternatives:** Assigning each measurement to the nearest truth value — rejected, and this is the
+important one: it flatters the result exactly where accuracy matters. A 0.8 mm line measured at
+0.95 mm would be scored against 1.0 mm and recorded as a 0.05 mm error instead of a 0.15 mm one,
+and P0's decision gate is read off that number.
+**Consequences:** Building the E1 corpus costs one more column, which a generated chart knows by
+construction and a real label needs a ruler once. Captures the script cannot measure — no marker,
+unreadable file — are reported with a count and a reason rather than dropped from the denominator.
+**PR:** n/a (B22) · **Requirement:** FR-23
 ### 2026-09-12 — A provisional verdict blocks a report rather than warning on one, and the mock writes real files
 
 **Context:** FR-08 asks for PDF and DOCX generated from a completed scan and handed to the share

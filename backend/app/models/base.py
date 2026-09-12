@@ -46,8 +46,14 @@ def vector_type() -> sa.types.TypeEngine[Any]:
 
     The SQLite form exists so the schema builds; nothing may run a similarity query against it.
     Retrieval (B19) is Postgres-only by design — the fallback is a storage shape, not a feature.
+
+    ``none_as_null=True`` is load-bearing rather than tidy. SQLAlchemy's ``JSON`` persists Python
+    ``None`` as **JSON null** by default, which is a value, not an absence — so ``embedding IS
+    NULL`` matches nothing and B19's ``embed_pending`` finds no work to do. On Postgres the column
+    is a real ``vector`` and ``None`` was always SQL NULL; this makes the portable form agree,
+    which is the whole reason the variant exists.
     """
-    return sa.JSON().with_variant(Vector(EMBEDDING_DIMENSIONS), "postgresql")
+    return sa.JSON(none_as_null=True).with_variant(Vector(EMBEDDING_DIMENSIONS), "postgresql")
 
 
 def big_int_pk() -> sa.types.TypeEngine[Any]:

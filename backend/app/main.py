@@ -22,9 +22,14 @@ from app.config import settings
 from app.health import HealthReport, check_health
 from app.routers import admin as admin_router
 from app.routers import auth as auth_router
+from app.routers import dashboard as dashboard_router
+from app.routers import products as products_router
+from app.routers import sahayak as sahayak_router
 from app.routers import scans as scans_router
 from app.schemas.base import BodyOrgIdError
+from app.services import ratelimit
 from app.services.auth.rbac import PermissionDeniedError
+from app.services.auth.tokens import TokenError, read_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +50,60 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --------------------------------------------------------------------- rate limiting
+
+
+@app.middleware("http")
+async def rate_limit(request: Request, call_next: Any) -> Any:
+    """Refuse a caller who is sending too fast, on both the IP and the org axis (NFR-01, B23).
+
+    Wiring, not logic: the decision is ``services/ratelimit.check`` and this maps it onto HTTP.
+    It is middleware rather than a dependency because the per-IP half has to cover requests that
+    never reach a handler — an unauthenticated flood at ``/v1/auth/otp/request`` is exactly the
+    traffic a per-endpoint dependency would miss.
+
+    The token is read here as well as in ``current_principal``, through the same function, so the
+    org bucket exists for authenticated traffic. A token that does not verify is simply not an
+    org: an unauthenticated flood is charged to its address, never to the tenant whose id it
+    claimed, or anyone could exhaust another org's quota by guessing one.
+    """
+    path = request.url.path
+    if any(path.startswith(prefix) for prefix in settings.RATE_LIMIT_EXEMPT_PATHS):
+        return await call_next(request)
+
+    org_id: str | None = None
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        try:
+            org_id = str(read_access_token(authorization.split(" ", 1)[1].strip()).org_id)
+        except TokenError:
+            org_id = None
+
+    client = request.client
+    decision = ratelimit.check(ip=client.host if client else None, org_id=org_id)
+
+    if not decision.allowed:
+        return error_response(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            code="rate_limited",
+            message=(
+                f"too many requests for this {decision.scope}. "
+                f"Retry in {decision.retry_after} seconds."
+            ),
+            details={"scope": decision.scope, "limit": decision.limit},
+            headers={
+                "Retry-After": str(decision.retry_after),
+                "X-RateLimit-Limit": str(decision.limit),
+                "X-RateLimit-Remaining": "0",
+            },
+        )
+
+    response = await call_next(request)
+    response.headers["X-RateLimit-Limit"] = str(decision.limit)
+    response.headers["X-RateLimit-Remaining"] = str(decision.remaining)
+    return response
 
 
 # --------------------------------------------------------------------- error envelope
@@ -172,6 +231,9 @@ async def health() -> HealthReport:
 app.include_router(auth_router.router)
 app.include_router(scans_router.router)
 app.include_router(admin_router.router)
+app.include_router(dashboard_router.router)
+app.include_router(sahayak_router.router)
+app.include_router(products_router.router)
 
 
 __all__ = ["app", "error_response"]

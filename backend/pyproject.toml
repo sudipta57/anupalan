@@ -110,6 +110,10 @@ ignore = [
 "tests/**/*.py" = ["S101", "ANN", "T20"]
 # Alembic's generated env.py is framework boilerplate.
 "alembic/env.py" = ["ANN", "T20"]
+# The evaluation scripts (B22) are command-line tools whose printed output IS the deliverable —
+# it is pasted into docs/eval-results.md. T20 exists to keep stray debugging out of services/,
+# which is a different thing entirely.
+"scripts/**/*.py" = ["T20"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
