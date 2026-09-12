@@ -81,3 +81,40 @@ rather than `R2_*` so an on-premise MinIO deployment remains an endpoint change;
 recorded in `01-architecture.md` §9, not in the variable names. NFR-05's cost model needs
 re-costing against managed pricing.
 **PR:** n/a (scaffolding) · **Requirement:** n/a
+
+### 2026-09-12 — A rule that does not apply produces no finding, rather than a fifth verdict
+**Context:** `03-implementation-plan.md` §P2.4 case 8 expects an importer rule on a domestic pack
+to be "skipped, not FAIL", and case 10 expects a rule with a 2027 effective date evaluated in
+2026 to be "NOT_APPLICABLE". Read literally that is a fifth verdict, which contradicts
+`CLAUDE.md` §3.4 and `01-architecture.md` §6: verdicts are four-valued.
+**Decision:** `evaluate()` returns findings only for rules that apply. A rule whose `when`
+predicate is false, or whose `effective_from` is after `as_of`, is absent from the result.
+`findings.assemble()` takes the pack, so it recovers the difference: the response carries
+`not_applicable_rule_ids` and a `not_applicable` count alongside the four verdict counts.
+**Alternatives:** Adding `NOT_APPLICABLE` to the `Verdict` union — rejected because §3.4 is a
+non-negotiable and the four values are already load-bearing in the mobile findings viewer
+(FR-05 groups by exactly four buckets) and in the E3 confusion matrix. Returning the rule with a
+`PASS` — rejected outright: a pack that never checked a rule must not report it as satisfied.
+**Consequences:** `assemble()` needs the pack, so the rendering and summarising step is no longer
+usable on findings alone; that is now its documented signature. A caller that reads
+`evaluate()`'s output directly sees only applicable rules and must not infer that a missing rule
+was a pass. Reporting (B11) must print the not-applicable list, or a reader will wonder which
+rules were checked.
+**PR:** n/a (B0–B3) · **Requirement:** FR-25
+
+### 2026-09-12 — Rule pack validation is hand-written against a line-tracking YAML loader
+**Context:** FR-26 requires an invalid pack to be rejected with a **line-level** error. A schema
+validator (`jsonschema`) works on the parsed structure and carries no source positions, so a YAML
+loader that records line numbers is needed regardless of whether a schema language is used.
+**Decision:** A `yaml.SafeLoader` subclass records `__line__` on every mapping (stripped before
+the data reaches the evaluator), and `services/rules/schema.py` validates the rule shapes
+directly. No new dependency.
+**Alternatives:** `jsonschema` with the schema as data in `rulepacks/_schema.json` — rejected for
+now because it would be the hand-written line-tracking work *plus* a dependency *plus* a mapping
+from JSON-pointer error paths back to lines. Revisit if third parties start authoring packs, when
+a declarative schema they can read becomes worth the machinery.
+**Consequences:** Adding a rule *kind* means editing `VALID_KINDS` and a dispatch branch, which
+is a code change — acceptable, since a new kind needs evaluator support anyway. Adding a new
+*option* to an existing kind stays a pure pack change: rule bodies are passed through to the
+evaluator unvalidated beyond their required keys.
+**PR:** n/a (B1) · **Requirement:** FR-26

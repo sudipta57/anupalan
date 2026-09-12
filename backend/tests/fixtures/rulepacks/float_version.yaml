@@ -1,0 +1,10 @@
+meta:
+  code: TEST
+  version: 1.0
+rules:
+  - id: TEST-PRESENCE
+    kind: presence
+    fields: [mrp]
+    severity: major
+    citation: "Rule 6(1)(e)"
+    message: "ok"

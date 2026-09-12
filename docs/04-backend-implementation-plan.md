@@ -1,4 +1,4 @@
-# Anupalan — Backend Implementation Plan
+﻿# Anupalan — Backend Implementation Plan
 
 **Doc version:** v1.0 · **Written:** 12 Sep 2026
 **Scope:** `backend/` only — FastAPI API, Celery worker, `rulepacks/` consumption, eval scripts.
@@ -23,10 +23,10 @@ Audited against the working tree, not against the plan.
 | `app/health.py` | **Done.** db + redis + rulepack, 200-with-`degraded` semantics. |
 | `app/routers/*.py` | **Docstrings only.** Seven modules, each specifying its endpoints. Zero routes. |
 | `app/models/`, `app/schemas/`, `app/repositories/` | **Empty `__init__.py`.** |
-| `app/services/rules/loader.py` | **Half of FR-26.** Parses YAML, validates `meta.code`/`meta.version`, caches, `reload()`. No schema validation, no checksum, no evaluator. |
+| `app/services/rules/` | **Done (B0–B3).** `schema.py` validates with line-level errors, `loader.py` checksums and activates, `evaluate.py` interprets all seven rule kinds, `findings.py` assembles. 14 baseline cases green, 88% coverage. |
 | `app/services/{vision,extraction,reporting,bis,llm}/` | **Empty `__init__.py`.** |
 | `alembic/` | Configured; `versions/` is empty. **Zero migrations.** |
-| `tests/` | `conftest.py` + `test_health.py` only. `tests/fixtures/` empty. |
+| `tests/` | `test_health.py`, `test_rules.py` (17), `test_rulepack_loader.py` (12), `test_findings.py` (7). `conftest.py` carries the fixture loaders and the `--update-golden` contract; `tests/fixtures/rulepacks/` holds the deliberately broken packs. |
 | `scripts/` | **Does not exist.** The three eval commands in `CLAUDE.md` §4 and `eval-results.md` have no module behind them. |
 | CI | ruff + mypy (strict on services) + pytest, no datastores. Green. |
 
@@ -74,10 +74,10 @@ track D — sahayak (independent of A/B, needs B12 for the pgvector tables)
 
 | # | Package | TRD | Depends on | Window | Gate to clear it |
 |---|---|---|---|---|---|
-| B0 | Test scaffolding + fixture contract | — | — | Sep 29–30 | `pytest` green with the new conftest fixtures |
-| B1 | Rule pack: JSON schema, checksum, `RulePack` API | FR-26 | — | Oct 1 | invalid pack rejected with a line number; previous pack stays active |
-| **B2** | **`evaluate()` — the rules interpreter** | **FR-25** | B1 | **Oct 1–5** | **all 14 baseline cases pass; 1000-run byte-identity; no DB import in the module** |
-| B3 | Findings assembly + summary + `rulepack_version` stamping | FR-25 | B2 | Oct 5 | every finding carries pack version, citation, bbox slot |
+| ✅ B0 | Test scaffolding + fixture contract | — | — | done | `pytest` green with the new conftest fixtures |
+| ✅ B1 | Rule pack: validation, checksum, `RulePack` API | FR-26 | — | done | invalid pack rejected with a line number; previous pack stays active |
+| **✅ B2** | **`evaluate()` — the rules interpreter** | **FR-25** | B1 | **done** | **all 14 baseline cases pass; 1000-run byte-identity; no DB import in the module** |
+| ✅ B3 | Findings assembly + summary + `rulepack_version` stamping | FR-25 | B2 | done | every finding carries pack version, citation, bbox slot |
 | B4 | Object storage adapter (R2/S3), presign, sha256, EXIF strip | FR-20, SR | — | Oct 6 | presigned PUT/GET round-trips against the real bucket |
 | B5 | Marker detection + rectification to `PX_PER_MM` | FR-21 | P0 spike | Oct 6–8 | 10.00 mm bars measure 10.00 ± 0.25 mm on 20 captures |
 | B6 | `OCREngine` interface + PaddleOCR adapter + second adapter | FR-22 | — | Oct 8–10 | engine swap by config changes no calling code |
@@ -173,8 +173,10 @@ CONSTRAINTS:
     the pack. A grep for a bare float in evaluate.py should return nothing.
   - Four-valued verdicts. BORDERLINE is never collapsed into FAIL.
   - A metric rule with no measurement is NOT_ASSESSABLE. Never a guess, never a PASS.
-  - A conditional rule whose `when` is false is skipped (reported NOT_APPLICABLE) —
-    it is never a FAIL.
+  - A conditional rule whose `when` is false, or whose effective_from is after as_of, produces
+    NO FINDING AT ALL — it is never a FAIL and never a PASS. Verdicts stay four-valued
+    (CLAUDE.md §3.4); assemble() recovers the difference from the pack. See docs/decisions.md,
+    2026-09-12.
   - Rule kinds to support: presence | any_of | format | metric | conditional | composite | geometry
 SIGNATURE:
   def evaluate(
@@ -735,4 +737,4 @@ The ones from `CLAUDE.md` §8 that will actually bite in backend code, plus two 
 - Neon's pooled endpoint is pgbouncer: keep `prepare_threshold=None`, and run migrations on `DATABASE_URL_DIRECT`.
 - Celery does not infer TLS from `rediss://`; `broker_use_ssl` is set off the URL scheme in `worker.py`.
 - **Recompute uses the scan's original pack version, not the active one.** The obvious implementation of `confirm-fields` is wrong in a way no test catches unless you write that test (B15).
-- **`NOT_APPLICABLE` and `NOT_ASSESSABLE` are different verdicts.** "This rule does not apply to your product" and "we could not measure this" mean opposite things to the reader, and collapsing them turns a clean report into an accusation.
+- **"Does not apply to you" and "we could not measure it" are different outcomes.** Verdicts stay four-valued, so the first is the *absence* of a finding plus an entry in `not_applicable_rule_ids`, and the second is a `NOT_ASSESSABLE` finding that still states what would have been required. Collapsing them turns a clean report into an accusation; treating absence as a pass hides a rule that was never checked.

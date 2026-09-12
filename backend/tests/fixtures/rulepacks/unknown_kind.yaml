@@ -1,0 +1,15 @@
+meta:
+  code: TEST
+  version: "0.1"
+rules:
+  - id: TEST-GOOD
+    kind: presence
+    fields: [mrp]
+    severity: major
+    citation: "Rule 6(1)(e)"
+    message: "ok"
+  - id: TEST-WEIRD
+    kind: vibes
+    severity: major
+    citation: "Rule 6(1)(e)"
+    message: "nope"

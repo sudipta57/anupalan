@@ -1,0 +1,9 @@
+meta:
+  code: TEST
+  version: "0.1"
+rules:
+  - id: TEST-PRESENCE
+    kind: presence
+    fields: [mrp]
+    severity: major
+    message: "Retail sale price must be declared."
