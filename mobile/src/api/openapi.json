@@ -1,0 +1,3945 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Anupalan API",
+    "summary": "Compliance engine for packaged commodities in India",
+    "description": "Advisory pre-audit tool. Output is not a certification and carries no legal force. The rule pack is an engineering transcription pending legal review.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["meta"],
+        "summary": "Liveness and dependency check",
+        "description": "Report process health plus the state of each dependency and the active rule pack.\n\n``rulepack`` is read from the loaded pack's ``meta`` (never hardcoded), so this endpoint\ndoubles as proof that the pack on disk parsed and is the version you expect.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/otp/request": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Request a one-time code",
+        "description": "Send a code to a phone number.\n\nAnswers identically whether or not the number is registered (see the module docstring), so a\ncaller learns nothing from this endpoint except that their request was accepted.",
+        "operationId": "request_otp_v1_auth_otp_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OtpRequestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/otp/verify": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Exchange a code for tokens",
+        "description": "Verify a code and start a session.\n\nThe code is consumed whether or not it turns out to belong to a registered number, so a\ncaller cannot use a valid-but-unregistered code twice to probe for a race.",
+        "operationId": "verify_otp_v1_auth_otp_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpVerifyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Rotate a refresh token",
+        "description": "Exchange a refresh token for a new pair.\n\nRotation: the presented token is retired and a new one issued in the same family. Presenting a\nretired token revokes the whole family \u2014 see the module docstring for why that is the right\nresponse to an ambiguous signal.",
+        "operationId": "refresh_session_v1_auth_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPairOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "tags": ["auth"],
+        "summary": "The current session",
+        "description": "Who the bearer token says you are.\n\nUseful to the app on cold start, and useful in testing as the smallest endpoint that proves\nthe whole token path works. It returns no new tokens \u2014 the ones in the response are the empty\nstrings, because the caller already holds the only one that matters.",
+        "operationId": "me_v1_auth_me_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/scans": {
+      "post": {
+        "tags": ["scans"],
+        "summary": "Create a scan and get upload URLs",
+        "description": "Create a scan and issue one presigned upload URL per asset (FR-20).\n\nThe API never sees the image. It records what the client says it is about to upload \u2014 content\ntype, size and SHA-256 \u2014 signs a URL for each, and leaves. The size and type are enforced\n*here*, when the capability is issued, rather than after the bytes have arrived.",
+        "operationId": "create_scan_v1_scans_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanCreateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanCreatedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": ["scans"],
+        "summary": "List and filter past scans",
+        "description": "A page of this org's scans, newest first (FR-09).\n\n*Accept: filtering 200 seeded scans by ``verdict=FAIL`` returns only scans with at least one\nFAIL, within 500 ms.*\n\nThe shape that makes the second half of that true: **filter, page, then aggregate**. The verdict\nfilter is an ``IN`` against a grouped sub-select rather than a count computed per row, the page\nis a keyset slice of at most a hundred scans, and only those scans' findings are counted. Adding\nscans to an org lengthens the table, not the work.",
+        "operationId": "list_scans_v1_scans_get",
+        "parameters": [
+          {
+            "name": "verdict",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": ["PASS", "FAIL", "BORDERLINE", "NOT_ASSESSABLE"],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Scans having at least one finding with this verdict, in their current evaluation. **Exactly one verdict, never a set.** Widening this to mean 'has a problem' by including BORDERLINE alongside FAIL would collapse the two (CLAUDE.md \u00a73.4) and would not look like a bug: the list would be longer and every scan in it would genuinely have something on it. What it destroys is the distinction the product exists for \u2014 an inspector asking for failures would be shown a compliant pack whose measurement merely sat inside the uncertainty band.",
+              "title": "Verdict"
+            },
+            "description": "Scans having at least one finding with this verdict, in their current evaluation. **Exactly one verdict, never a set.** Widening this to mean 'has a problem' by including BORDERLINE alongside FAIL would collapse the two (CLAUDE.md \u00a73.4) and would not look like a bug: the list would be longer and every scan in it would genuinely have something on it. What it destroys is the distinction the product exists for \u2014 an inspector asking for failures would be shown a compliant pack whose measurement merely sat inside the uncertainty band."
+          },
+          {
+            "name": "product_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Id"
+            }
+          },
+          {
+            "name": "district",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "District"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "name": "tz_offset_minutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 840,
+              "minimum": -840,
+              "description": "Minutes the caller's clock is ahead of UTC, so `from` and `to` mean the caller's calendar days. Defaults to UTC days.",
+              "default": 0,
+              "title": "Tz Offset Minutes"
+            },
+            "description": "Minutes the caller's clock is ahead of UTC, so `from` and `to` mean the caller's calendar days. Defaults to UTC days."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Free text over the product name",
+              "title": "Q"
+            },
+            "description": "Free text over the product name"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanPageOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/scans/{scan_id}/submit": {
+      "post": {
+        "tags": ["scans"],
+        "summary": "Queue a scan for processing",
+        "description": "Enqueue processing and return immediately (FR-20: 202 inside 300 ms).\n\nThis handler does not open an image, call OCR, or touch object storage. It flips a status and\nputs a message on a queue \u2014 which is the only way the latency budget is achievable, and the\nreason the pipeline is a Celery task rather than a background coroutine.\n\nIdempotent without needing a key: a scan already queued or further along is returned as it\nstands rather than enqueued twice.",
+        "operationId": "submit_scan_v1_scans__scan_id__submit_post",
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Scan Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanSubmittedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/scans/{scan_id}": {
+      "get": {
+        "tags": ["scans"],
+        "summary": "Fetch a scan and its assets",
+        "description": "A scan, its status and its assets with time-limited read URLs.\n\nBuckets are private (architecture \u00a710), so a presigned GET is the only read path. The URLs are\nminted per request and expire; nothing here hands out a durable link to evidence.",
+        "operationId": "get_scan_v1_scans__scan_id__get",
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Scan Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/scans/{scan_id}/findings": {
+      "get": {
+        "tags": ["scans"],
+        "summary": "The verdicts that stand for a scan",
+        "description": "The current findings \u2014 the highest evaluation revision's (FR-05).\n\nAlways carries ``rulepack_version`` (CLAUDE.md \u00a73.6) and the summary block, including the\ncount of rules that did not apply.",
+        "operationId": "get_findings_v1_scans__scan_id__findings_get",
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Scan Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/scans/{scan_id}/confirm-fields": {
+      "post": {
+        "tags": ["scans"],
+        "summary": "Correct extracted fields and recompute the verdict",
+        "description": "Record human corrections and re-evaluate (FR-06).\n\nThe recompute runs against **the pack the scan was originally evaluated under and the original\n``as_of``** \u2014 not the active pack, and not today's date. A report regenerated next year must\nreproduce the verdict issued under the rules in force at scan time (CLAUDE.md \u00a73.6), and a\ncorrection is not a reason to re-judge a label against rules that did not exist when it was\nphotographed.\n\nNothing is mutated. The superseded extraction keeps its row, the previous findings keep\ntheirs, and the result is a new evaluation revision.",
+        "operationId": "confirm_fields_v1_scans__scan_id__confirm_fields_post",
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Scan Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmFieldsIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/audit/verify": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Verify this org's audit chain",
+        "description": "Walk the chain and report the first link that does not hold.\n\nOrg-scoped like everything else: an admin verifies their own authority's record, not anyone\nelse's. Each org has its own chain, starting from a genesis hash, so one tenant's activity\nneither reveals nor depends on another's.",
+        "operationId": "verify_audit_chain_v1_admin_audit_verify_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChainVerificationOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/audit": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Read this org's audit entries",
+        "description": "Entries in chain order, oldest first \u2014 the only order that means anything for a linked\nlist, and the order verification walks.",
+        "operationId": "list_audit_entries_v1_admin_audit_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/dashboard/violations": {
+      "get": {
+        "tags": ["dashboard"],
+        "summary": "Verdict counts grouped by one dimension",
+        "description": "Violations for this org, grouped and counted by the database.\n\nThe window is on ``captured_at``, the date the photograph was taken, because that is the date\nthe inspection happened. FR-04 lets a scan sit in an offline queue for days, so filtering on\nwhen the row arrived would move inspections into months in which they did not occur.",
+        "operationId": "violations_v1_dashboard_violations_get",
+        "parameters": [
+          {
+            "name": "group_by",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ViolationDimension",
+              "description": "Which axis to group on. Anything outside this enum is a 422."
+            },
+            "description": "Which axis to group on. Anything outside this enum is a 422."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Earliest capture date, inclusive (not upload date)",
+              "title": "Since"
+            },
+            "description": "Earliest capture date, inclusive (not upload date)"
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Latest capture date, inclusive (not upload date)",
+              "title": "Until"
+            },
+            "description": "Latest capture date, inclusive (not upload date)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "description": "Maximum buckets returned",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Maximum buckets returned"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViolationsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sahayak/ask": {
+      "post": {
+        "tags": ["sahayak"],
+        "summary": "Ask Sahayak a BIS certification question",
+        "description": "Retrieve, generate with mandatory citation, post-validate, and record.\n\nThe question is passed to retrieval **as asked**. A ``scan_id`` links the query to a scan of\nthis org \u2014 it is not folded into the question text, because rewriting what the user asked\nbefore searching makes the answer depend on a rewrite nobody can see.",
+        "operationId": "ask_v1_sahayak_ask_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bis/applicability": {
+      "post": {
+        "tags": ["sahayak"],
+        "summary": "Does a BIS Quality Control Order cover this product?",
+        "description": "Look the product up against the published QCO and CRS lists (FR-29).\n\nA table lookup, deterministic and reproducible. No model is called and no retrieval happens:\nthe answer is whatever the reviewed list in ``bis/`` says, stamped with the list's version and\nthe row that decided it, so it can be checked against the published source.",
+        "operationId": "applicability_v1_bis_applicability_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicabilityIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicabilityOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/scans/{scan_id}/applicability": {
+      "post": {
+        "tags": ["sahayak"],
+        "summary": "BIS applicability for a scanned product",
+        "description": "The same lookup, against the profile the scan was **frozen** with (FR-29).\n\nThis is the join between the two problem statements: the profile that decided which Legal\nMetrology declarations applied also decides the certification route. Read from the scan's own\nfrozen copy rather than from ``products``, for the reason ``models/scan.py`` gives \u2014 a product\nedited next month must not change an answer already given about a package photographed today.",
+        "operationId": "applicability_for_scan_v1_scans__scan_id__applicability_post",
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Scan Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicabilityOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/products/listings/check": {
+      "post": {
+        "tags": ["products"],
+        "summary": "Check a CSV of marketplace listings (Mode B)",
+        "description": "Run presence and format rules over every listing in the CSV (FR-10).\n\nGated on ``PRODUCT_READ`` rather than ``PRODUCT_WRITE``: the check persists nothing, creates\nnothing, and reads only text the caller supplied in the request body. Requiring the write\npermission would lock the flagship Mode B feature away from the analyst role that exists to\nrun it, for a call that leaves no trace.\n\n``as_of`` is today. Unlike a scan \u2014 which is judged at its capture date, because FR-04 lets a\nphotograph sit in an offline queue for days \u2014 a pasted listing has no capture date. It is a\nlive listing being checked now, so now is the honest date to judge it at.",
+        "operationId": "check_listings_v1_products_listings_check_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkListingIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkListingOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/products": {
+      "get": {
+        "tags": ["products"],
+        "summary": "List and search the product catalogue",
+        "description": "This org's products, alphabetically (FR-03, FR-09).\n\nAlphabetical rather than newest-first because the caller is a person looking for a product they\nalready have in mind, in a picker. Recency is the right order for a history of events and the\nwrong one for a catalogue.",
+        "operationId": "list_products_v1_products_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Free text over name and brand",
+              "title": "Q"
+            },
+            "description": "Free text over name and brand"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 50
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductPageOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/scans/{scan_id}/report": {
+      "post": {
+        "tags": ["reports"],
+        "summary": "Generate a report for a scan",
+        "description": "Render this scan's current findings and store them (FR-27, FR-08).\n\nRefuses a scan that has never been evaluated. There is nothing to report on, and a document\nstating no findings would read as a clean result rather than as an absent one.",
+        "operationId": "create_report_v1_scans__scan_id__report_post",
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Scan Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportCreateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reports/{report_id}": {
+      "get": {
+        "tags": ["reports"],
+        "summary": "Fetch a generated report",
+        "description": "One report, with fresh read URLs.\n\nThe links are minted per request and expire, so this is also how a client re-shares a report it\ngenerated yesterday \u2014 nothing hands out a durable link to evidence.",
+        "operationId": "get_report_v1_reports__report_id__get",
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnswerOut": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/CitationOut"
+            },
+            "type": "array",
+            "title": "Citations"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence",
+            "description": "How well the cited sources matched the question \u2014 a retrieval signal, not a probability that the answer is correct. Null when no reranker ran."
+          },
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of",
+            "description": "Freshness of the material behind this answer"
+          },
+          "refused": {
+            "type": "boolean",
+            "title": "Refused",
+            "default": false
+          },
+          "refusal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refusal Reason",
+            "description": "priced_standard_content | no_supporting_source | unsupported_claim | fabricated_citation | assistant_unavailable"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceOut"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "disclaimer": {
+            "type": "string",
+            "title": "Disclaimer"
+          }
+        },
+        "type": "object",
+        "required": ["answer", "disclaimer"],
+        "title": "AnswerOut"
+      },
+      "ApplicabilityIn": {
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/ProfileIn"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["profile"],
+        "title": "ApplicabilityIn",
+        "description": "A product profile to look up."
+      },
+      "ApplicabilityOut": {
+        "properties": {
+          "qco_applicable": {
+            "type": "string",
+            "enum": ["yes", "no", "unclear"],
+            "title": "Qco Applicable"
+          },
+          "scheme": {
+            "type": "string",
+            "enum": ["ISI", "CRS", "FMCS", "none"],
+            "title": "Scheme"
+          },
+          "candidate_is_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Candidate Is Numbers"
+          },
+          "next_steps": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Next Steps"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceOut"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "matched_entry_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Entry Id",
+            "description": "The list row that decided it. Null when nothing matched."
+          },
+          "matched_on": {
+            "type": "string",
+            "enum": ["category_code", "keyword", "none"],
+            "title": "Matched On",
+            "default": "none"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order",
+            "description": "The Quality Control Order, where named"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "forthcoming": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Forthcoming",
+            "description": "Obligations that match this product but are not yet in force"
+          },
+          "lists_version": {
+            "type": "string",
+            "title": "Lists Version"
+          },
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "disclaimer": {
+            "type": "string",
+            "title": "Disclaimer"
+          }
+        },
+        "type": "object",
+        "required": ["qco_applicable", "scheme", "lists_version", "disclaimer"],
+        "title": "ApplicabilityOut",
+        "description": "FR-29's shape, plus the provenance that makes it checkable."
+      },
+      "AskIn": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 3,
+            "title": "Question"
+          },
+          "scan_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Id",
+            "description": "Link the question to a scan of this org. Recorded on the query so a certification answer a brand acted on can be shown next to the label it was asked about."
+          },
+          "lang": {
+            "type": "string",
+            "enum": ["en", "hi"],
+            "title": "Lang",
+            "default": "en"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["question"],
+        "title": "AskIn",
+        "description": "A question for Sahayak."
+      },
+      "AssetIn": {
+        "properties": {
+          "content_type": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Content Type",
+            "description": "Checked against the allow-list when the URL is signed, and part of the signature, so the uploaded bytes must match it",
+            "examples": ["image/jpeg"]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "maximum": 1073741824.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Size Bytes",
+            "description": "Enforced at presign time, not after the upload"
+          },
+          "sha256": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "description": "SHA-256 of the bytes about to be uploaded. The worker verifies the stored object against this before processing; a mismatch fails the scan."
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["raw", "rectified", "annotated"],
+            "title": "Kind",
+            "default": "raw"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["content_type", "size_bytes", "sha256"],
+        "title": "AssetIn",
+        "description": "One image the client is about to upload."
+      },
+      "AssetOut": {
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Asset Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["raw", "rectified", "annotated"],
+            "title": "Kind"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "content_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Type"
+          },
+          "width_px": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width Px"
+          },
+          "height_px": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Px"
+          },
+          "px_per_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Px Per Mm"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url",
+            "description": "Time-limited read URL. Buckets are private; this is the only read path."
+          }
+        },
+        "type": "object",
+        "required": ["asset_id", "kind", "sha256"],
+        "title": "AssetOut",
+        "description": "One stored asset."
+      },
+      "AuditEntryOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "entity": {
+            "type": "string",
+            "title": "Entity"
+          },
+          "entity_id": {
+            "type": "string",
+            "title": "Entity Id"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "prev_hash": {
+            "type": "string",
+            "title": "Prev Hash"
+          },
+          "hash": {
+            "type": "string",
+            "title": "Hash"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "type": "object",
+        "required": ["id", "action", "entity", "entity_id", "created_at", "prev_hash", "hash"],
+        "title": "AuditEntryOut",
+        "description": "One recorded action."
+      },
+      "AuditListOut": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/AuditEntryOut"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "type": "object",
+        "title": "AuditListOut"
+      },
+      "BBoxOut": {
+        "properties": {
+          "x": {
+            "type": "number",
+            "title": "X"
+          },
+          "y": {
+            "type": "number",
+            "title": "Y"
+          },
+          "width": {
+            "type": "number",
+            "title": "Width"
+          },
+          "height": {
+            "type": "number",
+            "title": "Height"
+          }
+        },
+        "type": "object",
+        "required": ["x", "y", "width", "height"],
+        "title": "BBoxOut",
+        "description": "Evidence rectangle on the rectified image, in pixels (FR-05: tappable)."
+      },
+      "BucketOut": {
+        "properties": {
+          "pass": {
+            "type": "integer",
+            "title": "Pass",
+            "description": "PASS"
+          },
+          "fail": {
+            "type": "integer",
+            "title": "Fail",
+            "description": "FAIL"
+          },
+          "borderline": {
+            "type": "integer",
+            "title": "Borderline",
+            "description": "BORDERLINE \u2014 within the measurement's uncertainty band, never a failure"
+          },
+          "not_assessable": {
+            "type": "integer",
+            "title": "Not Assessable",
+            "description": "NOT_ASSESSABLE \u2014 could not be checked, e.g. no marker, so no millimetres"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Findings in this group"
+          },
+          "scans": {
+            "type": "integer",
+            "title": "Scans",
+            "description": "Distinct scans contributing to this group"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key",
+            "description": "The group's value. **null** means the dimension was not recorded on those scans \u2014 an unknown district, or a scan with no product to take a brand from \u2014 and never that the group is empty."
+          }
+        },
+        "type": "object",
+        "required": ["pass", "fail", "borderline", "not_assessable", "total", "scans", "key"],
+        "title": "BucketOut",
+        "description": "One row of the dashboard table: a group and its counts, flat.\n\nFlat rather than ``{key, counts:{...}}`` because a bucket *is* a table row, and every consumer\n\u2014 a chart, a CSV export, a sorted list \u2014 wants the columns at one level."
+      },
+      "BulkListingIn": {
+        "properties": {
+          "csv": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Csv",
+            "description": "CSV text. Needs a header with a listing text column \u2014 one of `listing_text`, `text`, `description`, `listing` \u2014 plus optional `listing_id`/`sku`, `url`, and any profile columns (`is_imported`, `category_code`, `net_qty_value`, ...)."
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProfileIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults for rows that do not carry their own profile columns."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["csv"],
+        "title": "BulkListingIn",
+        "description": "A pasted CSV of marketplace listings (FR-10).\n\nA single text field rather than a multipart upload: \"paste or upload\" are the same payload\nonce the client has read the file, and one content type is one thing to get right in the\ngenerated mobile client."
+      },
+      "BulkListingOut": {
+        "properties": {
+          "rulepack_version": {
+            "type": "string",
+            "title": "Rulepack Version",
+            "description": "Every verdict here was issued under this pack (CLAUDE.md \u00a73.6)"
+          },
+          "as_of": {
+            "type": "string",
+            "title": "As Of"
+          },
+          "scale": {
+            "type": "string",
+            "const": "none",
+            "title": "Scale",
+            "description": "A listing carries no physical scale, so every metric and geometry rule in every row is NOT_ASSESSABLE. Stated on the response so a client cannot render these verdicts as though they came from a measured photograph.",
+            "default": "none"
+          },
+          "summary": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Summary"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ListingRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": ["rulepack_version", "as_of", "summary"],
+        "title": "BulkListingOut",
+        "description": "The whole upload."
+      },
+      "ChainBreakOut": {
+        "properties": {
+          "entry_id": {
+            "type": "integer",
+            "title": "Entry Id"
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["broken_link", "hash_mismatch"],
+            "title": "Reason",
+            "description": "broken_link: a row was deleted or inserted. hash_mismatch: a row's contents were edited."
+          },
+          "expected": {
+            "type": "string",
+            "title": "Expected"
+          },
+          "found": {
+            "type": "string",
+            "title": "Found"
+          }
+        },
+        "type": "object",
+        "required": ["entry_id", "reason", "expected", "found"],
+        "title": "ChainBreakOut",
+        "description": "One place the chain stopped verifying."
+      },
+      "ChainVerificationOut": {
+        "properties": {
+          "org_id": {
+            "type": "string",
+            "title": "Org Id"
+          },
+          "entries_checked": {
+            "type": "integer",
+            "title": "Entries Checked"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "first_break": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChainBreakOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the chain stops being provable. Null when it is intact."
+          },
+          "breaks": {
+            "items": {
+              "$ref": "#/components/schemas/ChainBreakOut"
+            },
+            "type": "array",
+            "title": "Breaks"
+          }
+        },
+        "type": "object",
+        "required": ["org_id", "entries_checked", "ok"],
+        "title": "ChainVerificationOut",
+        "description": "The result of walking this org's chain."
+      },
+      "CitationOut": {
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "title": "Chunk Id"
+          },
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section",
+            "description": "Where in the document \u2014 a clause, not a page number"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          }
+        },
+        "type": "object",
+        "required": ["chunk_id", "document_id", "title", "url"],
+        "title": "CitationOut",
+        "description": "One source behind the answer."
+      },
+      "ConfirmFieldsIn": {
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldCorrectionIn"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Fields"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["fields"],
+        "title": "ConfirmFieldsIn",
+        "description": "Confirm or correct low-confidence fields and recompute the verdict."
+      },
+      "CountsOut": {
+        "properties": {
+          "pass": {
+            "type": "integer",
+            "title": "Pass",
+            "description": "PASS"
+          },
+          "fail": {
+            "type": "integer",
+            "title": "Fail",
+            "description": "FAIL"
+          },
+          "borderline": {
+            "type": "integer",
+            "title": "Borderline",
+            "description": "BORDERLINE \u2014 within the measurement's uncertainty band, never a failure"
+          },
+          "not_assessable": {
+            "type": "integer",
+            "title": "Not Assessable",
+            "description": "NOT_ASSESSABLE \u2014 could not be checked, e.g. no marker, so no millimetres"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Findings in this group"
+          },
+          "scans": {
+            "type": "integer",
+            "title": "Scans",
+            "description": "Distinct scans contributing to this group"
+          }
+        },
+        "type": "object",
+        "required": ["pass", "fail", "borderline", "not_assessable", "total", "scans"],
+        "title": "CountsOut",
+        "description": "The four verdicts for one group, with its row and scan counts.\n\n``pass`` is a Python keyword, so the field is ``passed`` and the wire name is set by an alias.\nThe wire name is the contract ``mobile/`` generates against and matches the summary block of\n``GET /v1/scans/{id}/findings``; renaming it to dodge the keyword would leave one system with\ntwo spellings of the same four verdicts."
+      },
+      "ExtractionOut": {
+        "properties": {
+          "extraction_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Extraction Id"
+          },
+          "field_code": {
+            "type": "string",
+            "title": "Field Code"
+          },
+          "value_raw": {
+            "type": "string",
+            "title": "Value Raw",
+            "description": "Exactly as it appeared on the pack"
+          },
+          "value_norm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Norm",
+            "description": "Units resolved, dates parsed. Null when normalisation failed."
+          },
+          "source": {
+            "type": "string",
+            "enum": ["regex", "llm", "human"],
+            "title": "Source"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "description": "The extractor's own confidence. The client confirms anything below its threshold before treating a verdict as settled, so this must be the real number \u2014 a default of 1.0 on an uncertain read disables FR-06 silently."
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BBoxOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_span": {
+            "anyOf": [
+              {
+                "prefixItems": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "type": "array",
+                "maxItems": 2,
+                "minItems": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Span",
+            "description": "Character range in the OCR text this value came from, verified to exist in that text before the value was accepted (CLAUDE.md \u00a78)."
+          }
+        },
+        "type": "object",
+        "required": ["extraction_id", "field_code", "value_raw", "source", "confidence"],
+        "title": "ExtractionOut",
+        "description": "One extracted declaration, as it currently stands (FR-24, FR-06).\n\nSuperseded rows are absent: a human correction writes a new row and stamps the old one, so this\nis the set the verdicts were computed from and the set the client should show."
+      },
+      "FieldCorrectionIn": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Code",
+            "description": "One of the 15 field codes of FR-24"
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Value",
+            "description": "What the label actually says. Recorded as value_raw with source=human, so format rules see exactly what the person read off the pack."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["code", "value"],
+        "title": "FieldCorrectionIn",
+        "description": "One human correction to an extracted declaration (FR-06)."
+      },
+      "FindingOut": {
+        "properties": {
+          "finding_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding Id",
+            "description": "The stored row. Stable within an evaluation revision and replaced wholesale by the next one, because a recompute writes new rows rather than mutating these. **Null when the finding was computed rather than stored** \u2014 the bulk listing check (FR-10) judges text that was never a scan, so there is no evidence row to point at, and that is the same reason such a finding can never be corrected or reported on."
+          },
+          "rule_id": {
+            "type": "string",
+            "title": "Rule Id"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["PASS", "FAIL", "BORDERLINE", "NOT_ASSESSABLE"],
+            "title": "Verdict"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "citation": {
+            "type": "string",
+            "title": "Citation",
+            "description": "The sub-rule, verbatim from the pack"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": ""
+          },
+          "observed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed"
+          },
+          "required": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required"
+          },
+          "band": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Band",
+            "description": "The uncertainty band printed on a BORDERLINE verdict, e.g. 1.80-2.30. Printing it is what stops a borderline reading being read as an accusation."
+          },
+          "field_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Field Codes"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BBoxOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          }
+        },
+        "type": "object",
+        "required": ["rule_id", "verdict", "severity", "citation"],
+        "title": "FindingOut",
+        "description": "One rule's verdict."
+      },
+      "FindingsOut": {
+        "properties": {
+          "scan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Scan Id"
+          },
+          "rulepack_version": {
+            "type": "string",
+            "title": "Rulepack Version"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision",
+            "description": "Which evaluation these findings come from. 0 is the pipeline's; each confirm-fields recompute increments it, and the old rows survive."
+          },
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At"
+          },
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of",
+            "description": "The date effective-date filtering was done against \u2014 the capture date, never the current clock."
+          },
+          "reduced_extraction": {
+            "type": "boolean",
+            "title": "Reduced Extraction",
+            "description": "True when the LLM layer did not run or did not answer, so the extraction was regex-only (architecture \u00a711).",
+            "default": false
+          },
+          "findings_sha256": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Findings Sha256",
+            "description": "The digest stored with this evaluation, over the canonical findings JSON. A report embeds the same value (architecture \u00a710), so the two surfaces agree by construction rather than by two code paths happening to match."
+          },
+          "summary": {
+            "$ref": "#/components/schemas/FindingsSummary"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingOut"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "not_applicable_rule_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Not Applicable Rule Ids"
+          },
+          "extractions": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionOut"
+            },
+            "type": "array",
+            "title": "Extractions",
+            "description": "Current extracted declarations. Drives FR-06's confirmation sheet and gates report generation \u2014 see this module's docstring for why it is never omitted."
+          },
+          "measurements": {
+            "items": {
+              "$ref": "#/components/schemas/MeasurementOut"
+            },
+            "type": "array",
+            "title": "Measurements"
+          }
+        },
+        "type": "object",
+        "required": ["scan_id", "rulepack_version", "revision", "findings_sha256", "summary"],
+        "title": "FindingsOut",
+        "description": "The findings response."
+      },
+      "FindingsSummary": {
+        "properties": {
+          "pass": {
+            "type": "integer",
+            "title": "Pass",
+            "description": "PASS count",
+            "default": 0
+          },
+          "fail": {
+            "type": "integer",
+            "title": "Fail",
+            "default": 0
+          },
+          "borderline": {
+            "type": "integer",
+            "title": "Borderline",
+            "default": 0
+          },
+          "na": {
+            "type": "integer",
+            "title": "Na",
+            "description": "NOT_ASSESSABLE \u2014 could not be checked from this image",
+            "default": 0
+          },
+          "not_applicable": {
+            "type": "integer",
+            "title": "Not Applicable",
+            "description": "Rules that did not apply to this product \u2014 not a verdict",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "FindingsSummary",
+        "description": "Counts per bucket."
+      },
+      "GeoOut": {
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "accuracy_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy M"
+          }
+        },
+        "type": "object",
+        "required": ["latitude", "longitude"],
+        "title": "GeoOut",
+        "description": "Where a Mode A inspection happened.\n\nNested rather than three flat columns, because it is one fact: a reading with a latitude and no\naccuracy is not a usable position, and a client that had to assemble it from three nullable\nfields would have to decide what a partial one means. Null for every Mode B scan \u2014 industry\nusers are never asked for a location (architecture \u00a710)."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthReport": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok", "degraded"],
+            "title": "Status",
+            "description": "ok only when every component is ok"
+          },
+          "db": {
+            "type": "string",
+            "enum": ["ok", "error"],
+            "title": "Db"
+          },
+          "redis": {
+            "type": "string",
+            "enum": ["ok", "error"],
+            "title": "Redis"
+          },
+          "rulepack": {
+            "type": "string",
+            "title": "Rulepack",
+            "description": "Active rule pack as CODE-vVERSION, read from the pack's meta block",
+            "examples": ["LM-2011-v1.0"]
+          }
+        },
+        "type": "object",
+        "required": ["status", "db", "redis", "rulepack"],
+        "title": "HealthReport",
+        "description": "Response model for ``GET /health``."
+      },
+      "ListingRowOut": {
+        "properties": {
+          "row_number": {
+            "type": "integer",
+            "title": "Row Number",
+            "description": "1-based line in the uploaded file, header included \u2014 what a spreadsheet shows"
+          },
+          "listing_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Id"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url",
+            "description": "Recorded as provenance and never fetched. An endpoint that requested caller-supplied URLs would be a server-side request forgery with a CSV interface."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Why this row could not be checked. Null when it was."
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FindingsSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingOut"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "not_applicable_rule_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Not Applicable Rule Ids"
+          }
+        },
+        "type": "object",
+        "required": ["row_number"],
+        "title": "ListingRowOut",
+        "description": "One row's verdict."
+      },
+      "MeasurementOut": {
+        "properties": {
+          "measurement_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Measurement Id"
+          },
+          "field_code": {
+            "type": "string",
+            "title": "Field Code"
+          },
+          "glyph": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Glyph",
+            "description": "The glyph measured, where a rule is about one"
+          },
+          "height_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Mm"
+          },
+          "width_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width Mm"
+          },
+          "uncertainty_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uncertainty Mm",
+            "description": "Half-width of the uncertainty band. A reading within this of a threshold is BORDERLINE. Null means it could not be established \u2014 never read a null as zero, which would be a claim of perfect measurement."
+          },
+          "clear_space_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clear Space Mm"
+          },
+          "is_numeral": {
+            "type": "boolean",
+            "title": "Is Numeral",
+            "default": false
+          },
+          "is_mark": {
+            "type": "boolean",
+            "title": "Is Mark",
+            "default": false
+          },
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "description": "How it was obtained. Glyph heights come from connected components on the rectified image, never from OCR polygons, which include ascenders and padding.",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": ["measurement_id", "field_code"],
+        "title": "MeasurementOut",
+        "description": "One physical measurement behind a metric verdict (FR-23).\n\nEmpty for a scan with no marker \u2014 that is the whole of CLAUDE.md \u00a73.3 expressed as data, and it\nis what makes every metric rule NOT_ASSESSABLE rather than a guess."
+      },
+      "OrgOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "description": "enforcement | industry"
+          }
+        },
+        "type": "object",
+        "required": ["id", "name", "mode"],
+        "title": "OrgOut",
+        "description": "The org a session belongs to."
+      },
+      "OtpRequestIn": {
+        "properties": {
+          "phone": {
+            "type": "string",
+            "maxLength": 20,
+            "title": "Phone",
+            "description": "E.164, including the country code",
+            "examples": ["+919812345678"]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["phone"],
+        "title": "OtpRequestIn",
+        "description": "Ask for a code."
+      },
+      "OtpRequestOut": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Request Id"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "description": "The code itself, returned only in non-production environments with OTP_ECHO_IN_RESPONSE on, where no SMS gateway is configured. Never populated in production."
+          }
+        },
+        "type": "object",
+        "required": ["request_id", "expires_at"],
+        "title": "OtpRequestOut",
+        "description": "The handle for the code that was just sent.\n\nDeliberately identical whether or not the number belongs to a user. A response that differed\nwould let anyone test whether a phone number has an account here \u2014 which, for an enforcement\ndeployment, means testing whether someone is an inspector."
+      },
+      "OtpVerifyIn": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Request Id"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 12,
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["request_id", "code"],
+        "title": "OtpVerifyIn",
+        "description": "Exchange a code for tokens."
+      },
+      "ProductOut": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Product Id"
+          },
+          "org_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Org Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
+          "category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code"
+          },
+          "gtin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gtin"
+          },
+          "is_imported": {
+            "type": "boolean",
+            "title": "Is Imported",
+            "default": false
+          },
+          "pack_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack Type"
+          },
+          "surface": {
+            "type": "string",
+            "title": "Surface",
+            "default": "printed"
+          },
+          "net_qty_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Qty Value"
+          },
+          "net_qty_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Qty Unit"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": ["product_id", "org_id", "name", "created_at"],
+        "title": "ProductOut",
+        "description": "One catalogue entry.\n\nFlat rather than a nested profile, and the flatness is the honest shape. A scan's ``profile`` is\na complete set of answers because FR-03 makes the operator supply the missing ones; a catalogue\nrow is whatever has been recorded about a product so far. Nesting it would imply the two are\ninterchangeable and would need this endpoint to invent the fields a catalogue does not hold."
+      },
+      "ProductPageOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProductOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Opaque \u2014 see routers/pagination.py. Null on the last page."
+          }
+        },
+        "type": "object",
+        "title": "ProductPageOut",
+        "description": "A page of catalogue entries, alphabetical."
+      },
+      "ProfileIn": {
+        "properties": {
+          "is_imported": {
+            "type": "boolean",
+            "title": "Is Imported",
+            "default": false
+          },
+          "surface": {
+            "type": "string",
+            "title": "Surface",
+            "default": "printed"
+          },
+          "qty_basis": {
+            "type": "string",
+            "enum": ["weight_or_volume", "length_area_or_number"],
+            "title": "Qty Basis",
+            "default": "weight_or_volume"
+          },
+          "channel": {
+            "type": "string",
+            "enum": ["retail", "ecommerce"],
+            "title": "Channel",
+            "default": "retail"
+          },
+          "net_qty_in_g_or_ml": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Qty In G Or Ml",
+            "description": "Net quantity normalised to g or ml \u2014 the Table-I key"
+          },
+          "pdp_area_cm2": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdp Area Cm2",
+            "description": "Principal display panel area \u2014 the Table-II key"
+          },
+          "net_qty_value": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Qty Value"
+          },
+          "net_qty_unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 10
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Qty Unit"
+          },
+          "pack_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack Type"
+          },
+          "category_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ProfileIn",
+        "description": "The product context that decides which rules apply (FR-03).\n\nMirrors ``services.rules.types.Profile``. Field names are part of the rule pack's contract \u2014\npacks address them as ``profile.is_imported``, ``profile.net_qty_in_g_or_ml`` \u2014 so renaming\none here breaks a pack, not just a client."
+      },
+      "ProfileOut": {
+        "properties": {
+          "is_imported": {
+            "type": "boolean",
+            "title": "Is Imported",
+            "default": false
+          },
+          "surface": {
+            "type": "string",
+            "title": "Surface",
+            "default": "printed"
+          },
+          "qty_basis": {
+            "type": "string",
+            "title": "Qty Basis",
+            "default": "weight_or_volume"
+          },
+          "channel": {
+            "type": "string",
+            "title": "Channel",
+            "default": "retail"
+          },
+          "net_qty_in_g_or_ml": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Qty In G Or Ml"
+          },
+          "pdp_area_cm2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdp Area Cm2"
+          },
+          "net_qty_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Qty Value"
+          },
+          "net_qty_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Qty Unit"
+          },
+          "pack_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack Type"
+          },
+          "category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Code"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "title": "ProfileOut",
+        "description": "The product context a scan was judged under.\n\nMirrors ``ProfileIn`` but does **not** inherit ``StrictModel``. This is deliberate and the\ndirection matters: a request with an unknown field is a client bug worth a 422, while a *stored*\nprofile carrying a key this version does not know is our own older data, and refusing to render\nit would turn a schema addition into a 500 on every scan recorded before it. Unknown keys are\ndropped from the response; the rule pack reads the stored JSON directly, so no verdict\ndepends on what this model chooses to show."
+      },
+      "RefreshIn": {
+        "properties": {
+          "refresh": {
+            "type": "string",
+            "maxLength": 256,
+            "title": "Refresh"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["refresh"],
+        "title": "RefreshIn",
+        "description": "Present a refresh token for rotation."
+      },
+      "ReportCreateIn": {
+        "properties": {
+          "formats": {
+            "items": {
+              "type": "string",
+              "enum": ["pdf", "docx", "json"]
+            },
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Formats",
+            "description": "At least one. Duplicates are collapsed; order does not matter."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReportCreateIn",
+        "description": "Which documents to render."
+      },
+      "ReportFileOut": {
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": ["pdf", "docx", "json"],
+            "title": "Format"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "Time-limited read URL. Buckets are private (architecture \u00a710), so this is the only read path and it expires \u2014 fetch the bytes, do not store the link."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type"
+          }
+        },
+        "type": "object",
+        "required": ["format", "url", "size_bytes", "media_type"],
+        "title": "ReportFileOut",
+        "description": "One rendered document."
+      },
+      "ReportOut": {
+        "properties": {
+          "report_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Report Id"
+          },
+          "scan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Scan Id"
+          },
+          "evaluation_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Evaluation Id",
+            "description": "Which evaluation this report states. A later correction makes a new revision and does not change what this document said."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "ready", "failed"],
+            "title": "Status",
+            "description": "``ready`` as soon as it exists. ``pending`` is reserved for the asynchronous form \u2014 see this module's docstring \u2014 so a polling client is correct either way."
+          },
+          "rulepack_version": {
+            "type": "string",
+            "title": "Rulepack Version"
+          },
+          "formats": {
+            "items": {
+              "type": "string",
+              "enum": ["pdf", "docx", "json"]
+            },
+            "type": "array",
+            "title": "Formats",
+            "description": "What was asked for. Kept beside ``files`` on purpose: a report delivering one of two requested documents must be visible as a short delivery rather than reading as though only one was ever wanted."
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ReportFileOut"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "image_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Sha256",
+            "description": "SHA-256 of the raw image as received. Null when the scan has no raw asset \u2014 which the client shows as an unverifiable image rather than as a verified one."
+          },
+          "findings_sha256": {
+            "type": "string",
+            "title": "Findings Sha256"
+          },
+          "requested_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Requested At"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "report_id",
+          "scan_id",
+          "evaluation_id",
+          "status",
+          "rulepack_version",
+          "formats",
+          "findings_sha256",
+          "requested_at"
+        ],
+        "title": "ReportOut",
+        "description": "A generated report set."
+      },
+      "ScanCreateIn": {
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/ProfileIn"
+          },
+          "marker_type": {
+            "type": "string",
+            "enum": ["aruco_4x4_50", "id1_card", "user_declared"],
+            "title": "Marker Type",
+            "description": "FR-02: the scale reference in frame"
+          },
+          "marker_mm": {
+            "type": "number",
+            "maximum": 1000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Marker Mm",
+            "description": "Declared physical size of the marker. Per-scan, never a constant: a 40 mm tag and an ID-1 card are both valid and are different numbers."
+          },
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/AssetIn"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Assets"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "captured_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured At",
+            "description": "When the photograph was taken. This is the evaluator's as_of, so an offline capture uploaded a week later is still judged against the rules in force when it was taken (FR-04). Defaults to now."
+          },
+          "geo_lat": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 90.0,
+                "minimum": -90.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geo Lat"
+          },
+          "geo_lon": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 180.0,
+                "minimum": -180.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geo Lon"
+          },
+          "geo_accuracy_m": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geo Accuracy M"
+          },
+          "district": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "District",
+            "description": "Revenue district the inspection happened in \u2014 FR-30's Mode A dashboard axis. Recorded from the client, never derived from the coordinates above: resolving a point to a district would be a guess made by a boundary file of unknown vintage, and Mode B sends no coordinates at all, so half the rows could not be resolved even in principle. Null is the correct value for every Mode B scan."
+          },
+          "device_meta": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Device Meta"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": ["profile", "marker_type", "marker_mm", "assets"],
+        "title": "ScanCreateIn",
+        "description": "Create a scan and ask for upload URLs."
+      },
+      "ScanCreatedOut": {
+        "properties": {
+          "scan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Scan Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["created", "queued", "processing", "complete", "failed", "no_marker"],
+            "title": "Status"
+          },
+          "uploads": {
+            "items": {
+              "$ref": "#/components/schemas/UploadOut"
+            },
+            "type": "array",
+            "title": "Uploads"
+          }
+        },
+        "type": "object",
+        "required": ["scan_id", "status", "uploads"],
+        "title": "ScanCreatedOut",
+        "description": "What ``POST /v1/scans`` returns.\n\nReplayed verbatim for a retried ``Idempotency-Key``, presigned URLs included \u2014 a retry must\nget back what it got the first time rather than a fresh set of credentials."
+      },
+      "ScanListItemOut": {
+        "properties": {
+          "scan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Scan Id"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id",
+            "description": "Null for a scan whose profile was typed in and never matched to a catalogue product. An id rather than a name, because two products can share a name and a filter matching on text would quietly fold them together."
+          },
+          "product_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Name",
+            "description": "The catalogue product's name if the scan is linked to one, otherwise the name declared on the scan's own profile. Null when neither exists \u2014 which the client shows as an unnamed scan rather than inventing a label for it."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["created", "queued", "processing", "complete", "failed", "no_marker"],
+            "title": "Status"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At"
+          },
+          "district": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "District"
+          },
+          "thumbnail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Url",
+            "description": "Time-limited read URL for the annotated image, falling back to the rectified and then the raw one. Null when the scan has no image yet or object storage is unreachable \u2014 a list of scans is still readable without its pictures."
+          },
+          "summary": {
+            "$ref": "#/components/schemas/VerdictCountsOut"
+          }
+        },
+        "type": "object",
+        "required": ["scan_id", "status", "captured_at"],
+        "title": "ScanListItemOut",
+        "description": "One row of the history list (FR-09).\n\nCompact on purpose: the list renders hundreds of these, so it carries counts rather than\nfindings and one thumbnail rather than every asset."
+      },
+      "ScanOut": {
+        "properties": {
+          "scan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Scan Id"
+          },
+          "org_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Org Id",
+            "description": "The owning tenant. Returned so a client can assert it is showing what it thinks it is; it is never accepted on the way in (see schemas/base.py)."
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id",
+            "description": "Who recorded the scan. Null for one created before users existed."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["created", "queued", "processing", "complete", "failed", "no_marker"],
+            "title": "Status"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At"
+          },
+          "marker_type": {
+            "type": "string",
+            "enum": ["aruco_4x4_50", "id1_card", "user_declared"],
+            "title": "Marker Type"
+          },
+          "marker_mm": {
+            "type": "number",
+            "title": "Marker Mm"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/ProfileOut",
+            "description": "The context that decided which rules applied. On the scan rather than fetched separately, because a product's catalogue entry can change after a scan and the verdicts stand against what was declared at capture."
+          },
+          "geo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "district": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "District"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/AssetOut"
+            },
+            "type": "array",
+            "title": "Assets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scan_id",
+          "org_id",
+          "status",
+          "captured_at",
+          "marker_type",
+          "marker_mm",
+          "profile"
+        ],
+        "title": "ScanOut",
+        "description": "A scan and its assets."
+      },
+      "ScanPageOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ScanListItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Opaque. Pass it back as ``cursor`` for the next page; null means this was the last one. Do not parse it \u2014 see routers/pagination.py."
+          }
+        },
+        "type": "object",
+        "title": "ScanPageOut",
+        "description": "A page of scans."
+      },
+      "ScanSubmittedOut": {
+        "properties": {
+          "scan_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Scan Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["created", "queued", "processing", "complete", "failed", "no_marker"],
+            "title": "Status"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          }
+        },
+        "type": "object",
+        "required": ["scan_id", "status"],
+        "title": "ScanSubmittedOut",
+        "description": "The 202 from ``POST /v1/scans/{id}/submit``.\n\nDeliberately thin. The endpoint enqueues and returns inside 300 ms (FR-20) and does not touch\nan image, so there is nothing more it could truthfully say."
+      },
+      "SessionOut": {
+        "properties": {
+          "access": {
+            "type": "string",
+            "title": "Access"
+          },
+          "refresh": {
+            "type": "string",
+            "title": "Refresh"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "Bearer"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserOut"
+          },
+          "org": {
+            "$ref": "#/components/schemas/OrgOut"
+          }
+        },
+        "type": "object",
+        "required": ["access", "refresh", "expires_at", "user", "org"],
+        "title": "SessionOut",
+        "description": "Everything the app needs after a successful sign-in."
+      },
+      "SourceOut": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": ["title", "url"],
+        "title": "SourceOut",
+        "description": "An official page to read. Offered on a refusal, where there is no citation but there is\nstill somewhere useful to send the reader."
+      },
+      "TokenPairOut": {
+        "properties": {
+          "access": {
+            "type": "string",
+            "title": "Access"
+          },
+          "refresh": {
+            "type": "string",
+            "title": "Refresh"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "Bearer"
+          }
+        },
+        "type": "object",
+        "required": ["access", "refresh", "expires_at"],
+        "title": "TokenPairOut",
+        "description": "A new access token and the refresh token that will replace it.\n\nThe refresh token is rotated on every use, so the value here is always new \u2014 a client that\nkeeps the old one will invalidate its whole family the next time it tries to use it."
+      },
+      "UploadOut": {
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Asset Id"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Headers"
+          },
+          "max_bytes": {
+            "type": "integer",
+            "title": "Max Bytes"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In"
+          }
+        },
+        "type": "object",
+        "required": ["asset_id", "key", "url", "headers", "max_bytes", "expires_in"],
+        "title": "UploadOut",
+        "description": "A capability to upload exactly one object."
+      },
+      "UserOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "description": "admin | inspector | analyst | viewer"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": ["id", "role", "phone"],
+        "title": "UserOut",
+        "description": "The signed-in user."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": ["loc", "msg", "type"],
+        "title": "ValidationError"
+      },
+      "VerdictCountsOut": {
+        "properties": {
+          "pass": {
+            "type": "integer",
+            "title": "Pass",
+            "default": 0
+          },
+          "fail": {
+            "type": "integer",
+            "title": "Fail",
+            "default": 0
+          },
+          "borderline": {
+            "type": "integer",
+            "title": "Borderline",
+            "default": 0
+          },
+          "na": {
+            "type": "integer",
+            "title": "Na",
+            "description": "NOT_ASSESSABLE",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "VerdictCountsOut",
+        "description": "The four verdict counts for one scan in a list (FR-09).\n\nDeliberately **not** ``FindingsSummary``, which carries a fifth count for rules that did not\napply. That fifth number needs the rule pack loaded to work out which rules were never reached,\nwhich is a sensible cost once for one scan's findings screen and an absurd one for every row of\na two-hundred-row list. Four verdicts, four numbers, no pack.\n\nAll four are always present, zeroes included. A row that showed only its non-zero counts would\nteach a reader that the counts shown are the only ones there are."
+      },
+      "ViolationDimension": {
+        "type": "string",
+        "enum": ["rule", "category", "district", "brand", "month"],
+        "title": "ViolationDimension",
+        "description": "The axes FR-30 names. Anything not in here is not a dimension.\n\n``MONTH`` is \"over time\"; ``DISTRICT`` is Mode A's axis and ``BRAND`` is Mode B's. Both of\nthose read a column that is recorded rather than derived \u2014 see migration 0003 for why a\ndistrict resolved from coordinates would have been worse than no district at all."
+      },
+      "ViolationsOut": {
+        "properties": {
+          "group_by": {
+            "$ref": "#/components/schemas/ViolationDimension"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          },
+          "rulepack_versions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rulepack Versions",
+            "description": "Every rule pack version represented in the window (CLAUDE.md \u00a73.6). A percentage that cannot name the rules behind it cannot be reproduced."
+          },
+          "totals": {
+            "$ref": "#/components/schemas/CountsOut"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/BucketOut"
+            },
+            "type": "array",
+            "title": "Buckets"
+          }
+        },
+        "type": "object",
+        "required": ["group_by", "totals"],
+        "title": "ViolationsOut",
+        "description": "The aggregate response."
+      }
+    }
+  }
+}

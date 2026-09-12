@@ -66,31 +66,54 @@ npx expo-doctor             # catches config problems before a 20-minute cloud b
 eas build --profile development --platform android
 ```
 
+Also export the SDK path, once, in `~/.bashrc`. Expo CLI and eas-cli both resolve `adb` through
+`ANDROID_HOME` rather than through `PATH`, and without it every launch prints
+`Failed to resolve the Android SDK path` a dozen times — noisy, and it makes `press a` unreliable:
+
+```bash
+export ANDROID_HOME=/usr/lib/android-sdk        # Debian/Ubuntu `adb` package
+export PATH="$ANDROID_HOME/platform-tools:$PATH"
+```
+
+That is enough to install to a device. It is **not** a full SDK — no emulator, no build-tools — so
+`npx expo run:android` will not work. You do not need it; EAS builds in the cloud.
+
 Then put the APK on the phone, with the phone connected over USB:
 
 ```bash
-adb devices                          # must list your phone, not "unauthorized"
-eas build:run -p android --latest    # downloads the APK and installs it
+adb devices                     # must list your phone, not "unauthorized"
+npm run device:install          # reuses the EAS cache, downloads only if it has to
 ```
+
+> **Not `eas build:run`.** Its own help text reads _"run simulator/emulator builds"_ — it has no
+> `--device` flag for Android and will never install to a phone. With no emulator installed it fails
+> with `spawn emulator ENOENT`, which reads like a missing SDK rather than the wrong command. Use
+> `npm run device:install` (`scripts/install-dev-client.sh`), which resolves the latest finished
+> build, checks the EAS cache for that exact build id, and only downloads the 300 MB APK if it is
+> absent.
 
 `adb devices` showing nothing means the phone has not enabled **Developer options → USB
 debugging**, or the RSA fingerprint prompt on its screen was never accepted. Some vendors
-(Xiaomi, Oppo, Vivo) also gate a separate **Install via USB** toggle.
+(Xiaomi, Oppo, Vivo) also gate a separate **Install via USB** toggle. `unauthorized` is the prompt
+not accepted; `no permissions` is a udev group (`sudo usermod -aG plugdev $USER`, then log out).
 
 ### Every day: start Metro and reload
 
 ```bash
-npx expo start --dev-client    # then press `a` to launch on the connected device
+npm run start:device    # adb reverse + Metro bound to localhost
 ```
 
-Press `r` to reload, `j` to open the debugger. The phone may instead be on the same Wi-Fi and scan
-the QR from the dev client's own launcher screen — but USB is the one that does not depend on the
-network letting devices talk to each other. If Metro is unreachable over Wi-Fi, forward the port
-instead of debugging the network:
+Press `r` to reload, `j` to open the debugger, `a` to relaunch on the phone.
 
-```bash
-adb reverse tcp:8081 tcp:8081
-```
+**Why `--localhost` over USB rather than the default LAN mode.** Expo defaults to `--lan` and hands
+the phone the laptop's Wi-Fi address. That only works if the network lets two clients talk to each
+other, and campus, hotel and office Wi-Fi routinely block exactly that — the phone then sits on
+"Downloading JavaScript bundle" with nothing to diagnose. `adb reverse tcp:8081 tcp:8081` forwards
+the port down the USB cable and `--localhost` makes the phone use it, so the network is not involved
+at all. `npm run start:device` does both.
+
+LAN mode is still there if you want it (`npx expo start --dev-client`), and is the only option if
+the phone cannot be plugged in.
 
 ### What you should see
 

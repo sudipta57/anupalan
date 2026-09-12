@@ -31,10 +31,16 @@ export default function PhoneScreen() {
     setError(null);
 
     requestOtp.mutate(value, {
-      onSuccess: ({ phone: normalised, requestId, expiresInSeconds }) => {
+      onSuccess: ({ phone: normalised, requestId, expiresInSeconds, code }) => {
         router.push({
           pathname: '/otp',
-          params: { phone: normalised, requestId, expiresInSeconds: String(expiresInSeconds) },
+          params: {
+            phone: normalised,
+            requestId,
+            expiresInSeconds: String(expiresInSeconds),
+            // Only ever set by a backend with no SMS gateway. Absent in production.
+            ...(code ? { echoedCode: code } : {}),
+          },
         });
       },
       onError: (cause) => {

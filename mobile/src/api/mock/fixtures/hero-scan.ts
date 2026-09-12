@@ -378,6 +378,9 @@ export const HERO_FINDINGS_RESULT: FindingsResult = {
   // findings' own hash are a hash of the same blob. Two different fixture values would make the
   // evidence panel and the report disagree for no reason a reader could diagnose.
   findingsSha256: FINDINGS_SHA256,
+  // The hero scan ran the full pipeline. `llm-unavailable` is its own scenario.
+  reducedExtraction: false,
+  notApplicableRuleIds: [],
   summary: {
     pass: HERO_FINDINGS.filter((f) => f.verdict === 'PASS').length,
     fail: HERO_FINDINGS.filter((f) => f.verdict === 'FAIL').length,

@@ -20,6 +20,7 @@
  */
 
 import { ApiError } from '@/api';
+import { declareAssets } from '@/features/capture/hash';
 import { api } from '@/api/endpoints';
 import { transport } from '@/api/transport';
 import * as repo from '@/db/queue-repo';
@@ -45,6 +46,10 @@ function messageFor(cause: unknown): string {
  * Called on every pass, including a retry of a scan that already has a `remoteId`: the same
  * idempotency key means the server returns the same scan, and the fresh presigned URLs are the point
  * of asking again.
+ *
+ * Each photograph is declared with its content type, its length and its SHA-256, because the server
+ * signs one upload URL per asset and the worker verifies what it stored against the hash. See
+ * `features/capture/hash.ts` for why the device computes it rather than the server.
  */
 async function createRemote(scan: QueuedScan) {
   if (!scan.profile) {
@@ -54,12 +59,17 @@ async function createRemote(scan: QueuedScan) {
     throw new Error('Queued scan has no product profile');
   }
 
+  // Hashed here, on every pass, rather than once at capture. A retry re-reads the files from disk,
+  // so a photograph that was truncated or replaced between attempts is declared as it now stands —
+  // and the server's check compares the bytes it stored against the bytes this attempt sent.
+  const assets = await declareAssets(scan.assets.map((asset) => asset.localUri));
+
   const result = await api.createScan(
     {
       profile: scan.profile,
       markerType: scan.markerType,
       markerMm: scan.markerMm,
-      assetCount: scan.assets.length,
+      assets,
       capturedAt: scan.capturedAt,
       geo: scan.geo,
       district: scan.district,

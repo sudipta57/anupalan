@@ -18,9 +18,12 @@ import type {
   BisApplicability,
   FindingsResult,
   ListingCheck,
+  Page,
+  Product,
   Report,
   SahayakAnswer,
   Scan,
+  ScanListItem,
 } from '@/domain';
 import { pollIntervalFor } from '@/features/reports/status';
 
@@ -30,18 +33,20 @@ import type {
   ConfirmFieldsBody,
   CreateReportBody,
   CreateScanBody,
-  CreateScanResponse,
+  CreateScanResult,
   ListingCheckBody,
-  ListProductsResponse,
   ListScansQuery,
-  ListScansResponse,
   SahayakAskBody,
 } from './types';
+
+/** A page of either list, as the endpoints now return them: domain objects, not wire shapes. */
+type ProductPage = Page<Product>;
+type ScanPage = Page<ScanListItem>;
 
 /** How often to re-check a scan that is still being processed. */
 const PROCESSING_POLL_MS = 1_500;
 
-export function useProducts(q?: string): UseQueryResult<ListProductsResponse> {
+export function useProducts(q?: string): UseQueryResult<ProductPage> {
   return useQuery({
     queryKey: queryKeys.products({ q }),
     queryFn: () => api.listProducts({ q }),
@@ -51,12 +56,12 @@ export function useProducts(q?: string): UseQueryResult<ListProductsResponse> {
 /** History list. Infinite because the fixture set is 220 scans and the real one will be larger. */
 export function useScans(
   query: ListScansQuery = {}
-): UseInfiniteQueryResult<{ pages: ListScansResponse[]; pageParams: unknown[] }> {
+): UseInfiniteQueryResult<{ pages: ScanPage[]; pageParams: unknown[] }> {
   return useInfiniteQuery({
     queryKey: queryKeys.scans(query),
     queryFn: ({ pageParam }) => api.listScans({ ...query, cursor: pageParam }),
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last: ListScansResponse) => last.nextCursor ?? undefined,
+    getNextPageParam: (last: ScanPage) => last.nextCursor ?? undefined,
   });
 }
 
@@ -84,7 +89,7 @@ export function useFindings(scanId: string | undefined): UseQueryResult<Findings
 }
 
 export function useCreateScan(): UseMutationResult<
-  CreateScanResponse,
+  CreateScanResult,
   Error,
   { body: CreateScanBody; idempotencyKey: string }
 > {

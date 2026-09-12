@@ -26,7 +26,7 @@ import {
   LABEL_REGIONS,
   LABEL_WIDTH_PX,
 } from '@/api/mock/fixtures/label';
-import { createMockTransport } from '@/api/mock';
+import { api } from '@/api/endpoints';
 import { setScenario } from '@/api/mock/scenario';
 import type { BBox, Finding, Scan, Verdict } from '@/domain';
 import { VERDICT_DISPLAY_ORDER } from '@/domain';
@@ -724,12 +724,11 @@ describe('editingLocked', () => {
 describe('the findings the screen actually receives', () => {
   afterEach(() => setScenario('happy'));
 
+  // Through `api`, not the raw transport: the transport speaks the server's shapes and the
+  // adapters translate them, so calling the client is what a screen actually does — and it puts the
+  // mapping under test rather than around it.
   async function fetchFindings(scanId: string) {
-    const transport = createMockTransport();
-    return transport.request<typeof HERO_FINDINGS_RESULT>({
-      method: 'GET',
-      path: `/scans/${scanId}/findings`,
-    });
+    return api.getFindings(scanId);
   }
 
   it('populates all four verdict groups, so none of the four is untested', () => {
@@ -790,8 +789,7 @@ describe('the findings the screen actually receives', () => {
   });
 
   it('reaches the scan with its raw asset, so Mode A can show the image hash', async () => {
-    const transport = createMockTransport();
-    const scan = await transport.request<Scan>({ method: 'GET', path: `/scans/${HERO_SCAN.id}` });
+    const scan = await api.getScan(HERO_SCAN.id);
 
     expect(rawImageHash(scan)).toBeTruthy();
     expect(scan.assets.some((asset) => asset.kind === 'rectified')).toBe(true);

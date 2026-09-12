@@ -490,3 +490,128 @@ def test_a_body_supplied_org_id_is_refused(api, inspector) -> None:  # type: ign
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "org_id_not_accepted"
+
+
+# ------------------------------------------------- what GET /v1/scans/{id} has to carry (W2)
+#
+# The mobile client reads all four of these off the scan. They were absent from the response while
+# being present on the row, which is the quietest kind of gap: nothing errors, the screen just has
+# nothing to show. See docs/06-wiring-contract.md §3.1 G3 and G4.
+
+
+def test_a_scan_reports_the_org_and_user_that_recorded_it(api, inspector) -> None:  # type: ignore[no-untyped-def]
+    """Returned so a client can assert it is showing what it thinks it is. Never accepted inbound —
+    see the org_id test above, which is the other half of this pair."""
+    created = api.post("/v1/scans", json=payload(), headers=inspector["auth"]).json()
+
+    body = api.get(f"/v1/scans/{created['scan_id']}", headers=inspector["auth"]).json()
+
+    assert body["org_id"] == str(inspector["org"].id)
+    assert body["user_id"] == str(inspector["user"].id)
+
+
+def test_a_scan_returns_the_profile_it_was_judged_under(api, inspector) -> None:  # type: ignore[no-untyped-def]
+    """On the scan rather than fetched from the catalogue: a product's entry can change after a
+    scan, and the verdicts stand against what was declared at capture."""
+    created = api.post("/v1/scans", json=payload(), headers=inspector["auth"]).json()
+
+    body = api.get(f"/v1/scans/{created['scan_id']}", headers=inspector["auth"]).json()
+
+    assert body["profile"]["net_qty_in_g_or_ml"] == 250.0
+    assert body["profile"]["net_qty_unit"] == "g"
+    assert body["profile"]["qty_basis"] == "weight_or_volume"
+
+
+def test_a_stored_profile_with_an_unknown_key_still_renders(api, inspector, db_session) -> None:  # type: ignore[no-untyped-def]
+    """Our own older data must not become a 500.
+
+    A request carrying an unknown field is a client bug and gets a 422. A *stored* profile carrying
+    a key this version does not know is data we wrote ourselves, and refusing to render it would
+    turn a future schema addition into an outage on every scan recorded before it.
+    """
+    created = api.post("/v1/scans", json=payload(), headers=inspector["auth"]).json()
+    scan = db_session.get(Scan, uuid.UUID(created["scan_id"]))
+    scan.profile = {**dict(scan.profile), "a_field_from_next_year": "surprise"}
+    db_session.flush()
+
+    response = api.get(f"/v1/scans/{created['scan_id']}", headers=inspector["auth"])
+
+    assert response.status_code == 200, response.text
+    assert response.json()["profile"]["net_qty_unit"] == "g"
+    assert "a_field_from_next_year" not in response.json()["profile"]
+
+
+def test_a_district_round_trips(api, inspector) -> None:  # type: ignore[no-untyped-def]
+    """FR-30's Mode A dashboard axis and FR-09's history filter both read this.
+
+    The column existed before the create body did, so a district could be stored by the pipeline and
+    never by a client — which is to say, never.
+    """
+    created = api.post(
+        "/v1/scans", json=payload(district="Nadia"), headers=inspector["auth"]
+    ).json()
+
+    body = api.get(f"/v1/scans/{created['scan_id']}", headers=inspector["auth"]).json()
+
+    assert body["district"] == "Nadia"
+
+
+def test_a_scan_without_a_district_reports_null_not_a_guess(api, inspector) -> None:  # type: ignore[no-untyped-def]
+    """Null is the correct value for every Mode B scan, and for a Mode A one whose officer did not
+    record a district. Deriving one from the coordinates would be a boundary-file guess attributing
+    an inspection to the wrong district."""
+    created = api.post(
+        "/v1/scans",
+        json=payload(geo_lat=23.4, geo_lon=88.5, geo_accuracy_m=12.0),
+        headers=inspector["auth"],
+    ).json()
+
+    body = api.get(f"/v1/scans/{created['scan_id']}", headers=inspector["auth"]).json()
+
+    assert body["district"] is None
+
+
+def test_a_position_comes_back_as_one_object(api, inspector) -> None:  # type: ignore[no-untyped-def]
+    """One fact, not three nullable columns the client has to reassemble."""
+    created = api.post(
+        "/v1/scans",
+        json=payload(geo_lat=23.4, geo_lon=88.5, geo_accuracy_m=12.0),
+        headers=inspector["auth"],
+    ).json()
+
+    body = api.get(f"/v1/scans/{created['scan_id']}", headers=inspector["auth"]).json()
+
+    assert body["geo"] == {"latitude": 23.4, "longitude": 88.5, "accuracy_m": 12.0}
+
+
+def test_a_scan_with_no_position_reports_null(api, inspector) -> None:  # type: ignore[no-untyped-def]
+    """Every Mode B scan. Industry users are never asked for a location (architecture §10), so this
+    is the normal case rather than a missing value."""
+    created = api.post("/v1/scans", json=payload(), headers=inspector["auth"]).json()
+
+    body = api.get(f"/v1/scans/{created['scan_id']}", headers=inspector["auth"]).json()
+
+    assert body["geo"] is None
+
+
+def test_half_a_position_is_no_position(api, inspector) -> None:  # type: ignore[no-untyped-def]
+    """A latitude with no longitude cannot be placed on a map, so it is not reported as though it
+    could be."""
+    created = api.post(
+        "/v1/scans", json=payload(geo_lat=23.4), headers=inspector["auth"]
+    ).json()
+
+    body = api.get(f"/v1/scans/{created['scan_id']}", headers=inspector["auth"]).json()
+
+    assert body["geo"] is None
+
+
+def test_an_accuracy_that_was_never_measured_stays_null(api, inspector) -> None:  # type: ignore[no-untyped-def]
+    """A fix with an unknown radius is still a fix. Zero would read as a perfect one."""
+    created = api.post(
+        "/v1/scans", json=payload(geo_lat=23.4, geo_lon=88.5), headers=inspector["auth"]
+    ).json()
+
+    body = api.get(f"/v1/scans/{created['scan_id']}", headers=inspector["auth"]).json()
+
+    assert body["geo"] == {"latitude": 23.4, "longitude": 88.5, "accuracy_m": None}

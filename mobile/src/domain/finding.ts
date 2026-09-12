@@ -69,8 +69,14 @@ export interface Measurement {
   glyph: string | null;
   heightMm: Millimetres | null;
   widthMm: Millimetres | null;
-  /** Half-width of the uncertainty band. A result within this of the threshold is BORDERLINE. */
-  uncertaintyMm: Millimetres;
+  /**
+   * Half-width of the uncertainty band. A result within this of the threshold is BORDERLINE.
+   *
+   * **Null when the band could not be established**, which is not the same as zero. A zero would be
+   * a claim of perfect measurement and would make a reading that should read BORDERLINE look
+   * decided — so the two are kept apart all the way from the column to the screen.
+   */
+  uncertaintyMm: Millimetres | null;
   method: MeasurementMethod;
 }
 
@@ -122,8 +128,25 @@ export interface FindingsResult {
    * decides whether to issue one. See flag 21 in `docs/05-frontend-plan.md`.
    */
   findingsSha256: string;
+  /**
+   * Whether the LLM extraction layer ran.
+   *
+   * False means regex only (`01-architecture.md` §11). The scan is still valid and every rule still
+   * ran, but a report from it is issued **flagged** — hiding this would let a thinner extraction
+   * pass as a full one, and the fields regex cannot reach are exactly the free-text ones a reader
+   * would notice were missing.
+   */
+  reducedExtraction: boolean;
   summary: FindingsSummary;
   findings: Finding[];
+  /**
+   * Rules that did not apply to this product.
+   *
+   * Not a fifth verdict — the absence of a finding (CLAUDE.md §3.4). Carried so a screen can say
+   * "this does not apply to you", which is a different and more useful statement than the silence
+   * of a rule that is simply missing from the list.
+   */
+  notApplicableRuleIds: string[];
   extractions: Extraction[];
   measurements: Measurement[];
 }

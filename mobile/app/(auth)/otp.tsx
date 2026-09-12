@@ -20,10 +20,11 @@ import { spacing } from '@/theme';
 
 export default function OtpScreen() {
   const t = useT();
-  const { phone, requestId, expiresInSeconds } = useLocalSearchParams<{
+  const { phone, requestId, expiresInSeconds, echoedCode } = useLocalSearchParams<{
     phone: string;
     requestId: string;
     expiresInSeconds: string;
+    echoedCode?: string;
   }>();
 
   const [code, setCode] = useState('');
@@ -81,9 +82,14 @@ export default function OtpScreen() {
 
         <Button label={t('auth.verify')} size="lg" loading={verifyOtp.isPending} onPress={submit} />
 
-        {__DEV__ ? (
+        {/* Whichever backend is answering, show the code when it can be known: the fixture's
+            constant in mock mode, and the server's echo on a development API with no SMS gateway.
+            A production API never sends one, so this renders nothing there. */}
+        {__DEV__ && (echoedCode || dev?.fixtureOtp) ? (
           <Text variant="caption" tone="subtle">
-            Mock backend: the code is {dev?.fixtureOtp}.
+            {echoedCode
+              ? `Development backend: the code is ${echoedCode}.`
+              : `Mock backend: the code is ${dev?.fixtureOtp}.`}
           </Text>
         ) : null}
       </Card>

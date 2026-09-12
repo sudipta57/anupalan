@@ -27,6 +27,14 @@ export interface OtpRequest {
   phone: string;
   requestId: string;
   expiresInSeconds: number;
+  /**
+   * The code itself, when the backend is configured to echo it.
+   *
+   * Populated only where no SMS gateway exists — a development or staging API with
+   * `OTP_ECHO_IN_RESPONSE` on — and **null in production**, which is enforced server-side rather
+   * than here. It is what makes a device walkthrough possible without an SMS.
+   */
+  code: string | null;
 }
 
 /** Ask for a code. Resolves with what the OTP screen needs to verify it. */
@@ -36,8 +44,8 @@ export function useRequestOtp(): UseMutationResult<OtpRequest, Error, string> {
       const phone = normalisePhone(rawPhone);
       if (!phone) throw new InvalidPhoneError();
 
-      const { requestId, expiresInSeconds } = await api.requestOtp({ phone });
-      return { phone, requestId, expiresInSeconds };
+      const { requestId, expiresInSeconds, code } = await api.requestOtp({ phone });
+      return { phone, requestId, expiresInSeconds, code };
     },
   });
 }

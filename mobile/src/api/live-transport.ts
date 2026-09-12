@@ -12,15 +12,15 @@
  * 1. **Refresh is single-flight.** Five queries firing at once on a cold app all hit 401
  *    together; they share one refresh rather than racing five, which would have four of them
  *    invalidating a token the fifth just issued.
- * 2. **A network failure during refresh does not sign the user out.** Only an explicit rejection
- *    from the refresh endpoint does. Conflating the two logs people out for driving through a
- *    tunnel, and the session they lose is the queued scan they were about to upload.
+ * 2. **A network failure during refresh does not sign the user out.** Only a **401** from the
+ *    refresh endpoint does — not a 422, not a 500, not a captive-portal login page. Conflating any
+ *    of those with a rejected token logs people out for driving through a tunnel, and the session
+ *    they lose is the queued scan they were about to upload.
  */
 
 import { File, UploadType, type UploadResult } from 'expo-file-system';
 
-import type { AuthTokens } from '@/domain';
-
+import { toTokens, type WireTokenPair } from './adapters';
 import { getAuthBridge } from './auth-bridge';
 import { API_BASE_URL, API_PREFIX } from './config';
 import { ApiError } from './errors';
@@ -108,7 +108,11 @@ async function performRefresh(): Promise<boolean> {
     response = await fetch(buildUrl(REFRESH_PATH), {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
+      // `refresh`, in the server's spelling. Its request schemas forbid unknown fields, so
+      // `refreshToken` would be a 422 — and the branch below treats any non-ok response as a
+      // rejected token, so the wrong key here would sign people out every time an access token
+      // expired. A naming slip with a session-ending consequence, which is why it is spelled out.
+      body: JSON.stringify({ refresh: refreshToken }),
     });
   } catch {
     // Unreachable server. The session may be perfectly valid, so leave it alone and let the
@@ -117,13 +121,15 @@ async function performRefresh(): Promise<boolean> {
   }
 
   if (!response.ok) {
-    // The server rejected the refresh token itself. This session really is over.
-    bridge.onExpired();
+    // 401 means the refresh token itself was rejected and the session really is over. Anything else
+    // — a 422 from a malformed body, a 500, a gateway page — is our problem rather than the user's,
+    // and ending their session over it would lose the queued scan they were about to upload.
+    if (response.status === 401) bridge.onExpired();
     return false;
   }
 
   try {
-    const tokens = (await response.json()) as AuthTokens;
+    const tokens = toTokens((await response.json()) as WireTokenPair);
     if (!tokens.accessToken || !tokens.refreshToken) return false;
     bridge.onRefreshed(tokens);
     return true;

@@ -14,11 +14,10 @@
  * it. What it destroys is the distinction the product rests on (CLAUDE.md §3.4).
  */
 
-import { createMockTransport } from '@/api/mock';
+import { api } from '@/api/endpoints';
 import { INDUSTRY_ORG } from '@/api/mock/fixtures/orgs';
 import { SCAN_LIST } from '@/api/mock/fixtures/scans';
 import { setScenario } from '@/api/mock/scenario';
-import type { ListScansResponse } from '@/api';
 import type { ScanListItem, Verdict } from '@/domain';
 import { VERDICT_DISPLAY_ORDER } from '@/domain';
 import {
@@ -41,10 +40,8 @@ import {
   type HistoryFilters,
 } from '@/features/history';
 
-const transport = createMockTransport();
-
 function listScans(query: Record<string, string | number | undefined>) {
-  return transport.request<ListScansResponse>({ method: 'GET', path: '/scans', query });
+  return api.listScans(query);
 }
 
 /** Every page of a filtered listing, followed to the end. */

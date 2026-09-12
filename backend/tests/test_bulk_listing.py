@@ -357,3 +357,24 @@ def test_a_body_supplied_org_id_is_a_400(api, seller) -> None:  # type: ignore[n
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "org_id_not_accepted"
+
+
+def test_a_listing_finding_has_no_evidence_row_to_point_at(api, seller) -> None:  # type: ignore[no-untyped-def]
+    """``finding_id`` is null here, and that is the point rather than an omission.
+
+    A scan's finding names a stored row: it can be corrected, re-evaluated, and carried into a
+    report that cites it. A listing finding is computed from text that was never photographed and is
+    never written down, so there is nothing to name. Returning a fabricated id would make the two
+    look alike to a client that treats them very differently.
+    """
+    token = sign_in(api, "+919300000001")
+    response = api.post(
+        "/v1/products/listings/check",
+        json={"csv": make_csv(3)},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    findings = [f for row in response.json()["rows"] for f in row.get("findings", [])]
+    assert findings, "the fixture listings must produce at least one finding"
+    assert all(f["finding_id"] is None for f in findings)

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <boolean name="isOnboardingFinished" value="true" />
+    <boolean name="showsAtLaunch" value="false" />
+    <float name="fabPositionY" value="0.22062247" />
+    <float name="fabPositionX" value="1.0" />
+</map>

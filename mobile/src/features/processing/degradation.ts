@@ -15,7 +15,9 @@
  * one is a claim about what the app may tell a user, and each is tested.
  */
 
-import type { ScanIssue } from '@/domain';
+import type { FindingsResult, Scan, ScanIssue } from '@/domain';
+
+import { verdictsAreProvisional } from './confidence';
 import type { TranslationKey } from '@/i18n';
 
 /** Issues worth telling the user about, in the order they should be read. */
@@ -94,4 +96,29 @@ export function isDegradedButFinal(issues: readonly ScanIssue[]): boolean {
     (hasNoMarker(issues) || hasReducedExtraction(issues)) &&
     !issues.includes('low_confidence_fields')
   );
+}
+
+/**
+ * Everything that went wrong with a scan, from the two places the server reports it.
+ *
+ * **The scan alone cannot answer this**, and that is a property of the API rather than an oversight.
+ * A scan's status carries `no_marker`, because running without a scale reference is a fact about the
+ * run. `reduced_extraction` is reported on the *findings*, because it is a fact about the
+ * evaluation — the LLM layer was absent when these particular verdicts were computed, and a later
+ * recompute might have had it. And `low_confidence_fields` is not reported at all: it is derived
+ * from the extractions' own confidences, which is the same source FR-06's sheet reads.
+ *
+ * So the merge happens here, where both halves are to hand, rather than in the scan adapter — which
+ * would have to invent the half it was not given.
+ */
+export function issuesFor(
+  scan: Pick<Scan, 'issues'>,
+  result: Pick<FindingsResult, 'reducedExtraction' | 'extractions'> | undefined
+): ScanIssue[] {
+  const issues = new Set<ScanIssue>(scan.issues);
+
+  if (result?.reducedExtraction) issues.add('reduced_extraction');
+  if (result && verdictsAreProvisional(result)) issues.add('low_confidence_fields');
+
+  return [...issues];
 }

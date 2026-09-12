@@ -1038,3 +1038,193 @@ deployed backend publishing OpenAPI, and the cold-start figure needs the EAS bui
 phone. `__tests__/i18n.test.ts` now fails because its fallback case used a real app key as a
 stand-in for a missing one; it has been left untouched per CLAUDE.md §6 and needs a decision (flag 33).
 **PR:** n/a (Stage 13) · **Requirement:** NFR-02, NFR-07, NFR-08
+
+---
+
+## 2026-09-12 — The backend gaps close before the app is wired, and the app computes its own image hashes
+
+**Context:** Both halves are built — the app through Stage 12, the backend through B16 — and were
+read against each other for the first time. Eight of the app's fifteen API calls have a server. The
+audit is `06-wiring-contract.md`; what follows is the two decisions it forced and one it answered.
+
+**Decision:** **Nothing is wired until six backend changes land** (W1–W6 in that document), rather
+than wiring the eight live endpoints now behind adapters. The deciding case is a single missing
+field. `GET /v1/scans/{id}/findings` does not return `extractions`, and the app's
+`verdictsAreProvisional` is `result.extractions.some(needsConfirmation)` — the predicate
+`blocksReport` uses to refuse a PDF while any extracted field sits below the 0.75 confidence
+threshold. An adapter has two choices and both are wrong: default the field to `[]` and `.some()`
+returns false, so **the report gate opens for every scan** and the app issues reports over
+unverified readings with no caveat on them; leave it absent and the screen crashes. FR-06's
+confirmation sheet is empty either way, so the one mechanism for correcting a bad read becomes
+unreachable. The backend already computes those rows and discards them, which makes this a response
+change rather than new work — and it is why it is the first card rather than the easiest.
+
+**Decision:** **The app computes a SHA-256 per asset**, with `expo-crypto` approved for it — the
+first dependency added since Stage 11. `POST /v1/scans` requires `assets[].sha256` before the upload,
+and the worker verifies the stored object against it and fails the scan on a mismatch. The app had no
+hashing of any kind; it only ever displayed a hash the server computed.
+
+**Decision:** **The app converts snake_case to camelCase, with explicit per-endpoint adapters.**
+
+**Alternatives:** *Making `sha256` optional at create and having the worker compute it from the
+stored object* — rejected. It needs no dependency and no on-device hashing of a 4 MB JPEG, and it is
+the cheaper path, but it converts a claim the server can check into a record of whatever arrived: a
+corrupted or truncated upload stops being detectable, and `01-architecture.md` §10 wants the hash of
+the bytes that were captured, not of the bytes that survived the network. *A generic deep key
+transform at the transport seam* — rejected, and this one would have been a quiet disaster: it would
+rewrite `profile.is_imported` and `profile.net_qty_in_g_or_ml`, whose names are the **rule pack's**
+contract rather than the API's, so a pack would stop matching its own fields; and it would rewrite the
+presigned `headers` map, where `x-amz-*` must survive byte for byte or every upload fails its
+signature. *Adding `no_marker` to the app's `ScanStatus` union* — rejected: §11 calls a no-marker run
+degraded *but final*, so it maps to `complete` plus the existing `no_marker` issue, and the
+alternative would add a third terminal state to every branch that checks for one. *Asking the backend
+for an `issues` array* — rejected: the app derives it from the status, `reduced_extraction` and the
+extraction confidences, and a second source of truth for the same three facts would drift.
+
+**Consequences:** `district` turns out not to exist anywhere in the backend — not in the create body,
+not in the scan response, not as a column — so the Mode A history filter, the history row and FR-30's
+district rollup are all blocked on one migration, which CLAUDE.md §7 says needs agreement and which is
+cheaper now than after the table has rows. `extra="forbid"` on every request schema means a
+mismatched key is a **422 rather than a dropped field**, which turns the casing question from
+cosmetic into blocking: the app's current refresh body would 422, and `live-transport.ts` reads any
+non-ok refresh as a rejected token, so users would be signed out every time an access token expired.
+Three flags are answered: refresh exists (8), `GET /v1/auth/me` exists and should be adopted for
+session restore (9), and the backend does omit inapplicable rules rather than inventing a fifth
+verdict (6) — though the app currently discards the `not_applicable_rule_ids` it sends, which is the
+app's gap to close. `expo-crypto` is native, so it installs at cutover with everything else that needs
+a dev-client rebuild rather than now. Seven calls still have no server; Sahayak, BIS applicability and
+the bulk listing check are B19–B21, so Stages 11 and 12 stay on fixtures and `src/api/mock/` is
+deleted at the end of the sequence rather than with the first endpoint.
+**PR:** n/a · **Requirement:** FR-05, FR-06, FR-08, FR-09, FR-20, NFR-07
+
+---
+
+## 2026-09-12 — The API surface the app was written against now exists, and one report decision is deferred
+
+**Context:** With `main` merged, eight of the mobile client's fifteen calls had a server and four
+endpoints did not exist at all. Two of the gaps were not missing features but wrong behaviour: the
+findings response omitted `extractions`, which is what the client reads to decide whether a verdict
+may be reported, and `ScanOut` omitted the `profile`, `district` and `org_id` its screens read.
+`docs/06-wiring-contract.md` §8 records the whole of what was built.
+
+**Decision:** Six work packages, no migration and no new dependency. The findings response now
+carries `extractions`, `measurements` and the stored `findings_sha256`; `ScanOut` carries
+`profile`, `geo`, `district`, `org_id` and `user_id`, and `ScanCreateIn` finally accepts the
+`district` its column has been waiting for; `GET /v1/scans` and `GET /v1/products` were written with
+keyset cursor pagination; and reports got both endpoints. **Report generation is synchronous for
+now**, because a `pending` status needs a column and a migration needs agreement (CLAUDE.md §7).
+
+**Alternatives:** *Recomputing `findings_sha256` in the findings handler* — rejected: it is already a
+stored column written when the verdicts were issued, and a second implementation of the same claim
+would disagree with the report the first time either changed. *Making `finding_id` required* —
+rejected by a test failure that turned out to be right: the bulk listing check shares `FindingOut`
+and judges text that was never photographed, so there is no evidence row to name, and a fabricated
+id would make two very different things look alike. *An `issues` array on the scan* — rejected: the
+client derives it from the status, `reduced_extraction` and the extraction confidences, and a second
+source of truth for the same three facts would drift. *Offset pagination* — rejected: it repeats and
+skips rows when anything is inserted mid-walk, which in an evidence archive is not cosmetic.
+*Deriving `district` from `geo_lat`/`geo_lon`* — rejected: a boundary file of unknown vintage
+attributing an inspection to the wrong district is worse than one that admits it does not know, and
+Mode B sends no coordinates at all. *Adding `reports.status` and shipping async now* — deferred
+rather than rejected; it is the right shape and it needs a migration signed off.
+
+**Consequences:** All fifteen client calls now have a server, across twenty `/v1` paths. 682 tests
+pass, 64 of them new; `ruff` and `mypy app/services` clean. The verdict filter's guard is proved
+rather than asserted — a mutation that widened `FAIL` to include `BORDERLINE` fails three tests,
+because the seeded archive contains one scan that is borderline **without** failing; without that
+row the correct and the collapsed implementations are indistinguishable, and the wrong one looks
+better. `GET /v1/scans` takes a `tz_offset_minutes`, because `from` and `to` are the user's calendar
+days and UTC midnight files an Indian inspector's early-morning scans under yesterday. Three things
+stay open and are listed in `06-wiring-contract.md` §8: async reports, `remediation` on a finding
+(neither a column nor in the rule pack, so it needs a decision either way), and `POST /v1/products`.
+The bulk listing check keeps its `/v1/products/listings/check` path and `{csv}` body; the app will
+adapt rather than the backend growing a second route for one client.
+**PR:** n/a · **Requirement:** FR-05, FR-06, FR-08, FR-09, FR-27, TRD §5
+
+---
+
+## 2026-09-12 — The app talks to the real API, through an explicit wire→domain layer
+
+**Context:** With the backend complete, the app had to stop returning fixtures and start mapping the
+server's shapes. The API is snake_case and the app is camelCase, but the differences were never only
+cosmetic: the status vocabularies differ, the marker names differ, several fields the app treated as
+certain are nullable on the wire, and every request schema sets `extra="forbid"` — so a mismatched
+key is a 422 rather than a dropped field.
+
+**Decision:** `src/api/adapters/`, one module per resource, each holding the wire type beside the
+function that maps it. Every endpoint returns a domain type and no wire type escapes the folder. The
+mock now renders its fixtures outward through `src/api/mock/to-wire.ts` rather than returning
+finished domain objects. `expo-crypto` was added and the queue hashes each photograph on the device
+before `POST /v1/scans`.
+
+**Alternatives:** *A recursive snake→camel transformer at the transport seam* — rejected, and it
+would have failed in a way nobody would have traced: it rewrites `profile.is_imported` and
+`profile.net_qty_in_g_or_ml`, whose names are the **rule pack's** contract rather than the API's, so a
+pack would stop matching its own fields; and it rewrites the presigned `headers` map, where `x-amz-*`
+must survive byte for byte or every upload fails its signature. *Leaving the mock returning domain
+objects* — rejected: it would bypass the adapters entirely, so mock mode would exercise a different
+code path from live mode and every fixture-based test would leave the mapping untested. *Deleting the
+mock at the cutover, as Stage 13 planned* — deferred: it now mirrors the wire faithfully, six test
+files depend on it, and deleting it is a separate decision rather than a side effect of wiring.
+*Deriving a Sahayak answer's outcome from whether citations came back* — rejected once the backend's
+five refusal reasons were read: a not-found answer carries a link to the official page, so counting
+citations classifies it as answered and publishes prose no source supports.
+
+**Consequences:** A live sign-out bug was found and fixed. `live-transport.ts` sent `{refreshToken}`
+where `RefreshIn` wants `{refresh}`; with `extra="forbid"` that body is a 422, and the transport
+treated any failed refresh as a dead session — so users would have been signed out every time an
+access token expired. The field name is corrected and **only a 401 now ends a session**;
+`backend/tests/test_mobile_contract.py` pins the spelling of every request body from the server's
+side, including the case that a camelCase verify body is refused. Three domain types were loosened to
+what the server can actually say: `Org.state` and `Org.createdAt` are nullable (the session endpoint
+publishes neither), `Measurement.uncertaintyMm` is nullable (null is "could not be established",
+which is not zero), and `FindingsResult` gained `reducedExtraction` and `notApplicableRuleIds`. Two
+tests were changed because they asserted behaviour the fixture layer had invented: a freshly created
+scan does not carry `no_marker` (the server reports it through status, once the scan has been looked
+at) and a scan does not carry `reduced_extraction` (the server reports it on the findings, because it
+is a fact about one evaluation). `issuesFor(scan, result)` merges the two where both are to hand.
+Nothing has run on hardware, and `expo-crypto` is native, so the EAS dev client needs rebuilding
+before the device walkthrough.
+**PR:** n/a · **Requirement:** FR-04, FR-06, FR-08, FR-09, NFR-07
+
+---
+
+## 2026-09-12 — B19's dependency ask is answered, and the LLM runs on open-weight models
+
+**Context:** Making the device walkthrough possible meant closing the three runtime gaps the code had
+deliberately left open rather than papered over. `services/vision/ocr.py` resolved a `PaddleOCREngine`
+whose runtime was absent, so a scan would have uploaded and then failed at recognition.
+`services/bis/embedding.py` and `retrieve.py` both raised a message naming B19's outstanding
+dependency ask. And `LLM_MODEL_BUDGET`/`LLM_MODEL_MID` were empty, so all three call sites in
+CLAUDE.md §9 had a base URL and a key but no model to name.
+
+**Decision:** `sentence-transformers` is declared as a **`[bis]` extra**, on exactly the terms
+`[ocr]` was — out of the core dependencies because it pulls torch and fetches weights on first use,
+which CI must never do, and still imported inside the adapter so `services/bis/` imports and
+type-checks without it. One package carries both runtimes the corpus needs: `BAAI/bge-m3` for the
+1024-dimensional multilingual embeddings and `BAAI/bge-reranker-v2-m3` for the rerank. `[ocr]` was
+installed rather than newly declared — it was already in `pyproject.toml`.
+
+The LLM tiers are filled with the open-weight models the configured endpoint actually serves:
+`openai/gpt-oss-20b` for budget (extraction, explanations) and `openai/gpt-oss-120b` for mid
+(Sahayak answers). No vendor name enters a `.py` file; both are a base URL and a model name in the
+environment, which is what keeps §9's open-weight path honest rather than aspirational.
+
+*Using the `hashing` embedder to make retrieval run without the model* — rejected. It is a test
+double; it would return semantically meaningless neighbours and Sahayak would cite sources that do
+not answer the question, which is worse than the refusal it returns today.
+
+**Consequences:** Both tiers were verified through `ChatCompletionsProvider` rather than raw HTTP:
+extraction returns valid JSON inside its 1200-token budget, and an explanation fits
+`reporting/explain.py`'s 220 even though these are reasoning models that spend tokens before they
+speak. No code changed for either. **Model revisions are still unpinned** — B19's ask asked for that
+and it remains owed; until it is done, a corpus embedded today and a query embedded after an upstream
+re-release are not guaranteed to share a vector space. Installing `[ocr]` moved `numpy` to 2.3.5 and
+`opencv-contrib-python` to 4.10.0.84, still the contrib wheel, and the suite holds at one failure,
+which is `test_llm_provider.py::test_the_open_weight_path_is_the_same_adapter_not_a_second_one`: it
+asserts a provider built for a local server carries no credential, and
+`adapters/chat_completions.py` falls back to `settings.LLM_API_KEY` regardless of where the base URL
+points. That is left for review rather than edited, per CLAUDE.md §6. Sahayak still refuses every
+question — `bis_documents` is empty, there is no corpus source in `bis/` beyond the applicability
+table, and nothing calls `ingest()`.
+**PR:** n/a · **Requirement:** FR-22, FR-28, FR-29, CLAUDE.md §9

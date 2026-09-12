@@ -18,8 +18,14 @@ export interface Org {
   name: string;
   mode: OrgMode;
   /** Indian state the org operates in. Drives the district filters in Mode A. */
-  state: string;
-  createdAt: IsoDateTime;
+  /**
+   * The state the org operates in, when it is known.
+   *
+   * Null because the session endpoint does not publish it — shown beside the org name only when
+   * present, rather than rendered as a blank that reads like a failed load.
+   */
+  state: string | null;
+  createdAt: IsoDateTime | null;
 }
 
 export interface User {

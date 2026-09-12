@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="http://172.19.64.117:8081">{&quot;isEASUpdate&quot;:false,&quot;name&quot;:&quot;Anupalan&quot;,&quot;timestamp&quot;:1789206586448,&quot;url&quot;:&quot;http://172.19.64.117:8081&quot;}</string>
+    <string name="http://127.0.0.1:8081">{&quot;isEASUpdate&quot;:false,&quot;name&quot;:&quot;Anupalan&quot;,&quot;timestamp&quot;:1789228834405,&quot;url&quot;:&quot;http://127.0.0.1:8081&quot;}</string>
+</map>

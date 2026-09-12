@@ -9,40 +9,34 @@
  * Processing screen something real to poll without leaving timers to clean up, and makes the
  * behaviour identical on a re-mount.
  *
- * Deleted wholesale at Stage 13. Nothing outside this folder should import from it.
+ * **It answers in the server's shapes, not the app's.** The routes below are written in domain
+ * terms because that is what the fixtures are, and `./to-wire.ts` renders the result outward at the
+ * last moment. That is deliberate: if the mock returned finished domain objects it would bypass
+ * `../adapters` entirely, mock mode would exercise a different code path from live mode, and every
+ * test that runs against fixtures would leave the mapping untested.
+ *
+ * Nothing outside this folder should import from it.
  */
 
 import { IS_TEST } from '../config';
 import { ApiError } from '../errors';
 import type { RequestSpec, Transport } from '../transport';
 import type {
-  BisApplicabilityBody,
-  BisApplicabilityResponse,
   ConfirmFieldsBody,
-  ListingCheckBody,
-  ListingCheckResponse,
   CreateReportBody,
-  CreateReportResponse,
-  GetReportResponse,
-  CreateScanBody,
-  CreateScanResponse,
-  GetFindingsResponse,
-  GetScanResponse,
-  ListProductsResponse,
-  ListScansResponse,
+  CreateScanResult,
   OtpRequestBody,
-  OtpRequestResponse,
-  OtpVerifyBody,
-  OtpVerifyResponse,
-  RefreshBody,
-  RefreshResponse,
   SahayakAskBody,
-  SahayakAskResponse,
-  SubmitScanResponse,
 } from '../types';
 import type {
   AuthTokens,
+  BisApplicability,
   Finding,
+  FindingsResult,
+  ListingCheck,
+  Page,
+  Product,
+  Session,
   Report,
   ReportFormat,
   PipelineStage,
@@ -54,6 +48,21 @@ import type {
   Verdict,
 } from '@/domain';
 
+import {
+  fromAnswer,
+  fromApplicability,
+  fromFindingsResult,
+  fromListingCheck,
+  fromOtpRequest,
+  fromProductPage,
+  fromReport,
+  fromScan,
+  fromScanCreated,
+  fromScanPage,
+  fromSession,
+  fromTokens,
+} from './to-wire';
+import { toMarkerType, toProfile, type WireMarkerType, type WireProfile } from '../adapters';
 import { BIS_APPLICABILITY, SAHAYAK_ANSWERS, SAHAYAK_ANSWERS_HI } from './fixtures/sahayak';
 import { buildListingCheck, buildViolatingCheck } from './fixtures/listings';
 import {
@@ -73,12 +82,32 @@ import {
   SAMPLE_PDF_BYTES,
 } from './fixtures/report-files';
 import { getScenario } from './scenario';
+
 import { File } from 'expo-file-system';
 // The file, not the barrel: this module is deleted at Stage 13 and its import surface should be
 // as small as the one thing it needs.
 import { PIPELINE_STAGES } from '@/features/processing/stages';
 import { matchesVerdict } from '@/features/history/filters';
 import { METRIC_RULE_IDS } from '@/features/bulk/metric-rules';
+
+/**
+ * The create-scan body as `endpoints.ts` puts it on the wire.
+ *
+ * Declared here rather than imported because it is the mock's view of a *request*, and `to-wire.ts`
+ * renders responses. Keeping it beside the handler that reads it is what makes a drift visible.
+ */
+interface WireCreateScan {
+  profile: WireProfile;
+  marker_type: WireMarkerType;
+  marker_mm: number;
+  assets: { content_type: string; size_bytes: number; sha256: string; kind: string }[];
+  product_id?: string;
+  captured_at: string;
+  geo_lat?: number;
+  geo_lon?: number;
+  geo_accuracy_m?: number;
+  district: string | null;
+}
 
 const PAGE_SIZE = 30;
 
@@ -297,7 +326,7 @@ function summarise(findings: Finding[]) {
   };
 }
 
-function findingsFor(scanId: string): GetFindingsResponse {
+function findingsFor(scanId: string): FindingsResult {
   const scenario = getScenario();
   const base = HERO_FINDINGS_RESULT;
 
@@ -323,6 +352,9 @@ function findingsFor(scanId: string): GetFindingsResponse {
     return {
       ...base,
       scanId,
+      // Reported here rather than on the scan, because that is where the server reports it: it is a
+      // fact about this evaluation, not about the run.
+      reducedExtraction: true,
       extractions: base.extractions.filter((e) => e.source !== 'llm'),
     };
   }
@@ -352,7 +384,10 @@ function matchesQuery(item: ScanListItem, query: string): boolean {
 }
 
 function scanFor(id: string): Scan {
-  if (id === HERO_SCAN_ID) return HERO_SCAN;
+  // The scenario applies to the hero scan as well. It used to be returned verbatim, which meant the
+  // degradation switch was only observable on a freshly created scan — and every screen that opens
+  // the sample inspection saw a happy path regardless of what was selected.
+  if (id === HERO_SCAN_ID) return { ...HERO_SCAN, issues: issuesForScenario() };
 
   const local = created.get(id);
   if (local) {
@@ -421,6 +456,32 @@ function answerFor(question: string, lang: 'en' | 'hi'): SahayakAnswer {
   };
 }
 
+/**
+ * Read back the CSV the client rendered.
+ *
+ * A deliberately small parser: it understands the three columns `toCsv` writes and the quoting it
+ * uses, and nothing else. It is not a general CSV reader, and it should not become one — the real
+ * endpoint has one, and a second full implementation here would be a second set of edge cases to
+ * disagree about.
+ */
+function parseListingCsv(
+  csv: string
+): { lineNumber: number; kind: 'url' | 'text'; source: string }[] {
+  const [, ...lines] = csv.split('\n').filter((line) => line.trim().length > 0);
+
+  return lines.map((line, index) => {
+    const fields = (line.match(/"(?:[^"]|"")*"/g) ?? []).map((field) =>
+      field.slice(1, -1).replace(/""/g, '"')
+    );
+    const [declared, url, text] = fields;
+    const lineNumber = Number(declared) || index + 1;
+
+    return url
+      ? { lineNumber, kind: 'url' as const, source: url }
+      : { lineNumber, kind: 'text' as const, source: text ?? '' };
+  });
+}
+
 function guardScenario(): void {
   const scenario = getScenario();
 
@@ -455,11 +516,11 @@ function route(spec: RequestSpec): unknown {
     return {
       requestId: `otp_${encodeURIComponent(phone)}`,
       expiresInSeconds: OTP_EXPIRY_SECONDS,
-    } satisfies OtpRequestResponse;
+    };
   }
 
   if (method === 'POST' && path === '/auth/otp/verify') {
-    const { code, requestId } = body as OtpVerifyBody;
+    const { code, request_id: requestId } = body as { code: string; request_id: string };
 
     if (code !== FIXTURE_OTP) {
       throw new ApiError({
@@ -475,11 +536,11 @@ function route(spec: RequestSpec): unknown {
       ...issueTokens(user.id),
       user,
       org,
-    } satisfies OtpVerifyResponse;
+    };
   }
 
   if (method === 'POST' && path === '/auth/refresh') {
-    const { refreshToken } = body as RefreshBody;
+    const { refresh: refreshToken } = body as { refresh: string };
     const subject = /^mock-refresh-(.+?)-\d+$/.exec(refreshToken)?.[1];
 
     if (!subject) {
@@ -490,13 +551,13 @@ function route(spec: RequestSpec): unknown {
       });
     }
 
-    return issueTokens(subject) satisfies RefreshResponse;
+    return issueTokens(subject);
   }
 
   if (method === 'GET' && path === '/products') {
     const q = String(query.q ?? '').toLowerCase();
     const matched = q ? PRODUCTS.filter((p) => p.profile.name.toLowerCase().includes(q)) : PRODUCTS;
-    return page(matched, query.cursor as string | undefined) satisfies ListProductsResponse;
+    return page(matched, query.cursor as string | undefined);
   }
 
   if (method === 'GET' && path === '/scans') {
@@ -504,18 +565,24 @@ function route(spec: RequestSpec): unknown {
     // `matchesVerdict` is the app's own predicate, imported rather than reimplemented: one definition
     // of "has a FAIL", so the fixture data and the screen cannot disagree about it.
     if (query.verdict) items = items.filter((s) => matchesVerdict(s, query.verdict as Verdict));
-    if (query.productId) items = items.filter((s) => s.productId === query.productId);
+    // `product_id`, in the server's spelling — this route imitates the API, and the client sends
+    // what the API accepts.
+    if (query.product_id) items = items.filter((s) => s.productId === query.product_id);
     if (query.q) items = items.filter((s) => matchesQuery(s, String(query.q)));
     if (query.district) items = items.filter((s) => s.district === query.district);
     // Dates are `YYYY-MM-DD` and `capturedAt` is a full ISO timestamp, so `to` is compared against
     // the end of that day. Comparing the bare date would drop every scan taken after midnight on it.
     if (query.from) items = items.filter((s) => s.capturedAt >= String(query.from));
     if (query.to) items = items.filter((s) => s.capturedAt <= `${String(query.to)}T23:59:59.999Z`);
-    return page(items, query.cursor as string | undefined) satisfies ListScansResponse;
+    return page(items, query.cursor as string | undefined);
   }
 
   if (method === 'POST' && path === '/scans') {
-    const created_body = body as CreateScanBody;
+    // Read as the **wire** body, because that is what `endpoints.ts` sends: snake_case, the profile
+    // already in the rule pack's spelling, and the coordinate flattened into three fields. Typing it
+    // as `CreateScanBody` read `markerType`, `capturedAt` and `geo` as undefined and let
+    // `...HERO_SCAN` cover for them, so mock mode silently stopped exercising this request at all.
+    const created_body = body as WireCreateScan;
     scanCounter += 1;
     const id = `scn_local_${scanCounter}`;
     created.set(id, {
@@ -524,15 +591,25 @@ function route(spec: RequestSpec): unknown {
         ...HERO_SCAN,
         id,
         status: 'captured',
-        profile: created_body.profile,
-        markerType: created_body.markerType,
-        markerMm: created_body.markerMm,
+        // Back to the domain shape the mock stores, so rendering it on the way out converts once
+        // rather than twice. Converting twice is what threw on `netQuantity`.
+        profile: toProfile(created_body.profile),
+        markerType: toMarkerType(created_body.marker_type),
+        markerMm: created_body.marker_mm,
         // The client's capture time, not the server's receive time — on a queued scan those differ
         // by however long the phone was offline, and the evidence trail needs the former.
-        capturedAt: created_body.capturedAt,
+        capturedAt: created_body.captured_at,
         // Echoed rather than defaulted, so a Mode B scan arriving with a coordinate would be
         // visible in the app instead of being quietly normalised away.
-        geo: created_body.geo,
+        geo:
+          created_body.geo_lat === undefined || created_body.geo_lon === undefined
+            ? null
+            : {
+                latitude: created_body.geo_lat,
+                longitude: created_body.geo_lon,
+                // `?? 0` matches `toGeo` in the adapters, so the mock and live paths agree.
+                accuracyM: created_body.geo_accuracy_m ?? 0,
+              },
         district: created_body.district,
         // Nothing has been issued over a scan that was created a moment ago, so Mode A's editing
         // lock is open and the confirmation sheet is reachable.
@@ -542,22 +619,22 @@ function route(spec: RequestSpec): unknown {
     });
     return {
       scanId: id,
-      uploads: Array.from({ length: created_body.assetCount }, (_, i) => ({
+      uploads: Array.from({ length: created_body.assets.length }, (_, i) => ({
         assetId: `ast_${id}_${i}`,
         url: `fixture://upload/${id}/${i}`,
         headers: {},
       })),
-    } satisfies CreateScanResponse;
+    } satisfies CreateScanResult;
   }
 
   if (method === 'POST' && scanMatch?.[2] === '/submit') {
     const entry = created.get(scanMatch[1]);
     if (entry) entry.submittedAt = Date.now();
-    return { status: 'queued' } satisfies SubmitScanResponse;
+    return { status: 'queued' };
   }
 
   if (method === 'GET' && scanMatch && !scanMatch[2]) {
-    return scanFor(scanMatch[1]) satisfies GetScanResponse;
+    return scanFor(scanMatch[1]);
   }
 
   if (method === 'GET' && scanMatch?.[2] === '/findings') {
@@ -588,34 +665,43 @@ function route(spec: RequestSpec): unknown {
     const id = `rpt_${reportCounter}`;
     reports.set(id, { scanId: scanMatch[1], formats, requestedAt: Date.now() });
 
-    return reportFor(id) satisfies CreateReportResponse;
+    return reportFor(id);
   }
 
   if (method === 'GET' && reportMatch) {
-    return reportFor(reportMatch[1]) satisfies GetReportResponse;
+    return reportFor(reportMatch[1]);
   }
 
-  if (method === 'POST' && path === '/listings/check') {
-    const { rows } = body as ListingCheckBody;
+  if (method === 'POST' && path === '/products/listings/check') {
+    // The endpoint takes a CSV, so the rows are parsed back out of it — the same shape the client
+    // rendered. Imitating the server means accepting what the server accepts, not what is
+    // convenient here.
+    const rows = parseListingCsv((body as { csv: string }).csv);
 
     // The org is hard-coded to the industry fixture org: FR-10 is Mode B only, and the tab is not
     // in the enforcement tab bar (`features/navigation/tabs`). A real backend reads it off the token.
     const orgId = 'org_annapurna';
 
     if (getScenario() === 'listing-metric-verdict') {
-      return buildViolatingCheck(orgId) satisfies ListingCheckResponse;
+      return buildViolatingCheck(orgId);
     }
 
-    return buildListingCheck(rows, orgId) satisfies ListingCheckResponse;
+    return buildListingCheck(rows, orgId);
   }
 
   if (method === 'POST' && path === '/sahayak/ask') {
     const { question, lang } = body as SahayakAskBody;
-    return answerFor(question, lang) satisfies SahayakAskResponse;
+    return answerFor(question, lang);
   }
 
   if (method === 'POST' && path === '/bis/applicability') {
-    const { productId } = body as BisApplicabilityBody;
+    // Matched on the **profile**, as the server does — its request body carries no product id, and a
+    // category code is what an applicability lookup keys on. Matching on an id the client happened
+    // to know would answer a question the real endpoint is never asked.
+    const { profile } = body as { profile: { category_code?: string | null } };
+    const productId = Object.keys(BIS_APPLICABILITY).find(
+      (id) => PRODUCTS_BY_ID[id]?.profile.categoryCode === profile?.category_code
+    );
     // No default record. This previously fell back to the atta profile for any unknown product,
     // which answered a question about one product with another product's applicability — the exact
     // kind of confident wrong clearance `features/sahayak/applicability` exists to prevent. A scan
@@ -625,7 +711,7 @@ function route(spec: RequestSpec): unknown {
     if (!applicability) {
       throw new ApiError({ code: 'http_404', message: 'No applicability record', status: 404 });
     }
-    return applicability satisfies BisApplicabilityResponse;
+    return applicability;
   }
 
   throw new ApiError({
@@ -633,6 +719,47 @@ function route(spec: RequestSpec): unknown {
     message: `No mock route for ${method} ${path}`,
     status: 404,
   });
+}
+
+/**
+ * Render a route's domain result as the server would send it.
+ *
+ * A second place that knows path strings, which is a cost worth naming. The alternative was to make
+ * every `return` in `route()` wire-shaped, which would have buried the fixture logic — the part a
+ * reader comes here to understand — under field renaming. Keeping the routing in domain terms and
+ * the rendering in one table is the trade this makes.
+ */
+function wireFor(spec: RequestSpec, value: unknown): unknown {
+  const { method, path } = spec;
+  const scanMatch = /^\/scans\/([^/]+)(\/[a-z-]+)?$/.exec(path);
+
+  if (method === 'POST' && path === '/auth/otp/request') {
+    return fromOtpRequest(value as { requestId: string; expiresInSeconds: number });
+  }
+  if (method === 'POST' && path === '/auth/otp/verify') return fromSession(value as Session);
+  if (method === 'POST' && path === '/auth/refresh') return fromTokens(value as AuthTokens);
+  if (method === 'GET' && path === '/products') return fromProductPage(value as Page<Product>);
+  if (method === 'GET' && path === '/scans') return fromScanPage(value as Page<ScanListItem>);
+  if (method === 'POST' && path === '/scans') return fromScanCreated(value as CreateScanResult);
+  if (method === 'POST' && scanMatch?.[2] === '/submit') {
+    return { scan_id: scanMatch[1], status: 'queued' };
+  }
+  if (method === 'GET' && scanMatch && !scanMatch[2]) return fromScan(value as Scan);
+  if (scanMatch?.[2] === '/findings' || scanMatch?.[2] === '/confirm-fields') {
+    return fromFindingsResult(value as FindingsResult);
+  }
+  if (scanMatch?.[2] === '/report' || /^\/reports\//.test(path)) {
+    return fromReport(value as Report);
+  }
+  if (method === 'POST' && path === '/products/listings/check') {
+    return fromListingCheck(value as ListingCheck);
+  }
+  if (method === 'POST' && path === '/sahayak/ask') return fromAnswer(value as SahayakAnswer);
+  if (method === 'POST' && path === '/bis/applicability') {
+    return fromApplicability(value as BisApplicability);
+  }
+
+  return value;
 }
 
 /**
@@ -648,7 +775,7 @@ export function createMockTransport(): Transport {
     async request<T>(spec: RequestSpec): Promise<T> {
       await delay();
       guardScenario();
-      return route(spec) as T;
+      return wireFor(spec, route(spec)) as T;
     },
 
     /**

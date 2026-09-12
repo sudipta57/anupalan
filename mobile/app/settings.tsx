@@ -72,7 +72,9 @@ function AccountCard() {
             {t('account.organisation')}
           </Text>
           <Text variant="body">
-            {org.name} · {org.state}
+            {/* The state is only shown when the server published one — a dangling separator reads
+                like a value that failed to load. */}
+            {org.state ? `${org.name} · ${org.state}` : org.name}
           </Text>
         </View>
 

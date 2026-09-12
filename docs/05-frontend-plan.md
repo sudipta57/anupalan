@@ -29,6 +29,7 @@
 | 10 | History and search | FR-09 | ✅ (device check pending) |
 | 11 | Sahayak chat and BIS applicability | FR-07 | ✅ (device check pending) |
 | 12 | Bulk listing check | FR-10 | ✅ (device check pending) |
+| 13 | Hardening and the live-backend cutover | NFR-02, NFR-07, NFR-08 | ✅ wired (device check pending) |
 | 13 | Hardening and the live-backend cutover | NFR-02, NFR-07, NFR-08 | 🔨 (cutover blocked on the backend; cold start on a device) |
 
 ---
@@ -57,6 +58,7 @@ These were decided at the start of frontend work and apply to every stage below.
 | `expo-image-manipulator` | FR-06 image crop in the confirmation sheet | 7 |
 | `@testing-library/react-native` (dev) | Screen tests, so "tests first" is possible | 0 ✅ |
 | `expo-web-browser` | FR-07 source chips opening a cited page in-app | 11 ✅ |
+| `expo-crypto` | SHA-256 per asset, which `POST /v1/scans` requires before the upload (`06-wiring-contract.md` §3.1 G1) | 13 ✅ **installed 2026-09-12.** Native, so the EAS dev client needs rebuilding before the device walkthrough |
 
 ---
 
@@ -1241,6 +1243,15 @@ chips.
   `gen:api`, fix what the compiler flags against the 11 assumed contract shapes (flags 5, 8, 16, 18,
   21, 22, 23, 26, 27, 29, 30), then delete `src/api/mock/`, `src/api/dev.ts`, `metro.config.js`'s
   resolver branch and the four dev panels in Settings.
+
+  **Updated 2026-09-12.** The backend reached B16, so the diff is now measured rather than assumed:
+  **eight of the app's fifteen calls have a server**, and the full register is
+  `06-wiring-contract.md`. Two items change the plan above. `npm run gen:api` still cannot run —
+  not for want of a deployment, but because `backend/.venv` is missing `pgvector` and the app
+  cannot be imported, so there is no `openapi.json` to fetch. And the cutover is now sequenced
+  **backend gaps first, wire once**: six backend changes (W1–W6) land before any adapter is
+  written, because one of them — the findings response omitting `extractions`, flag 36 — cannot
+  be adapted around without silently disabling this app's own report gate.
 - **The cold-start number cannot be taken here.** It needs the EAS dev build on a physical 4 GB
   Android 12 phone. The instrument and the `adb` procedure are in place; the figure is item 1 of the
   checklist and belongs in `docs/eval-results.md`.
@@ -1318,6 +1329,15 @@ droppable; nothing before it is.
 
 ## 9. Flags and open questions
 
+> **2026-09-12 — the API contract flags now have answers, and the backend side is built.** The
+> backend is at B24 (the first reading of it was against a stale branch and undercounted it: B17–B23
+> had already landed). **All fifteen of this app's API calls now have a server.** Every flag here that says *agree with the backend* is resolved,
+> confirmed or superseded in **`06-wiring-contract.md`**, which carries the endpoint coverage
+> table, the gap register and a handoff card per backend change. Flags 5, 16, 18, 21, 22, 23, 24
+> and 25 are tracked there as gaps G6, G1, G1, G2, G4, G8, G6 and G6/G7 respectively, and every one
+> of them is now **closed** — `06-wiring-contract.md` §8 records what was built. Flags 6, 8, 9 and 10
+> are answered inline below. Read that document before touching `src/api/`.
+
 1. **Both modes costs roughly 40% more screen work**, landing on stages 5, 8, 9, 10 plus stage 12
    entirely. Do not read the stage count as the effort.
 2. **Mode A's evidence panel cannot be truly verified yet.** The hash chain is computed
@@ -1341,21 +1361,36 @@ droppable; nothing before it is.
    "skipped" or `NOT_APPLICABLE`. The fixtures **omit inapplicable rules from the findings list**
    rather than inventing a fifth verdict, because inventing one would contradict a
    non-negotiable. Confirm the backend does the same.
+   **Answered 2026-09-12: it does.** `FindingsOut` omits inapplicable rules from `findings` and
+   reports them in `not_applicable_rule_ids`, with a fifth *count* in the summary and no fifth
+   verdict. The app currently discards that list, which is its own gap to close —
+   `06-wiring-contract.md` §3.3.
 7. **`react-native-nitro-modules` is an auto-installed peer** of MMKV and vision-camera, not
    declared in `package.json`. If the EAS dev-client build fails on autolinking, check this first.
 8. **TRD §5 has no refresh endpoint**, although `auth/otp/verify` returns a refresh token and
    `01-architecture.md` §197 specifies access/refresh JWTs. Stage 2 assumes
    `POST /v1/auth/refresh {refreshToken} -> {accessToken, refreshToken}`, returning **401** when the
    refresh token is rejected — the status the client uses to decide a session is over rather than
-   merely unreachable. **Agree before Stage 13.**
+   merely unreachable. **Answered 2026-09-12: the endpoint exists**, with rotation, exactly as
+   assumed. One difference, and it is not cosmetic — the body field is `refresh`, not
+   `refreshToken`, and `StrictModel` sets `extra="forbid"`, so the app's current body is a **422**.
+   `live-transport.ts` reads any non-ok refresh as a rejected token and signs the user out, so this
+   would log people out every time an access token expired. `06-wiring-contract.md` §3.3.
 9. **TRD §5 has no session endpoint.** `user` and `org` arrive exactly once, in the verify response,
    so the app cannot revalidate who it is after a restart and caches them locally. A `GET /v1/auth/me`
    would let the org and role be refreshed as server state instead — worth having if a user's role
    can change while they are signed in.
+   **Answered 2026-09-12: `GET /v1/auth/me` exists** and returns the user and org. The app should
+   adopt it for session restore rather than trusting the local cache.
 10. **TRD §5 sketches snake_case field names** (`{request_id}`, `{access, refresh}`) while the
     client types are camelCase throughout. One of the two has to give, and FastAPI can alias on the
     way out. **This affects every endpoint, so settle it early** — it is cheap now and a
     find-and-replace across the app later.
+    **Decided 2026-09-12: the app converts**, with explicit per-endpoint adapters rather than a
+    generic deep key transform, because a blind converter would rewrite the rule pack's own field
+    names inside `profile` and the `x-amz-*` presigned headers. Note what raises the stakes:
+    `extra="forbid"` means a mismatched *request* key is a 422, not a dropped field, so sign-in
+    fails at the first call rather than degrading. `06-wiring-contract.md` §3.3.
 11. **The refresh token is in unencrypted MMKV.** A rooted device, or one with ADB backup enabled,
     can read it off disk. The right home is the Android Keystore via `expo-secure-store`, which is a
     new dependency and needs approval (CLAUDE.md §7). `src/lib/storage.ts` keeps it behind one
@@ -1498,6 +1533,60 @@ droppable; nothing before it is.
     later must keep the resolver chain intact (it calls through to `upstream ?? context.resolveRequest`
     rather than replacing it). `npm run verify:bundle` is the check; it belongs in CI.
 
+35. **`POST /v1/scans` takes a list of assets with a required SHA-256 per asset, not an
+    `asset_count`.** The backend refined TRD §5 deliberately and documented why: a count cannot
+    produce presigned URLs, because the content type is part of the signature and the size ceiling is
+    enforced when the capability is issued rather than after the bytes have arrived. The worker then
+    verifies the stored object against the declared hash and fails the scan on a mismatch. The app
+    computes none, so the capture path cannot reach the server as written. **Decided 2026-09-12: the
+    app computes it**, with `expo-crypto` approved for the purpose — see `06-wiring-contract.md` §3.1
+    G1 for the rejected alternative, which was to let the worker compute the hash instead.
+36. **`GET /v1/scans/{id}/findings` omits `extractions`, and there is no safe default.** This is the
+    most consequential thing the wiring audit found. `verdictsAreProvisional` is
+    `result.extractions.some(needsConfirmation)`, and `blocksReport` uses it to refuse a PDF while any
+    field sits below the 0.75 threshold. Defaulting the field to `[]` makes `.some()` false, so **the
+    report gate opens for every scan** and the app issues reports over unverified readings while
+    showing no caveat — Stage 9's entire refusal, reintroduced invisibly. Leaving it absent crashes
+    the screen instead. FR-06's confirmation sheet is empty in both cases, so the one mechanism for
+    correcting a bad read becomes unreachable. The backend computes these rows already
+    (`_domain_extractions`) and drops them. This is why W1 is first in `06-wiring-contract.md` §6.
+    **Closed 2026-09-12:** the response now carries `extractions`, `measurements` and
+    `findings_sha256`, pinned by a test that fails if a confidence is ever defaulted.
+37. **`district` does not exist in the backend at all** — not in the create body, not in the scan
+    response, and not as a column on `scans`, which carries `geo_lat`/`geo_lon` only. So it cannot be
+    sent, stored or returned: the history row has nothing to show, the Mode A filter has nothing to
+    filter, and FR-30's "violations by district" has no column to group by. It is a schema change and
+    CLAUDE.md §7 wants agreement, which is cheaper now than after the table has rows.
+    `06-wiring-contract.md` §3.1 G3, card W3. **Closed 2026-09-12 with no migration needed** —
+    B17's dashboard work had already added the column and its index; only the create body and the
+    response were missing.
+38. **`GET /v1/scans/{id}` omits `profile`, `org_id` and `user_id`.** `profile` is the one that bites:
+    it is already a JSON column on the row and simply is not in `ScanOut`, and the scan screen and the
+    report filename both read it. `report_issued_at` (flag 22) arrives with the reports work rather
+    than as a null that means "no reports endpoint exists yet". `issues` is **not** being asked for —
+    the app derives it from the status, the findings envelope's `reduced_extraction` and flag 36's
+    confidences, and a second source of truth for the same thing would drift.
+    **Closed 2026-09-12:** `ScanOut` now returns `profile`, `org_id`, `user_id`, `geo` and
+    `district`. `issues` was deliberately not added, for the reason above.
+39. **The status and marker vocabularies differ, and one difference strands a queued scan.** The
+    server has `created` and `no_marker` where the app has the queue's local `captured` and
+    `uploading`. `features/queue/runner.ts` leaves `processing` only on `complete` or `failed`, so a
+    **`no_marker` scan would sit in the queue forever and the pending badge would never clear**. The
+    app maps it to `complete` plus the `no_marker` issue, which is what §11 means by degraded *but
+    final*. Marker values differ too (`aruco_4x4_50`/`user_declared` against
+    `aruco_40mm`/`user_dimension`) and the **server's names are better** — `aruco_4x4_50` names the
+    ArUco dictionary that flag 14 says must not drift, and the 40 mm already lives in `marker_mm`. The
+    app renames. Both mappings are recorded in `06-wiring-contract.md` §3.1 G5, which is where they
+    have to change if either vocabulary does.
+40. **Seven of the app's fifteen API calls have no server, and three are dated November.**
+    `GET /v1/scans` (FR-09, and never in TRD §5), `GET /v1/products`, the two report endpoints, and
+    then Sahayak, BIS applicability and the listing check, which are B19–B21. So Stages 10, 11 and 12
+    stay on fixtures after the first cutover, and `src/api/mock/` is deleted at the end of that
+    sequence rather than with the first endpoint. Plan the demo around what is wired, not around the
+    stage count. **Superseded 2026-09-12:** this flag was written from a stale branch. Sahayak, BIS
+    applicability, the bulk listing check and the dashboards all existed on `main`; the four that
+    genuinely did not exist have since been built. All fifteen calls now have a server.
+
 ---
 
 ## 10. Change log
@@ -1517,4 +1606,7 @@ droppable; nothing before it is.
 | 2026-09-12 | Stage 10 completed. Single-select verdict filter over one count each; the seeded set gained a borderline-only bucket that can actually catch a merge; the hero scan's cross-org and Mode-B-location inconsistencies fixed. Filter measured at 0.020 ms per pass over 220 scans. Flags 24 and 25 added. |
 | 2026-09-12 | Stage 11 completed. A citation that cannot be placed on an official host is withheld, and an `answered` response left with none is presented as not-found with its prose suppressed; the fixture set gained a deliberately fabricated citation so the guard is proved rather than asserted. `unclear` is not `no` — every affirmative row on the applicability screen is gated on `isConclusive`. Freshness has an `unknown` tier that does not fall through to `fresh`. The mock's word-overlap answer routing was replaced, and its applicability route no longer defaults to another product's record. `expo-web-browser` moved from installed-but-unused to used. Flags 26–29 added, three of them API contract gaps. |
 | 2026-09-12 | Stage 12 completed. Over fifty rows blocks rather than truncating; a metric PASS, FAIL or BORDERLINE from listing text is refused, downgraded and reported, with a `listing-metric-verdict` fixture built to break it. The one metric-rule list moved out of the mock into app code. A row with no result is neither passing nor failing and is excluded from the clean count. `NOT_ASSESSABLE` does not count against a row. CSV export is one line per finding, every field quoted, formulas neutralised. `ListingFinding` is its own type rather than a `Finding` with three permanently null fields. Flags 30–32 added, one an API contract gap. |
+| 2026-09-12 | **The app is wired to the real API.** `src/api/adapters/` maps every endpoint's wire shape to a domain type — explicit per resource, because a generic key transformer would rewrite the rule pack's own field names inside `profile` and the `x-amz-*` presigned headers. `expo-crypto` installed and the queue now hashes each photograph before `POST /v1/scans`. **Found and fixed a live sign-out bug:** the refresh body was `{refreshToken}` where the server wants `{refresh}`, and with `extra="forbid"` that is a 422 — which the transport read as a dead session, so users would have been signed out on every token expiry. Only a 401 ends a session now. The mock emits wire shapes through `to-wire.ts` so mock mode exercises the same code path as live. 670 mobile tests (25 new, round-tripping the adapters) and 691 backend tests pass; the one failure is the pre-existing flag 33. Nothing has run on hardware. |
+| 2026-09-12 | Backend side of the cutover built (B24). The first audit was against a stale branch and undercounted the backend — B17–B23 had landed, so Sahayak, BIS and the bulk listing check already existed. Four endpoints genuinely did not and were written: `GET /v1/scans` with keyset cursors and a single-verdict filter, `GET /v1/products`, and the two report endpoints. The findings response gained `extractions`, `measurements` and the stored `findings_sha256`; `ScanOut` gained `profile`, `geo`, `district`, `org_id`, `user_id`. **All fifteen client calls now have a server.** 682 backend tests pass, 64 new. Flags 36–39 closed, 40 superseded. Nothing in `mobile/` has been touched yet. |
+| 2026-09-12 | Wiring audit against the finished backend. Both halves read end to end and the diff recorded in the new `docs/06-wiring-contract.md`: **eight of the app's fifteen API calls have a server.** Flags 6, 8, 9 and 10 answered; flags 35–40 added. The finding that set the order of work: the findings response omits `extractions`, and defaulting that to `[]` would silently open Stage 9's report gate for every scan. Decided — the app computes each asset's SHA-256 (`expo-crypto` approved), and the backend gaps close before any wiring starts. |
 | 2026-09-12 | Stage 13 partly completed. The mock backend is now genuinely absent from a live bundle, verified by `npm run verify:bundle` — which failed on its first run, because a conditional `require` does not remove a module from a Metro graph; `metro.config.js` resolves the fixture folder to an empty module instead, and `src/api/dev.ts` became the one door to it. Hindi completed: 145 strings, 586 of 586 keys, with completeness, orphan and copy-of-English tests. The accessibility pass found three real contrast failures (light `textSubtle` at 3.19:1, light `pass` at 4.36:1, dark `textSubtle` at 4.03:1) and two touch targets under 44 px; all 24 rendered colour pairs are now asserted in both themes. Cold-start instrument added, reporting null rather than a fabricated number. **Blocked:** the cutover needs a deployed backend, and the cold-start figure needs a physical device. Flags 33 and 34 added; flag 33 is a failing pre-existing test left untouched per CLAUDE.md §6 and needs a decision. |

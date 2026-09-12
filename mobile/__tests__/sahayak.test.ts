@@ -602,13 +602,19 @@ describe('the applicability endpoint', () => {
   it('returns 404 rather than another product’s record when the product is unknown', async () => {
     // This previously defaulted to the atta profile for anything unrecognised, which answered a
     // question about one product with a different product's applicability.
-    await expect(
-      api.bisApplicability({ profile: BIS_APPLICABILITY.prd_atta_1kg.profile })
-    ).rejects.toBeInstanceOf(ApiError);
+    //
+    // The lookup keys on the profile's category, as the real endpoint does, so "unknown" means a
+    // category nothing in the lists covers — not an unknown id. A record must not be produced for it.
     await expect(
       api.bisApplicability({
-        productId: 'prd_not_a_product',
-        profile: BIS_APPLICABILITY.prd_atta_1kg.profile,
+        profile: { ...BIS_APPLICABILITY.prd_atta_1kg.profile, categoryCode: 'not.a.category' },
+      })
+    ).rejects.toBeInstanceOf(ApiError);
+    // 404 rather than a soft "no record": an empty-but-successful response renders as a stance, and
+    // "we have nothing on this" is not the same statement as "certification is not required".
+    await expect(
+      api.bisApplicability({
+        profile: { ...BIS_APPLICABILITY.prd_atta_1kg.profile, categoryCode: 'also.not.a.category' },
       })
     ).rejects.toMatchObject({ status: 404 });
   });

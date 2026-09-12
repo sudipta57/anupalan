@@ -38,6 +38,7 @@ export {
   hasNoMarker,
   hasReducedExtraction,
   isDegradedButFinal,
+  issuesFor,
   issuesToReport,
 } from './degradation';
 export type { IssueCopy } from './degradation';

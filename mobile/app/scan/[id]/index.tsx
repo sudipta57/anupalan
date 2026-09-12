@@ -41,6 +41,7 @@ import {
   STAGE_CODES,
   STAGE_LABEL_KEYS,
   fieldsNeedingConfirmation,
+  issuesFor,
   issuesToReport,
   stageStateFor,
   verdictsAreProvisional,
@@ -158,7 +159,7 @@ function Complete({ scan, result }: { scan: Scan; result: FindingsResult }) {
 
   const unconfirmed = fieldsNeedingConfirmation(result);
   const provisional = verdictsAreProvisional(result);
-  const issues = issuesToReport(scan.issues);
+  const issues = issuesToReport(issuesFor(scan, result));
 
   return (
     <Screen scroll>

@@ -111,6 +111,7 @@ track D — sahayak (independent of A/B, needs B12 for the pgvector tables)
 | ✅ B21 | Bulk listing check (Mode B) | FR-10 | B2, B14 | done | no metric rule returns PASS/FAIL from listing text — enforced by the signature, not by care |
 | ✅ B22 | Eval harness: `scripts.eval_e1/e3/e4` | §7 | B7, B2, B20 | done (corpora still owed) | each prints the exact output shape in `03-implementation-plan.md` |
 | 🟡 B23 | Hardening: rate limits, load test, security pass, docs | NFR-01, SR | all | code done; numbers owed | §5 gates all green — three need corpora or a deployment |
+| ✅ B24 | API surface for the mobile client: findings `extractions`, `ScanOut` fields, `GET /v1/scans`, `GET /v1/products`, reports | FR-05, FR-06, FR-08, FR-09, FR-27 | B14–B16 | done | all 15 client calls have a server; 682 tests green; the verdict filter proved by mutation against a borderline-only fixture |
 
 **Why B2 comes before everything.** It is the only module whose correctness is legally load-bearing, it needs zero infrastructure, and its 14 cases are already written in `03-implementation-plan.md` §P2.4. If the backend gets one week, it gets B1 + B2 + B3 + B11 and a fixture-fed demo — a citable PDF verdict with no camera involved at all.
 
@@ -698,7 +699,7 @@ DONE WHEN:   the §5 gates below are all green and the numbers are in docs/eval-
 | ✅ B11 | `weasyprint`, `python-docx` | PDF, DOCX | **Added.** GTK3 native stack needed only by `render_pdf`; CI installs it, Windows dev skips that one test |
 | ✅ B12 | `pgvector` (Python bindings) | the vector column type | **Added.** Also gives B19 its similarity operators. Declared `with_variant`, so SQLite still builds the schema for CI |
 | ✅ B13 | a JWT library, a hasher | auth | **Refused — none added.** HS256 is written against stdlib `hmac` (`services/auth/tokens.py`, with a test per attack class); OTP codes and refresh tokens use peppered HMAC-SHA256, since a six-digit code is protected by single use, a short TTL and rate limiting, not by the cost of its hash |
-| B19 | embedding + reranker runtime | BGE-M3, cross-encoder | **Still outstanding — nothing added.** The adapters exist and import their runtime lazily; `hashing`/`overlap` stand-ins are selected by config for CI and local work, and the `hashing` embedder refuses to run in production. Answer the ask with the model revisions pinned, then declare it as a `[bis]` extra the way `[ocr]` was. |
+| ✅ B19 | `sentence-transformers` | BGE-M3 embeddings, cross-encoder rerank | **Answered — added as the `[bis]` extra, not a core dep**, on the same terms as `[ocr]`: it pulls torch and fetches weights on first use, which CI must never do. One package carries both runtimes (`BAAI/bge-m3`, `BAAI/bge-reranker-v2-m3`). The adapters still import it inside the adapter, so `services/bis/` imports and type-checks without it, and `hashing`/`overlap` remain the configured stand-ins. **Model revisions are not yet pinned** — the ask asked for that and it is still owed; both adapters resolve whatever revision the hub serves, so a corpus embedded today and a query embedded after an upstream re-release are not guaranteed to share a vector space. |
 | ✅ B23 | a rate limiter, a load-test tool | NFR-01 | **Refused — none added.** The limiter is `redis` (already a dependency) plus an in-memory backend on stdlib `threading`; the load test is `scripts/loadtest.py` on `httpx`, already a dev dep. `pip-audit` stays undeclared and is installed on demand by `make audit` — a security scanner does not belong in a deployed image. |
 | tests | `pytest-cov` | the 80% coverage floor | `freezegun` should not be needed — `evaluate()` takes `as_of` |
 
@@ -761,3 +762,43 @@ The ones from `CLAUDE.md` §8 that will actually bite in backend code, plus two 
 - **A quality signal that cannot be measured is `None`, never `0.0`.** `quality().curvature` is `None` because four marker corners carry no curvature information. `0.0` would assert a flatness nobody measured, and architecture §12.2's NOT_ASSESSABLE safeguard depends on that number being trustworthy.
 - **Recompute uses the scan's original pack version, not the active one.** The obvious implementation of `confirm-fields` is wrong in a way no test catches unless you write that test (B15).
 - **"Does not apply to you" and "we could not measure it" are different outcomes.** Verdicts stay four-valued, so the first is the *absence* of a finding plus an entry in `not_applicable_rule_ids`, and the second is a `NOT_ASSESSABLE` finding that still states what would have been required. Collapsing them turns a clean report into an accusation; treating absence as a pass hides a rule that was never checked.
+
+
+---
+
+### B24 — The API surface the mobile client was written against
+
+Added after the app and the backend were read against each other for the first time. The full gap
+register, and what each change was for, is `docs/06-wiring-contract.md`.
+
+```
+CONTEXT:     docs/06-wiring-contract.md (the whole document); TRD FR-05, FR-06, FR-08, FR-09, FR-27.
+TASK:        app/schemas/findings.py, app/schemas/scans.py, app/routers/scans.py,
+             app/routers/products.py, app/routers/reports.py (new),
+             app/routers/pagination.py (new), app/main.py
+CONSTRAINTS:
+  - the findings response carries extractions with their REAL confidence and source. The client
+    decides what to ask a human about (FR-06) and whether a report may be issued (FR-08) from
+    exactly those two fields; defaulting confidence to 1.0 disables both and fails nothing.
+  - findings_sha256 is the STORED column, never recomputed. A second implementation of the same
+    claim disagrees with the report the first time either changes.
+  - the verdict filter matches ONE verdict. Never widen FAIL to mean "has a problem" — that is
+    CLAUDE.md §3.4 delivered through a search box, and it makes the list look better.
+  - keyset cursors, not offsets; a malformed cursor is 422, never a silent page one.
+  - district is recorded from the client, never derived from coordinates.
+  - a report names the evaluation it states, so a later correction cannot change what an
+    already-issued document meant.
+  - no migration without asking (CLAUDE.md §7) — which is why report generation is synchronous.
+TESTS:       tests/test_findings_api.py, tests/test_scan_list.py, tests/test_products_api.py,
+             tests/test_reports_api.py, plus additions to tests/test_scans_api.py and
+             tests/test_bulk_listing.py. The seeded archive in test_scan_list.py must contain a
+             scan that is BORDERLINE with no failure — without it, a collapsed verdict filter
+             passes every test in the file.
+DONE WHEN:   pytest && ruff check . && mypy app/services
+```
+
+**Left open, and why:** report generation is synchronous because a `pending` status needs
+`reports.status` and `reports.error`, which is a migration and therefore needs agreement first
+(CLAUDE.md §7). `remediation` on a finding is neither a column nor a field in the rule pack, so it
+needs a decision about which it should be. `POST /v1/products` is in TRD §5 and no client needs it
+yet.

@@ -80,11 +80,16 @@ afterEach(() => {
 
 const transport = createLiveTransport();
 
+/** Any instant will do: the client drops it — refresh is driven by a 401, not by a clock. */
+const EXPIRES_AT = '2026-09-12T12:00:00.000Z';
+
 describe('a 401 on an authenticated request', () => {
   it('refreshes and retries, transparently to the caller', async () => {
     fetchMock
       .mockResolvedValueOnce(UNAUTHORISED)
-      .mockResolvedValueOnce(reply(200, { accessToken: 'access-new', refreshToken: 'refresh-new' }))
+      .mockResolvedValueOnce(
+        reply(200, { access: 'access-new', refresh: 'refresh-new', expires_at: EXPIRES_AT })
+      )
       .mockResolvedValueOnce(reply(200, { id: 'scn_1' }));
 
     await expect(transport.request({ method: 'GET', path: '/scans/scn_1' })).resolves.toEqual({
@@ -102,7 +107,9 @@ describe('a 401 on an authenticated request', () => {
   it('retries with the new access token, not the one that just failed', async () => {
     fetchMock
       .mockResolvedValueOnce(UNAUTHORISED)
-      .mockResolvedValueOnce(reply(200, { accessToken: 'access-new', refreshToken: 'refresh-new' }))
+      .mockResolvedValueOnce(
+        reply(200, { access: 'access-new', refresh: 'refresh-new', expires_at: EXPIRES_AT })
+      )
       .mockResolvedValueOnce(reply(200, {}));
 
     await transport.request({ method: 'GET', path: '/scans/scn_1' });
@@ -114,7 +121,7 @@ describe('a 401 on an authenticated request', () => {
   it('sends the refresh token in the body and no Authorization header', async () => {
     fetchMock
       .mockResolvedValueOnce(UNAUTHORISED)
-      .mockResolvedValueOnce(reply(200, { accessToken: 'a', refreshToken: 'r' }))
+      .mockResolvedValueOnce(reply(200, { access: 'a', refresh: 'r', expires_at: EXPIRES_AT }))
       .mockResolvedValueOnce(reply(200, {}));
 
     await transport.request({ method: 'GET', path: '/scans/scn_1' });
@@ -131,7 +138,9 @@ describe('many requests failing at once', () => {
       const url = String(input);
 
       if (url.includes('/auth/refresh')) {
-        return Promise.resolve(reply(200, { accessToken: 'access-new', refreshToken: 'r-new' }));
+        return Promise.resolve(
+          reply(200, { access: 'access-new', refresh: 'r-new', expires_at: EXPIRES_AT })
+        );
       }
 
       // Unauthorised while the old token is still current; fine once it has been replaced.

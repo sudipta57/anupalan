@@ -200,6 +200,15 @@ Rules you must follow:
 - Do not reproduce the technical content of a standard. You do not have it and must not invent it.
 - Answer in {language}.
 
+Reply with JSON in exactly this shape, and nothing else:
+{{"answer": "the answer, in {language}",
+  "claims": [{{"text": "one factual sentence from the answer",
+               "chunk_id": "the id of the passage it came from"}}]}}
+
+Every factual sentence in "answer" needs its own entry in "claims", and every chunk_id must be one
+of the ids below. An answer that refuses because the passages do not cover the question carries an
+empty "claims" list.
+
 Question:
 {question}
 

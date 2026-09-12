@@ -2,6 +2,7 @@
 
 Endpoints (docs/02-trd.md §5, FR-10):
 
+    GET  /v1/products?q=&category=&cursor=              -> {items, next_cursor}
     POST /v1/products/listings/check   {csv, profile?}  -> {rulepack_version, summary, rows:[...]}
 
 The product profile is the shared abstraction that makes SIH26034 and SIH26107 one system
@@ -17,20 +18,31 @@ which a measurement could reach the evaluator — and every metric rule comes ba
 Nothing is persisted. A bulk check is a pre-launch spreadsheet exercise, not evidence; evidence
 comes from a scan of a physical package with a marker in frame.
 
-``POST /v1/products`` and ``GET /v1/products`` (TRD FR-03 product context) are not implemented
-yet — P2.2.
+``GET /v1/products`` backs FR-03's product picker and FR-09's product filter. What it returns is
+**what a catalogue actually knows**: a name, a brand, a category, a pack type, a surface and a net
+quantity. It deliberately does not return a ``qty_basis`` or a ``channel``, because neither is a
+property of a product — the channel is where *this* check is happening (a pack sold in a shop and
+listed online is one product and two contexts), and the basis follows from the unit. Inventing
+either here would put a value in the catalogue that the scan is entitled to contradict.
+
+``POST /v1/products`` (TRD §5) is still not implemented: no client creates a catalogue entry yet,
+and the scan path carries its own profile.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Literal
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import sqlalchemy as sa
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.config import settings
-from app.routers.deps import CurrentPrincipal, requires
+from app.models.catalog import Product
+from app.routers.deps import CurrentPrincipal, DbSession, requires
+from app.routers.pagination import CursorError, decode_cursor, encode_cursor
 from app.schemas.base import StrictModel
 from app.schemas.findings import BBoxOut, FindingOut, FindingsSummary
 from app.schemas.scans import ProfileIn
@@ -217,3 +229,125 @@ def check_listings(
 
 
 __all__ = ["MAX_CSV_BYTES", "MAX_TEXT_CHARS", "router"]
+
+
+# --------------------------------------------------------------------------- the catalogue
+
+
+class ProductOut(BaseModel):
+    """One catalogue entry.
+
+    Flat rather than a nested profile, and the flatness is the honest shape. A scan's ``profile`` is
+    a complete set of answers because FR-03 makes the operator supply the missing ones; a catalogue
+    row is whatever has been recorded about a product so far. Nesting it would imply the two are
+    interchangeable and would need this endpoint to invent the fields a catalogue does not hold.
+    """
+
+    product_id: UUID
+    org_id: UUID
+    name: str
+    brand: str | None = None
+    category_code: str | None = None
+    gtin: str | None = None
+    is_imported: bool = False
+    pack_type: str | None = None
+    surface: str = "printed"
+    net_qty_value: float | None = None
+    net_qty_unit: str | None = None
+    created_at: datetime
+
+
+class ProductPageOut(BaseModel):
+    """A page of catalogue entries, alphabetical."""
+
+    items: list[ProductOut] = Field(default_factory=list)
+    next_cursor: str | None = Field(
+        default=None, description="Opaque — see routers/pagination.py. Null on the last page."
+    )
+
+
+@router.get(
+    "",
+    response_model=ProductPageOut,
+    summary="List and search the product catalogue",
+    dependencies=[Depends(requires(Permission.PRODUCT_READ))],
+)
+def list_products(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    q: str | None = Query(
+        default=None, max_length=200, description="Free text over name and brand"
+    ),
+    category: str | None = Query(default=None, max_length=50, alias="category"),
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> ProductPageOut:
+    """This org's products, alphabetically (FR-03, FR-09).
+
+    Alphabetical rather than newest-first because the caller is a person looking for a product they
+    already have in mind, in a picker. Recency is the right order for a history of events and the
+    wrong one for a catalogue.
+    """
+    stmt = sa.select(Product).where(Product.org_id == principal.org_id)
+
+    if q:
+        needle = f"%{q.strip().lower()}%"
+        # Brand as well as name: a seller searching "annapurna" means the brand, and matching only
+        # the product name would return nothing for the word they think in.
+        stmt = stmt.where(
+            sa.or_(
+                sa.func.lower(Product.name).like(needle),
+                sa.func.lower(Product.brand).like(needle),
+            )
+        )
+    if category:
+        stmt = stmt.where(Product.category_code == category)
+
+    if cursor is not None:
+        try:
+            parsed = decode_cursor(cursor)
+            last_name = parsed["name"]
+            last_id = UUID(parsed["id"])
+        except (CursorError, KeyError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="cursor is not one this endpoint issued",
+            ) from exc
+        stmt = stmt.where(
+            sa.or_(
+                Product.name > last_name,
+                sa.and_(Product.name == last_name, Product.id > last_id),
+            )
+        )
+
+    stmt = stmt.order_by(sa.asc(Product.name), sa.asc(Product.id)).limit(limit + 1)
+
+    rows = list(session.execute(stmt).scalars().all())
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+
+    items = [
+        ProductOut(
+            product_id=row.id,
+            org_id=row.org_id,
+            name=row.name,
+            brand=row.brand,
+            category_code=row.category_code,
+            gtin=row.gtin,
+            is_imported=row.is_imported,
+            pack_type=row.pack_type,
+            surface=row.surface,
+            net_qty_value=row.net_qty_value,
+            net_qty_unit=row.net_qty_unit,
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
+
+    next_cursor = (
+        encode_cursor({"name": rows[-1].name, "id": str(rows[-1].id)})
+        if has_more and rows
+        else None
+    )
+
+    return ProductPageOut(items=items, next_cursor=next_cursor)

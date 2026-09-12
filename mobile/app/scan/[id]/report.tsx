@@ -39,7 +39,7 @@ import {
 } from '@/components';
 import type { FindingsResult, Report, ReportFile, ReportFormat, Scan } from '@/domain';
 import { evidenceFor, hashGroups, showsEvidence } from '@/features/findings';
-import { ISSUE_COPY, issuesToReport } from '@/features/processing';
+import { ISSUE_COPY, issuesFor, issuesToReport } from '@/features/processing';
 import {
   BLOCK_COPY,
   FORMAT_HINT_KEYS,
@@ -279,7 +279,7 @@ function Loaded({ scan, result }: { scan: Scan; result: FindingsResult }) {
   const createReport = useCreateReport(scan.id);
   const report = useReport(reportId ?? undefined, scan.id);
 
-  const issues = issuesToReport(scan.issues);
+  const issues = issuesToReport(issuesFor(scan, result));
 
   const generate = useCallback(() => {
     createReport.mutate({ formats }, { onSuccess: (created) => setReportId(created.id) });

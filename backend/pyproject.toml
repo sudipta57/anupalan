@@ -57,8 +57,24 @@ dependencies = [
 # stands in (TRD FR-22 requires a second implementation anyway). Install this extra on a machine
 # that actually runs OCR.
 ocr = [
-    "paddleocr",
+    # Pinned below 3.0 because the adapter is written against the 2.x API and 3.x renamed all of
+    # it: `show_log` is gone, `use_angle_cls` became `use_textline_orientation`, and
+    # `.ocr(img, cls=...)` became `.predict(..., return_word_box=True)` with a different result
+    # shape. 3.x also defaults to PP-OCRv5, while CLAUDE.md §9 and docs/01-architecture.md §5 both
+    # specify PP-OCRv4 — so upgrading is a model change, not just an API change, and belongs in a
+    # work package that re-runs the E1 metrology evaluation rather than in a dependency bump.
+    "paddleocr<3",
     "paddlepaddle",
+]
+
+# BIS retrieval (B19). One package carries both runtimes the corpus needs: BGE-M3 for the
+# 1024-dimensional multilingual embeddings and bge-reranker-v2-m3 for the cross-encoder rerank.
+# Kept out of the core dependencies for the same reason as [ocr] above — it pulls torch and
+# downloads model weights on first use, which CI must never do. services/bis/embedding.py and
+# services/bis/retrieve.py import it inside the adapter, so both modules import, type-check and
+# test without it; the `hashing` and `overlap` stand-ins are selected by config in its absence.
+bis = [
+    "sentence-transformers",
 ]
 
 dev = [

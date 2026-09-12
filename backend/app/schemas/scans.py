@@ -114,6 +114,16 @@ class ScanCreateIn(StrictModel):
     geo_lat: float | None = Field(default=None, ge=-90, le=90)
     geo_lon: float | None = Field(default=None, ge=-180, le=180)
     geo_accuracy_m: float | None = Field(default=None, ge=0)
+    district: str | None = Field(
+        default=None,
+        max_length=100,
+        description="Revenue district the inspection happened in — FR-30's Mode A dashboard axis. "
+        "Recorded from the client, never derived from the coordinates above: resolving a point "
+        "to a district would be a guess made by a boundary file of unknown vintage, and Mode B "
+        "sends no "
+        "coordinates at all, so half the rows could not be resolved even in principle. Null is the "
+        "correct value for every Mode B scan.",
+    )
     device_meta: dict[str, str] = Field(default_factory=dict)
 
 
@@ -168,29 +178,151 @@ class AssetOut(BaseModel):
     )
 
 
+class GeoOut(BaseModel):
+    """Where a Mode A inspection happened.
+
+    Nested rather than three flat columns, because it is one fact: a reading with a latitude and no
+    accuracy is not a usable position, and a client that had to assemble it from three nullable
+    fields would have to decide what a partial one means. Null for every Mode B scan — industry
+    users are never asked for a location (architecture §10).
+    """
+
+    latitude: float
+    longitude: float
+    accuracy_m: float | None = None
+
+
+class ProfileOut(BaseModel):
+    """The product context a scan was judged under.
+
+    Mirrors ``ProfileIn`` but does **not** inherit ``StrictModel``. This is deliberate and the
+    direction matters: a request with an unknown field is a client bug worth a 422, while a *stored*
+    profile carrying a key this version does not know is our own older data, and refusing to render
+    it would turn a schema addition into a 500 on every scan recorded before it. Unknown keys are
+    dropped from the response; the rule pack reads the stored JSON directly, so no verdict
+    depends on what this model chooses to show.
+    """
+
+    is_imported: bool = False
+    surface: str = "printed"
+    qty_basis: str = "weight_or_volume"
+    channel: str = "retail"
+
+    net_qty_in_g_or_ml: float | None = None
+    pdp_area_cm2: float | None = None
+    net_qty_value: float | None = None
+    net_qty_unit: str | None = None
+    pack_type: str | None = None
+    category_code: str | None = None
+    name: str | None = None
+
+
 class ScanOut(BaseModel):
     """A scan and its assets."""
 
     scan_id: UUID
+    org_id: UUID = Field(
+        description="The owning tenant. Returned so a client can assert it is showing what it "
+        "thinks it is; it is never accepted on the way in (see schemas/base.py)."
+    )
+    user_id: UUID | None = Field(
+        default=None,
+        description="Who recorded the scan. Null for one created before users existed.",
+    )
     status: ScanStatus
     captured_at: datetime
     marker_type: MarkerType
     marker_mm: float
     product_id: UUID | None = None
+    profile: ProfileOut = Field(
+        description="The context that decided which rules applied. On the scan rather than fetched "
+        "separately, because a product's catalogue entry can change after a scan and the verdicts "
+        "stand against what was declared at capture."
+    )
+    geo: GeoOut | None = None
+    district: str | None = None
     error: str | None = None
     assets: list[AssetOut] = Field(default_factory=list)
+
+
+class VerdictCountsOut(BaseModel):
+    """The four verdict counts for one scan in a list (FR-09).
+
+    Deliberately **not** ``FindingsSummary``, which carries a fifth count for rules that did not
+    apply. That fifth number needs the rule pack loaded to work out which rules were never reached,
+    which is a sensible cost once for one scan's findings screen and an absurd one for every row of
+    a two-hundred-row list. Four verdicts, four numbers, no pack.
+
+    All four are always present, zeroes included. A row that showed only its non-zero counts would
+    teach a reader that the counts shown are the only ones there are.
+    """
+
+    model_config = {"populate_by_name": True}
+
+    passed: int = Field(default=0, alias="pass")
+    fail: int = 0
+    borderline: int = 0
+    na: int = Field(default=0, description="NOT_ASSESSABLE")
+
+
+class ScanListItemOut(BaseModel):
+    """One row of the history list (FR-09).
+
+    Compact on purpose: the list renders hundreds of these, so it carries counts rather than
+    findings and one thumbnail rather than every asset.
+    """
+
+    scan_id: UUID
+    product_id: UUID | None = Field(
+        default=None,
+        description="Null for a scan whose profile was typed in and never matched to a catalogue "
+        "product. An id rather than a name, because two products can share a name and a filter "
+        "matching on text would quietly fold them together.",
+    )
+    product_name: str | None = Field(
+        default=None,
+        description="The catalogue product's name if the scan is linked to one, otherwise the name "
+        "declared on the scan's own profile. Null when neither exists — which the client shows as "
+        "an unnamed scan rather than inventing a label for it.",
+    )
+    status: ScanStatus
+    captured_at: datetime
+    district: str | None = None
+    thumbnail_url: str | None = Field(
+        default=None,
+        description="Time-limited read URL for the annotated image, falling back to the rectified "
+        "and then the raw one. Null when the scan has no image yet or object storage is "
+        "unreachable — a list of scans is still readable without its pictures.",
+    )
+    summary: VerdictCountsOut = Field(default_factory=VerdictCountsOut)
+
+
+class ScanPageOut(BaseModel):
+    """A page of scans."""
+
+    items: list[ScanListItemOut] = Field(default_factory=list)
+    next_cursor: str | None = Field(
+        default=None,
+        description="Opaque. Pass it back as ``cursor`` for the next page; null means this was the "
+        "last one. Do not parse it — see routers/pagination.py.",
+    )
 
 
 __all__ = [
     "AssetIn",
     "AssetKind",
     "AssetOut",
+    "GeoOut",
     "MarkerType",
     "ProfileIn",
+    "ProfileOut",
     "ScanCreateIn",
     "ScanCreatedOut",
+    "ScanListItemOut",
     "ScanOut",
+    "ScanPageOut",
     "ScanStatus",
     "ScanSubmittedOut",
     "UploadOut",
+    "VerdictCountsOut",
 ]

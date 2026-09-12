@@ -70,9 +70,18 @@ class ChatCompletionsProvider:
                 "LLM_BASE_URL is not set; set it, or set LLM_PROVIDER=stub", model=model
             )
 
+        # An OpenAI-compatible server refuses `response_format: json_object` unless the
+        # conversation itself mentions JSON, and answers 400 saying so. The adapter is what decides
+        # to send that flag, so the adapter is what satisfies its precondition — a call site should
+        # not have to carry a server's rule. Added only when the prompt does not already say it, so
+        # a prompt that asks for JSON properly is passed through untouched.
+        content = prompt
+        if schema is not None and "json" not in prompt.lower():
+            content = f"{prompt}\n\nReply with JSON only."
+
         body: dict[str, Any] = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": content}],
             "temperature": temperature,
             "max_tokens": max_tokens,
         }

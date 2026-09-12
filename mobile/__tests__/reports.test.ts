@@ -13,6 +13,8 @@
  * That is items 6 and 7 of the Stage 9 device checklist.
  */
 
+import { api } from '@/api/endpoints';
+// `download` is a transport concern rather than an endpoint, so those cases drive it directly.
 import { createMockTransport } from '@/api/mock';
 import { FINDINGS_SHA256, HERO_FINDINGS_RESULT, HERO_SCAN } from '@/api/mock/fixtures/hero-scan';
 import {
@@ -385,13 +387,9 @@ describe('formats', () => {
 describe('report generation, end to end', () => {
   afterEach(() => setScenario('happy'));
 
+  // Through `api`, so the wire→domain mapping is under test rather than around it.
   async function request(formats: ReportFormat[] = ['pdf', 'docx']): Promise<Report> {
-    const transport = createMockTransport();
-    return transport.request<Report>({
-      method: 'POST',
-      path: `/scans/${HERO_SCAN.id}/report`,
-      body: { formats },
-    });
+    return api.createReport(HERO_SCAN.id, { formats });
   }
 
   it('comes back pending, with no files and the hashes already known', async () => {
@@ -429,11 +427,7 @@ describe('report generation, end to end', () => {
       const created = await request();
 
       jest.setSystemTime(new Date('2026-09-12T10:00:10Z'));
-      const transport = createMockTransport();
-      const ready = await transport.request<Report>({
-        method: 'GET',
-        path: `/reports/${created.id}`,
-      });
+      const ready = await api.getReport(created.id);
 
       expect(ready.status).toBe('ready');
       expect(ready.files.map((file) => file.format)).toEqual(['pdf', 'docx']);
@@ -450,10 +444,7 @@ describe('report generation, end to end', () => {
       const created = await request(['pdf']);
       jest.setSystemTime(new Date('2026-09-12T11:00:10Z'));
 
-      const ready = await createMockTransport().request<Report>({
-        method: 'GET',
-        path: `/reports/${created.id}`,
-      });
+      const ready = await api.getReport(created.id);
 
       expect(ready.files.map((file) => file.format)).toEqual(['pdf']);
     } finally {
@@ -465,10 +456,7 @@ describe('report generation, end to end', () => {
     setScenario('report-failed');
     const created = await request();
 
-    const failed = await createMockTransport().request<Report>({
-      method: 'GET',
-      path: `/reports/${created.id}`,
-    });
+    const failed = await api.getReport(created.id);
 
     expect(failed.status).toBe('failed');
     expect(failed.error).toBeTruthy();
@@ -477,9 +465,7 @@ describe('report generation, end to end', () => {
   });
 
   it('404s on a report id that was never requested', async () => {
-    await expect(
-      createMockTransport().request<Report>({ method: 'GET', path: '/reports/rpt_nope' })
-    ).rejects.toMatchObject({ status: 404 });
+    await expect(api.getReport('rpt_nope')).rejects.toMatchObject({ status: 404 });
   });
 
   it('refuses a format it has no sample for, rather than writing an empty file', async () => {
@@ -550,17 +536,10 @@ describe('the sample report files', () => {
   it('both sizes match what the mock advertises', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-09-12T12:00:00Z'));
     try {
-      const created = await createMockTransport().request<Report>({
-        method: 'POST',
-        path: `/scans/${HERO_SCAN.id}/report`,
-        body: { formats: ['pdf', 'docx'] },
-      });
+      const created = await api.createReport(HERO_SCAN.id, { formats: ['pdf', 'docx'] });
 
       jest.setSystemTime(new Date('2026-09-12T12:00:10Z'));
-      const ready = await createMockTransport().request<Report>({
-        method: 'GET',
-        path: `/reports/${created.id}`,
-      });
+      const ready = await api.getReport(created.id);
 
       // A size that disagrees with the bytes would show the user one number and share another, and
       // `isEmptyFile` would stop trusting the only signal it has.

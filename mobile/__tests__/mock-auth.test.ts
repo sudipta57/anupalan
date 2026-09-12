@@ -10,7 +10,6 @@
 import { ApiError, api, transport } from '@/api';
 import { FIXTURE_ACCOUNTS, FIXTURE_OTP, accountForMode } from '@/api/mock';
 import { setScenario } from '@/api/mock/scenario';
-import type { RefreshResponse } from '@/api';
 
 afterEach(() => setScenario('happy'));
 
@@ -25,10 +24,13 @@ async function signIn(phone: string) {
  * test drives it at that level rather than inventing an endpoint nothing calls.
  */
 function refresh(refreshToken: string) {
-  return transport.request<RefreshResponse>({
+  // `refresh`, the server's own field name. Its request schemas forbid unknown fields, so
+  // `refreshToken` would be a 422 — and the live transport reads a failed refresh as a dead
+  // session, which is why the spelling is worth a test of its own.
+  return transport.request<{ access: string; refresh: string }>({
     method: 'POST',
     path: '/auth/refresh',
-    body: { refreshToken },
+    body: { refresh: refreshToken },
   });
 }
 
@@ -105,8 +107,10 @@ describe('refresh', () => {
 
     const refreshed = await refresh(session.refreshToken);
 
-    expect(refreshed.accessToken).not.toBe(session.accessToken);
-    expect(refreshed.refreshToken).not.toBe(session.refreshToken);
+    // The server's own field names: this call goes through the transport rather than the client,
+    // so it sees the wire shape rather than the app's.
+    expect(refreshed.access).not.toBe(session.accessToken);
+    expect(refreshed.refresh).not.toBe(session.refreshToken);
   });
 
   it('rejects a token it did not issue with 401, which is what ends a session', async () => {

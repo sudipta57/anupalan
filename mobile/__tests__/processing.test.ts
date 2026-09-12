@@ -19,7 +19,7 @@
  *   pinned rather than judged by eye.
  */
 
-import type { Extraction, FindingsResult } from '@/domain';
+import type { Extraction, FindingsResult, Scan } from '@/domain';
 import {
   CONFIDENCE_THRESHOLD,
   CROP_PADDING_RATIO,
@@ -37,6 +37,7 @@ import {
   hasNoMarker,
   hasReducedExtraction,
   isDegradedButFinal,
+  issuesFor,
   issuesToReport,
   needsConfirmation,
   pipelineProgress,
@@ -45,11 +46,10 @@ import {
   verdictsAreProvisional,
 } from '@/features/processing';
 import { FIELD_CODES } from '@/domain';
-import { createMockTransport } from '@/api/mock';
+import { api } from '@/api/endpoints';
 import { setScenario } from '@/api/mock/scenario';
 import { LABEL_REGIONS } from '@/api/mock/fixtures/label';
 import { imageSourceFor } from '@/api/asset-source';
-import type { ConfirmFieldsBody, GetFindingsResponse, GetScanResponse } from '@/api/types';
 
 function extraction(overrides: Partial<Extraction> = {}): Extraction {
   return {
@@ -379,15 +379,10 @@ describe('imageSourceFor', () => {
 // ------------------------------------------------------------------ the acceptance path
 
 describe('FR-06 end to end, against the mock', () => {
-  const transport = createMockTransport();
-
   afterEach(() => setScenario('happy'));
 
-  async function findings(): Promise<GetFindingsResponse> {
-    return transport.request<GetFindingsResponse>({
-      method: 'GET',
-      path: '/scans/scn_hero_atta/findings',
-    });
+  async function findings(): Promise<FindingsResult> {
+    return api.getFindings('scn_hero_atta');
   }
 
   it('asks for nothing on a clean scan', async () => {
@@ -424,10 +419,8 @@ describe('FR-06 end to end, against the mock', () => {
 
     expect(correction).not.toBeNull();
 
-    const recomputed = await transport.request<GetFindingsResponse>({
-      method: 'POST',
-      path: '/scans/scn_hero_atta/confirm-fields',
-      body: { fields: [correction as NonNullable<typeof correction>] } satisfies ConfirmFieldsBody,
+    const recomputed = await api.confirmFields('scn_hero_atta', {
+      fields: [correction as NonNullable<typeof correction>],
     });
 
     const mrp = recomputed.extractions.find((e) => e.fieldCode === 'mrp');
@@ -445,11 +438,7 @@ describe('FR-06 end to end, against the mock', () => {
       value: string;
     };
 
-    const recomputed = await transport.request<GetFindingsResponse>({
-      method: 'POST',
-      path: '/scans/scn_hero_atta/confirm-fields',
-      body: { fields: [correction] } satisfies ConfirmFieldsBody,
-    });
+    const recomputed = await api.confirmFields('scn_hero_atta', { fields: [correction] });
 
     expect(fieldsNeedingConfirmation(recomputed)).toHaveLength(0);
     expect(verdictsAreProvisional(recomputed)).toBe(false);
@@ -457,40 +446,54 @@ describe('FR-06 end to end, against the mock', () => {
 });
 
 describe('the degradation scenarios, against the mock', () => {
-  const transport = createMockTransport();
-
   afterEach(() => setScenario('happy'));
 
-  async function newScan(): Promise<GetScanResponse> {
-    const created = await transport.request<{ scanId: string }>({
-      method: 'POST',
-      path: '/scans',
-      body: {
-        profile: { name: 'x' },
+  async function newScan(): Promise<Scan> {
+    const created = await api.createScan(
+      {
+        // A complete profile: the client normalises the net quantity for the Table-I key on the
+        // way out, so a stub with only a name has nothing to normalise.
+        profile: {
+          name: 'x',
+          categoryCode: 'food',
+          packType: 'flexible',
+          surface: 'printed',
+          isImported: false,
+          qtyBasis: 'weight_or_volume',
+          netQuantity: { value: 500, unit: 'g' },
+          channel: 'retail',
+          pdpAreaCm2: null,
+        },
         markerType: 'aruco_40mm',
         markerMm: 40,
-        assetCount: 1,
+        // One photograph, already hashed. The value is a fixture rather than a real digest: this
+        // test is about the degradation paths, and the mock signs an upload URL per entry without
+        // checking what the hash says.
+        assets: [{ contentType: 'image/jpeg', sizeBytes: 1024, sha256: 'a'.repeat(64) }],
         capturedAt: '2026-09-12T06:00:00.000Z',
         geo: null,
         district: null,
       },
-    });
+      'idem_degradation'
+    );
 
-    return transport.request<GetScanResponse>({ method: 'GET', path: `/scans/${created.scanId}` });
+    return api.getScan(created.scanId);
   }
 
   it('flags no-marker on the scan, not only in the findings', async () => {
     // A clean header above a page of NOT_ASSESSABLE rows is how a degraded run reads as a clean one.
+    //
+    // Read off a *finished* scan, because that is when the server can say it: `no_marker` travels
+    // as the scan's status, and a scan still in the queue has not been looked at yet.
     setScenario('no-marker');
-    expect((await newScan()).issues).toContain('no_marker');
+    const scan = await api.getScan('scn_hero_atta');
+
+    expect(issuesFor(scan, await api.getFindings('scn_hero_atta'))).toContain('no_marker');
   });
 
   it('marks every metric rule not assessable and leaves the rest evaluated', async () => {
     setScenario('no-marker');
-    const result = await transport.request<GetFindingsResponse>({
-      method: 'GET',
-      path: '/scans/scn_hero_atta/findings',
-    });
+    const result = await api.getFindings('scn_hero_atta');
 
     expect(result.summary.notAssessable).toBeGreaterThan(0);
     // Presence and wording rules still run — that is the whole point of a no-measurement mode.
@@ -506,12 +509,13 @@ describe('the degradation scenarios, against the mock', () => {
     // were never read at all.
     setScenario('llm-unavailable');
 
-    expect((await newScan()).issues).toContain('reduced_extraction');
+    // Reported on the findings rather than the scan: it is a fact about *this* evaluation — the LLM
+    // layer was absent when these verdicts were computed — and a later recompute may have had it.
+    const scan = await api.getScan('scn_hero_atta');
 
-    const result = await transport.request<GetFindingsResponse>({
-      method: 'GET',
-      path: '/scans/scn_hero_atta/findings',
-    });
+    expect(issuesFor(scan, await api.getFindings('scn_hero_atta'))).toContain('reduced_extraction');
+
+    const result = await api.getFindings('scn_hero_atta');
 
     expect(result.extractions.every((e) => e.source !== 'llm')).toBe(true);
     expect(result.extractions.length).toBeGreaterThan(0);
@@ -520,10 +524,7 @@ describe('the degradation scenarios, against the mock', () => {
 
   it('still evaluates every rule with the LLM absent', async () => {
     setScenario('llm-unavailable');
-    const result = await transport.request<GetFindingsResponse>({
-      method: 'GET',
-      path: '/scans/scn_hero_atta/findings',
-    });
+    const result = await api.getFindings('scn_hero_atta');
 
     expect(result.findings.length).toBeGreaterThan(0);
     expect(result.rulepackVersion).toBeTruthy();
