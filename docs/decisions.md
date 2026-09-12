@@ -448,3 +448,86 @@ changes the wording and never the report's existence (`01-architecture.md` §11)
 defaults to adverse findings only, since explaining a dozen passes is a dozen calls for text
 nobody reads.
 **PR:** n/a (B11) · **Requirement:** FR-27
+
+### 2026-09-12 — `scans.district` and `products.brand` are recorded columns, not derived values
+**Context:** FR-30 groups violations by district (Mode A) and by brand (Mode B). The schema had
+neither column: `scans` carries coordinates and `products` carries a name.
+**Decision:** Migration 0003 adds `scans.district` (VARCHAR 100) and `products.brand` (VARCHAR 200),
+both nullable, each with an org-led index. Both dashboards group a NULL under `null` — rendered as
+*unknown* — rather than excluding the row.
+**Alternatives:** Resolving a district from `geo_lat`/`geo_lon` — rejected: the resolution is only
+as good as the boundary file behind it, and attributing an inspection to the wrong officer's
+jurisdiction is a worse failure than admitting the district is unknown. Reading a brand off
+`products.name` — rejected: "Tata Salt 1 kg" and "Tata Salt 500 g" are two products of one brand,
+and a packaging agency's account covers many brands, so the axis would merge nothing and split
+everything. Storing either in `scans.device_meta` JSON — rejected: unindexed and dialect-specific
+to query, against FR-30's 1 s budget on 50,000 findings.
+**Consequences:** Both fields are optional at capture, so the dashboards degrade to an `unknown`
+bucket rather than to an error. Excluding NULLs was considered and rejected: buckets that do not
+sum to the headline total are how a dashboard under-reports without anyone noticing.
+**PR:** n/a (B17) · **Requirement:** FR-30
+
+### 2026-09-12 — Dashboard aggregates count only the current evaluation revision
+**Context:** `findings` is append-only, so a scan corrected through `confirm-fields` keeps the
+findings of every earlier revision. Summing the table counts that scan once per revision and keeps
+reporting a violation that was withdrawn.
+**Decision:** Every aggregate in `repositories/aggregates.py` is restricted to the findings of each
+scan's **highest** revision, recovered by `MAX(revision)` per scan — the same definition of
+"current" that `FindingRepository.current` uses.
+**Alternatives:** A `is_current` flag on `findings` — rejected: a flag can be wrong, can be missed
+on one write path, and needs a backfill; the ordering cannot be wrong. Deleting superseded findings
+— rejected outright, it is what append-only forbids.
+**Consequences:** Every dashboard query carries a subquery over `scan_evaluations`. Measured at
+0.14 s for 50,000 findings, well inside FR-30's 1 s.
+**PR:** n/a (B17) · **Requirement:** FR-30
+
+### 2026-09-12 — The BIS applicability lists are data in `bis/`, a new top-level directory
+**Context:** FR-29's applicability must be a deterministic table lookup, not retrieval. That table
+had nowhere to live: `rulepacks/` is Legal Metrology rule text gated behind legal review
+(`CLAUDE.md` §7), and a Python dict would put IS numbers and QCO categories where CLAUDE.md §3.2
+says thresholds must never go.
+**Decision:** A new top-level `bis/` directory holding `qco-crs-v1.yaml`, loaded through
+`settings.BIS_LISTS_PATH`, validated and checksummed over its raw bytes the way a rule pack is. Its
+version label is stamped on every applicability answer, alongside the id of the row that decided it.
+**Alternatives:** Inside `rulepacks/` — rejected: it is not rule text and would drag BIS list edits
+through a legal-review gate written for Legal Metrology clauses. A seeded `bis_applicability` table
+— rejected: a schema change, and it would make a deterministic lookup depend on a database being
+seeded rather than on a file somebody reviewed.
+**Consequences:** One directory added to the `CLAUDE.md` §2 layout. A QCO amendment is a reviewed
+data edit and needs no deploy, which is the same property NFR-06 gives rule packs. The lists carry
+their own `as_of`, which becomes the freshness stamp on the answer.
+**PR:** n/a (B20) · **Requirement:** FR-29
+
+### 2026-09-12 — Sahayak's citations are post-validated, not requested
+**Context:** FR-28 requires every claim to map to a retrieved chunk id. Asking a model for
+citations produces citations; it does not produce *true* ones, and an answer that carries a
+fabricated chunk id is more dangerous than one with no citation at all, because it looks sourced.
+**Decision:** `services/bis/answer.py` validates after generation: every cited id must be one of
+the chunks actually retrieved, and every number in the answer must appear in a cited chunk or in
+the question. A failure of either is a refusal — the answer is withheld and the retrieved passages
+are handed over instead. Requests for the technical content of a standard are refused *before*
+retrieval runs.
+**Alternatives:** Trusting the schema-constrained response — rejected: a schema constrains shape,
+not truth. Stripping bad citations and publishing the rest — rejected: the sentence that cited a
+fabricated source is the sentence that needed one.
+**Consequences:** Five named refusal reasons rather than one flag, so refusals are countable —
+`priced_standard_content` in particular is the IP boundary working, and the backend plan's release
+gate asks for 10/10 on it. `confidence` reports mean reranker score across cited chunks and is null
+without a reranker; it is a retrieval signal and never a probability that the answer is correct.
+**PR:** n/a (B20) · **Requirement:** FR-28
+
+### 2026-09-12 — The embedder and reranker runtimes stay out of `pyproject.toml`
+**Context:** B19 needs BGE-M3 embeddings and a cross-encoder reranker. Both are heavy, both
+download model weights on first use, and CI must never do that. The backend plan §4 lists them as
+an outstanding dependency ask, and `CLAUDE.md` §7 makes adding one an ask rather than a decision.
+**Decision:** `Embedder` and `Reranker` protocols with two adapters each — a lazily-imported
+production adapter whose package is not declared, and a deterministic stand-in (`hashing`,
+`overlap`) selected by config. The missing runtime raises a message naming the outstanding ask.
+The `hashing` embedder refuses to be selected when `ENV=production`, checked against `ENV` rather
+than trusting the setting, the way OTP echo is.
+**Alternatives:** Declaring an optional `[bis]` extra now, as `[ocr]` was — rejected until the ask
+is answered, since pinning model revisions is part of that ask and an unpinned revision silently
+changes what the corpus was indexed with.
+**Consequences:** Retrieval runs lexical-only until the runtimes are installed, which is a narrower
+assistant rather than a broken one. `routers/deps.py` probes each once per process and falls back.
+**PR:** n/a (B19) · **Requirement:** FR-28

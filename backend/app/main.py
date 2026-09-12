@@ -22,6 +22,8 @@ from app.config import settings
 from app.health import HealthReport, check_health
 from app.routers import admin as admin_router
 from app.routers import auth as auth_router
+from app.routers import dashboard as dashboard_router
+from app.routers import sahayak as sahayak_router
 from app.routers import scans as scans_router
 from app.schemas.base import BodyOrgIdError
 from app.services.auth.rbac import PermissionDeniedError
@@ -172,6 +174,8 @@ async def health() -> HealthReport:
 app.include_router(auth_router.router)
 app.include_router(scans_router.router)
 app.include_router(admin_router.router)
+app.include_router(dashboard_router.router)
+app.include_router(sahayak_router.router)
 
 
 __all__ = ["app", "error_response"]

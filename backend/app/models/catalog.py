@@ -51,11 +51,22 @@ class Product(TimestampMixin, Base):
         checked_enum("ck_products_surface", "surface", SURFACES),
         sa.Index("ix_products_org_category", "org_id", "category_code"),
         sa.Index("ix_products_org_gtin", "org_id", "gtin"),
+        # B17. FR-30's Mode B axis; org-led like every other dashboard index.
+        sa.Index("ix_products_org_brand", "org_id", "brand"),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
     org_id: Mapped[uuid.UUID] = org_fk()
     name: Mapped[str] = mapped_column(sa.String(300), nullable=False)
+    brand: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    """The brand the product is sold under — FR-30's Mode B dashboard axis.
+
+    Separate from ``name`` because they are not the same thing and grouping by the wrong one is
+    useless: "Tata Salt 1 kg" and "Tata Salt 500 g" are two products of one brand, and a packaging
+    agency's account covers many brands at once. Nullable, because an enforcement org scanning a
+    stranger's package off a shelf often cannot say which legal entity owns the mark.
+    """
+
     category_code: Mapped[str | None] = mapped_column(sa.String(50), nullable=True)
     gtin: Mapped[str | None] = mapped_column(sa.String(20), nullable=True)
     is_imported: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)

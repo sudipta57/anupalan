@@ -22,7 +22,9 @@ client, or an attacker, probing for exactly this.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterator
+from functools import lru_cache
 from typing import Annotated, Any
 
 from fastapi import Depends, Header, HTTPException, status
@@ -32,6 +34,8 @@ from app.db import session_scope
 from app.services.auth.rbac import Permission
 from app.services.auth.rbac import check as check_permission
 from app.services.auth.tokens import Principal, TokenError, read_access_token
+
+logger = logging.getLogger(__name__)
 
 
 def db() -> Iterator[Session]:
@@ -146,6 +150,90 @@ def storage() -> Any:
 Storage = Annotated[Any, Depends(storage)]
 
 
+@lru_cache(maxsize=1)
+def _resolved_embedder() -> Any | None:
+    """The embedder, probed once per process, or ``None`` if its runtime is not installed.
+
+    The probe is why this is cached: ``get_embedder`` constructs an adapter without loading any
+    weights — the import is lazy — so the only way to know whether the model is actually available
+    is to ask it to embed something. Doing that per request would pay the check on every question;
+    doing it never would mean discovering a missing runtime inside a user's search.
+
+    ``None`` puts Sahayak on the lexical-only path. A corpus that is ingested but not embedded is
+    a narrower assistant, not a broken one (architecture §11 takes the same line on the LLM).
+    """
+    from app.services.bis.embedding import (
+        EmbedderUnavailableError,
+        UnknownEmbedderError,
+        embed_query,
+        get_embedder,
+    )
+
+    try:
+        embedder = get_embedder()
+        embed_query(embedder, "probe")
+    except (UnknownEmbedderError, EmbedderUnavailableError):
+        logger.warning("no embedder available; Sahayak retrieval is lexical-only")
+        return None
+    return embedder
+
+
+@lru_cache(maxsize=1)
+def _resolved_reranker() -> Any | None:
+    """The reranker, probed once per process, or ``None`` to keep the fusion order."""
+    from app.services.bis.embedding import EmbedderUnavailableError
+    from app.services.bis.retrieve import get_reranker
+
+    try:
+        reranker = get_reranker()
+        reranker.score("probe", ["probe"])
+    except (LookupError, EmbedderUnavailableError):
+        logger.warning("no reranker available; Sahayak returns the fused order")
+        return None
+    return reranker
+
+
+def bis_searchers(session: DbSession) -> tuple[Any, Any]:
+    """The retrieval pair for this request: ``(lexical, dense)``.
+
+    A dependency so a test can substitute both without a Postgres full-text index — the searchers
+    are Postgres-only by design (``services/bis/retrieve.py``).
+    """
+    from app.services.bis.retrieve import default_searchers
+
+    return default_searchers(session, embedder=_resolved_embedder())
+
+
+BisSearchers = Annotated[tuple[Any, Any], Depends(bis_searchers)]
+
+
+def bis_reranker() -> Any | None:
+    """The reranker for this request, or None."""
+    return _resolved_reranker()
+
+
+BisReranker = Annotated[Any, Depends(bis_reranker)]
+
+
+def llm_provider() -> Any | None:
+    """The LLM, or ``None`` when none is configured.
+
+    ``None`` is a first-class answer here, not an error. Sahayak with no model still returns the
+    official passages that matched the question, which is a usable outcome; raising would turn a
+    configuration gap into an error page.
+    """
+    from app.services.llm.provider import UnknownProviderError, get_provider
+
+    try:
+        return get_provider()
+    except UnknownProviderError:
+        logger.warning("no LLM provider configured; Sahayak will return sources only")
+        return None
+
+
+LLM = Annotated[Any, Depends(llm_provider)]
+
+
 def found[T](row: T | None, *, what: str = "resource") -> T:
     """Return the row, or raise 404.
 
@@ -162,16 +250,22 @@ def found[T](row: T | None, *, what: str = "resource") -> T:
 
 
 __all__ = [
+    "LLM",
+    "BisReranker",
+    "BisSearchers",
     "CurrentPrincipal",
     "DbSession",
     "Enqueuer",
     "IdempotencyKeyHeader",
     "Storage",
+    "bis_reranker",
+    "bis_searchers",
     "current_principal",
     "db",
     "enqueuer",
     "found",
     "idempotency_key",
+    "llm_provider",
     "requires",
     "storage",
 ]

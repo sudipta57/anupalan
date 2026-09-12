@@ -21,10 +21,10 @@ Audited against the working tree, not against the plan.
 | `app/main.py` | **Done.** CORS, the NFR-07 error envelope, five exception handlers, `/health`, and the auth router (B13). The envelope now carries an error's headers, so a 401 is a well-formed 401. |
 | `app/worker.py` | **Done.** Celery app, TLS off the URL scheme, `task_acks_late`, `include=["app.tasks.scan"]`. |
 | `app/health.py` | **Done.** db + redis + rulepack, 200-with-`degraded` semantics. |
-| `app/routers/*.py` | **`auth.py` (B13), `scans.py` (B14, B15), `admin.py` (B16 verify + listing)**, plus `deps.py` (session, principal, `requires`, `found`, `Idempotency-Key`, enqueuer, storage). `products.py`, `reports.py`, `dashboard.py`, `sahayak.py` are docstrings only. |
-| `app/models/` | **Implemented (B12, B14).** 19 tables across nine modules. Postgres-only types declared `with_variant`, so the same models build a SQLite schema for CI. |
+| `app/routers/*.py` | **`auth.py` (B13), `scans.py` (B14, B15), `admin.py` (B16), `dashboard.py` (B17), `sahayak.py` (B20)**, plus `deps.py` (session, principal, `requires`, `found`, `Idempotency-Key`, enqueuer, storage, LLM, BIS searchers). `products.py` and `reports.py` are docstrings only. |
+| `app/models/` | **Implemented (B12, B14, B17).** 19 tables across nine modules. Postgres-only types declared `with_variant`, so the same models build a SQLite schema for CI. B17 added `scans.district` and `products.brand`. |
 | `app/schemas/` | **`base.py`, `auth.py` (B13), `scans.py`, `findings.py` (B14, B15).** `StrictModel` forbids unknown fields and refuses a body-supplied `org_id` with a 400. Literal unions are asserted against the models' CHECK tuples at import, so the contract and the database cannot drift. |
-| `app/repositories/` | **Implemented (B12, B14, B16).** `OrgScopedRepository` cannot be constructed over a table without `org_id`; `scans.py` carries the concrete repositories and `ScanStoreAdapter`; plus `idempotency.py`, `rulepacks.py` (resolve a pack by the version a scan was judged under) and `audit.py` (append and read, no update path). |
+| `app/repositories/` | **Implemented (B12, B14, B16, B17).** `OrgScopedRepository` cannot be constructed over a table without `org_id`; `scans.py` carries the concrete repositories and `ScanStoreAdapter`; plus `idempotency.py`, `rulepacks.py` (resolve a pack by the version a scan was judged under), `audit.py` (append and read, no update path) and `aggregates.py` (FR-30, dimension as an enum, current revision only). |
 | `app/services/auth/` | **Implemented (B13).** `tokens.py` (HS256 on the stdlib, no JWT dependency), `otp.py`, `rbac.py`. |
 | `app/services/audit.py` | **Implemented (B16).** Per-org hash chain, versioned canonicalisation, verification reporting the first broken link and whether the row was edited or removed. |
 | `app/services/rules/` | **Done (B0–B3).** `schema.py` validates with line-level errors, `loader.py` checksums and activates, `evaluate.py` interprets all seven rule kinds, `findings.py` assembles. 14 baseline cases green, 88% coverage. |
@@ -34,9 +34,10 @@ Audited against the working tree, not against the plan.
 | `app/services/extraction/` | **Implemented (B9).** Regex, then LLM for the residue, then human confirmation; every span verified against the real text. |
 | `app/services/llm/` | **Implemented (B8).** Vendor-neutral `LLMProvider`; a failure is a return value, never an exception. |
 | `app/services/pipeline.py` | **Done (B10).** All ten stages; `ScanStoreAdapter` (B12) implements the `ScanStore` port, and `app/tasks/scan.py` wires it into the worker. Golden-file pinned. |
-| `app/services/bis/` | **Empty `__init__.py`.** |
-| `alembic/` | **Two migrations**, both applied to Neon. `0001_initial_schema.py` creates the `vector` extension, 18 tables, the HNSW index while `bis_chunks` is empty, and B17's five dashboard indexes; `0002_idempotency_keys.py` adds `idempotency_keys` (B14). |
-| `tests/` | 433 tests across 19 suites. New since B13: `test_scans_api.py` (27), `test_confirm_fields.py` (16), `test_audit_chain.py` (25). `mypy` is now clean over the **whole** of `app/`, not just `app/services`. One skip: PDF rasterisation needs GTK3. |
+| `app/services/bis/` | **Implemented (B18, B19, B20).** `ingest.py` (blocklist + comment, 8 source types, chunking with section refs, sha256 dedupe), `embedding.py` (`Embedder` protocol, lazy BGE-M3 + `hashing` stand-in, resumable `embed_pending`), `retrieve.py` (Postgres FTS + pgvector searchers, exact RRF, rerank 30→6), `applicability.py` (deterministic lookup over `bis/qco-crs-v1.yaml`), `answer.py` (citation-required generation with post-validation and five named refusals). |
+| `alembic/` | **Three migrations.** `0001_initial_schema.py` creates the `vector` extension, 18 tables, the HNSW index while `bis_chunks` is empty, and five dashboard indexes; `0002_idempotency_keys.py` adds `idempotency_keys` (B14). `0003_dashboard_dimensions.py` adds `scans.district` and `products.brand` with their org-led indexes (B17) — **written and reviewed, not yet applied to Neon**; `tests/test_migration.py` fails until `alembic upgrade head` is run. |
+| `tests/` | 560 tests across 25 suites. New since B16: `test_dashboard.py` (19, including the 50,000-finding gate), `test_bis_ingest.py` (26), `test_retrieval.py` (20, one opt-in Postgres round-trip), `test_applicability.py` (18), `test_bis_answer.py` (33), `test_sahayak_api.py` (11). `mypy` is clean over the whole of `app/`. Skips: PDF rasterisation needs GTK3. The Postgres retrieval round-trip and `test_migration.py` skip without database credentials, and both run for a developer who has them. |
+| `bis/` | **New (B20).** `qco-crs-v1.yaml` — the QCO/CRS applicability lists, versioned and checksummed data at the repository root, on the same terms as `rulepacks/`. See `docs/decisions.md`, 2026-09-12. |
 | `scripts/` | **Does not exist.** The three eval commands in `CLAUDE.md` §4 and `eval-results.md` have no module behind them. |
 | CI | ruff + mypy (strict on services) + pytest, no datastores. Green. |
 
@@ -101,10 +102,10 @@ track D — sahayak (independent of A/B, needs B12 for the pgvector tables)
 | ✅ B14 | Scan intake API: create, submit, get | FR-20 | B12, B13, B4 | done | 202 `queued`; a replayed `Idempotency-Key` returns the original scan, a changed body is a 409 |
 | ✅ B15 | Findings API + `confirm-fields` recompute | FR-05, FR-06 | B3, B14 | done | correction recorded `source=human`; recompute uses the scan's **original** pack, pinned by a test that forces the active pack to differ |
 | ✅ B16 | Audit log hash chain + verification endpoint | SR | B12 | done | tampering one row breaks verification at that row and not before it; chain survives a restart |
-| B17 | Dashboard aggregates + indexes | FR-30 | B12 | Oct 16–18 | <1 s on 50,000 seeded findings |
-| B18 | BIS corpus ingest + **blocklist** | P4.1 | B12 | Nov 1–6 | blocklist test: a priced IS text is refused by the ingester |
-| B19 | Hybrid retrieval: BM25 + dense + RRF + rerank | FR-28 | B18 | Nov 7–12 | top-6 recall measured on the E4 set |
-| B20 | Sahayak answer (citation-required) + applicability **lookup** | FR-28, FR-29 | B19 | Nov 13–20 | applicability is a table lookup, not retrieval; 10/10 refusals correct |
+| ✅ B17 | Dashboard aggregates + indexes | FR-30 | B12 | done | 50,000 seeded findings in 0.14 s on every dimension; `group_by` outside the enum is a 422 |
+| ✅ B18 | BIS corpus ingest + **blocklist** | P4.1 | B12 | done | blocklist non-empty and commented; a priced IS text is refused by URL, by contents, and by the catalogue-metadata size cap |
+| ✅ B19 | Hybrid retrieval: BM25 + dense + RRF + rerank | FR-28 | B18 | done (top-6 recall still owed — B22) | RRF ordering exact to the arithmetic; empty stays empty |
+| ✅ B20 | Sahayak answer (citation-required) + applicability **lookup** | FR-28, FR-29 | B19 | done | applicability is a table lookup; 10/10 refusals correct; 20/20 on FR-29's known products |
 | B21 | Bulk listing check (Mode B) | FR-10 | B2, B14 | Nov 20 | no metric rule returns PASS/FAIL from listing text |
 | B22 | Eval harness: `scripts.eval_e1/e3/e4` | §7 | B7, B2, B20 | rolling | each prints the exact output shape in `03-implementation-plan.md` |
 | B23 | Hardening: rate limits, load test, security pass, docs | NFR-01, SR | all | Nov 22–Dec 10 | §5 gates all green |
@@ -695,7 +696,7 @@ DONE WHEN:   the §5 gates below are all green and the numbers are in docs/eval-
 | ✅ B11 | `weasyprint`, `python-docx` | PDF, DOCX | **Added.** GTK3 native stack needed only by `render_pdf`; CI installs it, Windows dev skips that one test |
 | ✅ B12 | `pgvector` (Python bindings) | the vector column type | **Added.** Also gives B19 its similarity operators. Declared `with_variant`, so SQLite still builds the schema for CI |
 | ✅ B13 | a JWT library, a hasher | auth | **Refused — none added.** HS256 is written against stdlib `hmac` (`services/auth/tokens.py`, with a test per attack class); OTP codes and refresh tokens use peppered HMAC-SHA256, since a six-digit code is protected by single use, a short TTL and rate limiting, not by the cost of its hash |
-| B19 | embedding + reranker runtime | BGE-M3, cross-encoder | heaviest addition; pin the model revisions |
+| B19 | embedding + reranker runtime | BGE-M3, cross-encoder | **Still outstanding — nothing added.** The adapters exist and import their runtime lazily; `hashing`/`overlap` stand-ins are selected by config for CI and local work, and the `hashing` embedder refuses to run in production. Answer the ask with the model revisions pinned, then declare it as a `[bis]` extra the way `[ocr]` was. |
 | B23 | a rate limiter, a load-test tool | NFR-01 | the load-test tool can be dev-only |
 | tests | `pytest-cov` | the 80% coverage floor | `freezegun` should not be needed — `evaluate()` takes `as_of` |
 

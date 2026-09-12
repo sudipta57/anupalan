@@ -142,6 +142,8 @@ So the corpus is built only from public, non-priced material:
 What Sahayak answers: does a QCO cover this product, which IS number applies, ISI vs CRS vs FMCS, the application process, fees, which labs, hallmarking questions.
 What Sahayak refuses: the technical content of a standard — test limits, clause text, tolerance tables. It says so plainly and points to the BIS purchase route. **Frame this refusal as a feature in the pitch**; it demonstrates you understand the IP boundary the ministry lives inside.
 
+Applicability is a **table lookup**, not retrieval (B20). The QCO/CRS lists live in `bis/qco-crs-v1.yaml` — data at the repository root, versioned and checksummed the way `rulepacks/` is, for the same reason: "does this product need the ISI mark" is answered by a published list, a brand plans a launch around the answer, and no category, IS number or scheme name may sit in a `.py` file where it changes only on a deploy. Retrieval is used for the explanation and the next steps around that answer, never for the answer. The lists carry catalogue metadata only — IS number, title and scheme — and no standard's content.
+
 Retrieval design: hybrid BM25 + dense (pgvector, multilingual-e5 or BGE-M3 for Hindi/English), reciprocal-rank fusion, then a cross-encoder rerank on the top 30. Generation is citation-required: every sentence in the answer maps to a retrieved chunk id, and if no chunk supports a claim, the assistant declines rather than fills in. Answers carry a freshness stamp because QCOs are amended constantly.
 
 ---
@@ -151,9 +153,10 @@ Retrieval design: hybrid BM25 + dense (pgvector, multilingual-e5 or BGE-M3 for H
 ```
 orgs(id, name, mode[enforcement|industry], state, created_at)
 users(id, org_id, role[admin|inspector|analyst|viewer], phone, email, full_name, is_active, ...)
-products(id, org_id, name, category_code, gtin, is_imported, pack_type, surface, net_qty_value, net_qty_unit)
+products(id, org_id, name, brand, category_code, gtin, is_imported, pack_type, surface,
+         net_qty_value, net_qty_unit)
 scans(id, org_id, product_id, user_id, status, captured_at, geo_lat, geo_lon, geo_accuracy_m,
-      device_meta, marker_type, marker_mm, profile, error)
+      district, device_meta, marker_type, marker_mm, profile, error)
 scan_assets(id, scan_id, org_id, kind[raw|rectified|annotated], s3_key, sha256, content_type,
             size_bytes, width_px, height_px, px_per_mm)
 ocr_results(id, scan_id, org_id, asset_id, engine, version, raw_json, mean_conf)
@@ -187,6 +190,8 @@ Five properties of this schema carry requirements that would otherwise depend on
 - **The `verdict` CHECK constraint lists exactly four values.** There is no `NOT_APPLICABLE`: a rule that does not apply produces no row at all (`decisions.md`, 2026-09-12), and the not-applicable list is recovered from the pack.
 
 - **`idempotency_keys` records what a creating POST produced**, fingerprinted by request body. The mobile app retries on a flaky connection and, with FR-04's offline queue, may retry a scan submitted days earlier — so a request arriving twice is the normal case. A replayed key returns the original response verbatim, presigned URLs included; a replayed key with a *different* body is a 409, because silently returning the earlier scan would answer a question the caller did not ask.
+
+- **`scans.district` and `products.brand` are recorded, never derived** (B17, migration 0003). FR-30 groups violations by district in Mode A and by brand in Mode B, and neither could be faked from what was already there. A district resolved from `geo_lat`/`geo_lon` against a boundary file of unknown vintage attributes an inspection to the wrong jurisdiction; a brand read off `products.name` splits `Tata Salt 1 kg` and `Tata Salt 500 g` into two brands and merges nothing. Both are nullable and both dashboards group a NULL under *unknown* rather than dropping the row, so the buckets always sum to the headline total.
 
 Four of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` (B12) and `idempotency_keys` (B14) — were added as reviewed deviations from the original model; `geo_point` became three columns to avoid a PostGIS dependency. Enumerated columns are `VARCHAR` + `CHECK` rather than native Postgres `ENUM`, so extending a value is a one-line migration and the same models build a SQLite schema for the org-isolation suite that CI runs without any datastore.
 

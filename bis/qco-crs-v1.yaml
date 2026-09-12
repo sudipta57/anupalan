@@ -1,0 +1,320 @@
+# Anupalan BIS applicability lists — Quality Control Orders and the Compulsory Registration Scheme
+# code: BIS-QCO-CRS  version: 1.0
+# status: ENGINEERING TRANSCRIPTION — NOT LEGALLY REVIEWED
+#
+# This file is DATA, versioned independently of code, for the same reason rulepacks/ is:
+# "does this product need the ISI mark" is a lookup against a published list, and a published list
+# belongs somewhere a reviewer can read and diff it. No category, IS number or scheme name appears
+# in a .py file (CLAUDE.md §3.2 applies here by the same argument).
+#
+# It is a LOOKUP TABLE and never a retrieval target. Retrieval is used only for the explanation
+# and the next steps (docs/03-implementation-plan.md §P4.5). Applicability has to be deterministic:
+# "does this product need the ISI mark" is not a question to answer probabilistically.
+#
+# It holds no standard's content. IS numbers and titles are catalogue metadata, which is public;
+# the technical requirements of those standards are priced and are never reproduced here or
+# anywhere else in this repository (CLAUDE.md §3.5).
+#
+# QCOs are amended constantly. `meta.as_of` is the freshness stamp every answer carries, and a
+# stale list is worse than no list — re-check against the BIS and gazette sources below before
+# each release.
+
+meta:
+  code: BIS-QCO-CRS
+  version: "1.0"
+  as_of: "2026-09-01"
+  jurisdiction: IN
+  source_notes: >
+    Compiled from the BIS list of products under compulsory certification, the Electronics and
+    Information Technology Goods (Requirements for Compulsory Registration) Order product list,
+    and Quality Control Orders as notified in the Gazette of India. Catalogue metadata only —
+    IS number, title and scheme. MUST be verified against the current BIS lists by a
+    certification practitioner before any commercial use.
+  disclaimer: >
+    Advisory pre-audit output. Not a certification, not legal advice, and carries no legal force.
+    Confirm applicability with BIS or a recognised consultant before acting on it.
+
+  # What to tell someone whose product these lists cannot place. Deliberately not the "none"
+  # scheme's next steps: "no Quality Control Order covers this" is a finding, and "we could not
+  # tell" is an admission. Reporting the second as the first is how an advisory tool talks a brand
+  # out of a licence it needed.
+  unclear_next_steps:
+    - "These lists do not place this product, so applicability could not be determined from them."
+    - "Search the BIS list of products under compulsory certification for the product category by name."
+    - "Check the CRS product list as well — electronics and IT goods are registered, not licensed."
+    - "Where the category is genuinely ambiguous, write to BIS or a recognised consultant before launch."
+
+  # Where an answer points when the lists cannot decide. Data, not a constant in Python, so a
+  # changed BIS URL is a reviewed edit rather than a code deploy.
+  fallback_sources:
+    - title: "BIS — Products under Compulsory Certification"
+      url: "https://www.bis.gov.in/product-certification/products-under-compulsory-certification/"
+    - title: "BIS — Compulsory Registration Scheme"
+      url: "https://www.crsbis.in/BIS/"
+
+# ---------------------------------------------------------------- schemes
+#
+# The certification route. An entry names one, and the composed answer takes its next steps and
+# sources from here unless the entry overrides them.
+
+schemes:
+  ISI:
+    label: >
+      ISI mark — a licence to apply the Standard Mark, granted under Scheme I of Schedule II to
+      the BIS (Conformity Assessment) Regulations, 2018.
+    next_steps:
+      - "Identify the exact Indian Standard and, where it has parts, the relevant part."
+      - "Have the product tested against that standard at a BIS-recognised laboratory."
+      - "Apply for a licence through the BIS Manakonline portal with the test report and factory details."
+      - "Expect a factory inspection and a verification sample before the licence is granted."
+      - "Apply the Standard Mark only after the licence is granted — never before."
+    sources:
+      - title: "BIS — Scheme I (ISI mark) product certification"
+        url: "https://www.bis.gov.in/product-certification/"
+
+  CRS:
+    label: >
+      Compulsory Registration Scheme — self-declaration of conformity registered with BIS, under
+      the Electronics and Information Technology Goods (Requirements for Compulsory Registration)
+      Order.
+    next_steps:
+      - "Have the product tested at a BIS-recognised laboratory against the notified standard."
+      - "Register the model with BIS through the CRS portal, quoting the test report."
+      - "Mark the registered product with the Standard Mark and the R-number BIS issues."
+      - "Register each model separately — a registration does not extend to a variant."
+    sources:
+      - title: "BIS — Compulsory Registration Scheme"
+        url: "https://www.crsbis.in/BIS/"
+
+  FMCS:
+    label: >
+      Foreign Manufacturers Certification Scheme — the route by which a manufacturer located
+      outside India obtains a licence to apply the Standard Mark.
+    next_steps:
+      - "Apply under FMCS, not under the domestic scheme — the applicant is the foreign manufacturer, not the importer."
+      - "Nominate an Authorised Indian Representative resident in India."
+      - "Expect an inspection of the overseas factory and a performance bank guarantee."
+      - "Ensure the importer holds evidence of the licence before the consignment ships."
+    sources:
+      - title: "BIS — Foreign Manufacturers Certification Scheme"
+        url: "https://www.bis.gov.in/product-certification/foreign-manufacturers-certification-scheme/"
+
+  none:
+    label: "No BIS certification route identified for this product category."
+    next_steps:
+      - "No Quality Control Order in these lists covers this category, so no BIS licence appears to be required."
+      - "Other regulators may still apply — FSSAI for food, CDSCO for cosmetics and drugs, and the Legal Metrology declarations regardless."
+      - "Re-check before launch: Quality Control Orders are notified frequently and this list carries its own as_of date."
+    sources:
+      - title: "BIS — Products under Compulsory Certification"
+        url: "https://www.bis.gov.in/product-certification/products-under-compulsory-certification/"
+
+# ---------------------------------------------------------------- entries
+#
+# Matched on category_code first — an exact, deterministic key. `match_keywords` is the fallback
+# for a profile that carries a product name but no category code, and is matched longest-first so
+# the outcome does not depend on file order.
+#
+# qco_applicable is a STRING: "yes" | "no" | "unclear". Unquoted yes/no are booleans in YAML, and
+# a tri-state that silently became two states would turn every "unclear" into a claim.
+
+entries:
+
+  # ---- under a Quality Control Order, ISI mark route
+
+  - id: QCO-CEMENT
+    category_codes: [CEMENT, CEMENT-OPC]
+    match_keywords: ["portland cement", "cement"]
+    qco_applicable: "yes"
+    scheme: ISI
+    is_numbers: ["IS 269", "IS 1489 (Part 1)"]
+    order: "Cement (Quality Control) Order"
+
+  - id: QCO-ELEC-IRON
+    category_codes: [ELEC-IRON]
+    match_keywords: ["electric iron", "steam iron"]
+    qco_applicable: "yes"
+    scheme: ISI
+    is_numbers: ["IS 302 (Part 2/Sec 3)"]
+    order: "Electrical Appliances (Quality Control) Order"
+
+  - id: QCO-ELEC-IMMERSION-HEATER
+    category_codes: [ELEC-IMMERSION-HEATER]
+    match_keywords: ["immersion water heater", "immersion heater", "water heater"]
+    qco_applicable: "yes"
+    scheme: ISI
+    is_numbers: ["IS 302 (Part 2/Sec 201)"]
+    order: "Electrical Appliances (Quality Control) Order"
+
+  - id: QCO-PRESSURE-COOKER
+    category_codes: [COOKER-PRESSURE]
+    match_keywords: ["pressure cooker"]
+    qco_applicable: "yes"
+    scheme: ISI
+    is_numbers: ["IS 2347"]
+    order: "Domestic Pressure Cooker (Quality Control) Order, 2020"
+
+  - id: QCO-HELMET
+    category_codes: [HELMET-2W]
+    match_keywords: ["helmet"]
+    qco_applicable: "yes"
+    scheme: ISI
+    is_numbers: ["IS 4151"]
+    order: "Helmet for Riders of Two Wheeled Motor Vehicles (Quality Control) Order, 2020"
+
+  - id: QCO-LPG-CYLINDER
+    category_codes: [LPG-CYLINDER]
+    match_keywords: ["lpg cylinder", "gas cylinder"]
+    qco_applicable: "yes"
+    scheme: ISI
+    is_numbers: ["IS 3196 (Part 1)"]
+    order: "Gas Cylinders (Quality Control) Order"
+
+  - id: QCO-PACKAGED-DRINKING-WATER
+    category_codes: [FOOD-WATER-PACKAGED]
+    match_keywords: ["packaged drinking water", "mineral water", "drinking water"]
+    qco_applicable: "yes"
+    scheme: ISI
+    is_numbers: ["IS 14543", "IS 13428"]
+    order: "Packaged drinking water — mandatory certification"
+
+  - id: QCO-STEEL-STRUCTURAL
+    category_codes: [STEEL-STRUCTURAL]
+    match_keywords: ["structural steel", "steel bar", "tmt bar"]
+    qco_applicable: "yes"
+    scheme: ISI
+    is_numbers: ["IS 2062", "IS 1786"]
+    order: "Steel and Steel Products (Quality Control) Order"
+
+  - id: QCO-TOYS
+    category_codes: [TOYS]
+    match_keywords: ["toy", "toys"]
+    qco_applicable: "yes"
+    scheme: ISI
+    is_numbers: ["IS 9873 (Part 1)", "IS 15644"]
+    order: "Toys (Quality Control) Order, 2020"
+
+  - id: QCO-FOOTWEAR
+    category_codes: [FOOTWEAR]
+    match_keywords: ["footwear", "shoe", "sandal"]
+    qco_applicable: "yes"
+    scheme: ISI
+    is_numbers: ["IS 6721", "IS 17043"]
+    order: "Footwear made from Leather and Other Materials (Quality Control) Order, 2022"
+
+  # ---- under the Compulsory Registration Scheme
+
+  - id: CRS-LAPTOP
+    category_codes: [IT-LAPTOP]
+    match_keywords: ["laptop", "notebook computer", "tablet computer"]
+    qco_applicable: "yes"
+    scheme: CRS
+    is_numbers: ["IS 13252 (Part 1)"]
+    order: "Electronics and IT Goods (Requirements for Compulsory Registration) Order"
+
+  - id: CRS-POWER-ADAPTOR
+    category_codes: [IT-ADAPTOR]
+    match_keywords: ["power adaptor", "power adapter", "laptop charger", "mobile charger", "charger"]
+    qco_applicable: "yes"
+    scheme: CRS
+    is_numbers: ["IS 13252 (Part 1)"]
+    order: "Electronics and IT Goods (Requirements for Compulsory Registration) Order"
+
+  - id: CRS-LED-LAMP
+    category_codes: [ELEC-LED-LAMP]
+    match_keywords: ["led lamp", "led bulb", "led light"]
+    qco_applicable: "yes"
+    scheme: CRS
+    is_numbers: ["IS 16102 (Part 1)"]
+    order: "Electronics and IT Goods (Requirements for Compulsory Registration) Order"
+
+  - id: CRS-POWER-BANK
+    category_codes: [IT-POWER-BANK]
+    match_keywords: ["power bank"]
+    qco_applicable: "yes"
+    scheme: CRS
+    is_numbers: ["IS 13252 (Part 1)", "IS 16046 (Part 1)"]
+    order: "Electronics and IT Goods (Requirements for Compulsory Registration) Order"
+
+  # ---- explicitly NOT under a BIS Quality Control Order
+  #
+  # A positive "no" is as much a product as a "yes". Leaving these out would make every one of them
+  # "unclear", and "we could not tell" is not an answer a brand can plan a launch around.
+
+  - id: NONE-FOOD-SALT
+    category_codes: [FOOD-SALT]
+    match_keywords: ["iodised salt", "table salt", "salt"]
+    qco_applicable: "no"
+    scheme: none
+    is_numbers: []
+    notes: "Edible common salt is regulated by FSSAI. IS 7224 exists but certification is not compulsory for retail salt under these lists."
+
+  - id: NONE-FOOD-BISCUIT
+    category_codes: [FOOD-BISCUIT]
+    match_keywords: ["biscuit", "cookie"]
+    qco_applicable: "no"
+    scheme: none
+    is_numbers: []
+    notes: "Bakery products are regulated by FSSAI, not by a BIS Quality Control Order."
+
+  - id: NONE-FOOD-TEA
+    category_codes: [FOOD-TEA]
+    match_keywords: ["tea", "green tea"]
+    qco_applicable: "no"
+    scheme: none
+    is_numbers: []
+    notes: "Tea is regulated by FSSAI and the Tea Board. No BIS Quality Control Order applies."
+
+  - id: NONE-FOOD-SPICE
+    category_codes: [FOOD-SPICE]
+    match_keywords: ["spice", "masala", "turmeric powder"]
+    qco_applicable: "no"
+    scheme: none
+    is_numbers: []
+    notes: "Spices are regulated by FSSAI and the Spices Board."
+
+  - id: NONE-FOOD-PICKLE
+    category_codes: [FOOD-PICKLE]
+    match_keywords: ["pickle", "achar"]
+    qco_applicable: "no"
+    scheme: none
+    is_numbers: []
+    notes: "Regulated by FSSAI."
+
+  - id: NONE-COSMETIC
+    category_codes: [COSMETIC, COSMETIC-CREAM]
+    match_keywords: ["face cream", "cosmetic", "shampoo", "lotion"]
+    qco_applicable: "no"
+    scheme: none
+    is_numbers: []
+    notes: "Cosmetics are regulated by CDSCO under the Drugs and Cosmetics Rules, not by a BIS Quality Control Order."
+
+  - id: NONE-APPAREL
+    category_codes: [APPAREL]
+    match_keywords: ["t-shirt", "shirt", "garment", "apparel"]
+    qco_applicable: "no"
+    scheme: none
+    is_numbers: []
+    notes: "Ready-made garments are not under a BIS Quality Control Order in these lists."
+
+  - id: NONE-FURNITURE-WOOD
+    category_codes: [FURNITURE-WOOD]
+    match_keywords: ["wooden furniture", "furniture", "wooden chair"]
+    qco_applicable: "no"
+    scheme: none
+    is_numbers: []
+
+  - id: NONE-STATIONERY
+    category_codes: [STATIONERY]
+    match_keywords: ["notebook", "exercise book", "stationery", "pencil"]
+    qco_applicable: "no"
+    scheme: none
+    is_numbers: []
+    notes: "A paper notebook, not a laptop — see CRS-LAPTOP, which is matched on its own keywords."
+
+  - id: NONE-INCENSE
+    category_codes: [INCENSE]
+    match_keywords: ["incense stick", "agarbatti", "incense"]
+    qco_applicable: "no"
+    scheme: none
+    is_numbers: []

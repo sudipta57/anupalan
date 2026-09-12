@@ -27,6 +27,7 @@ anupalan/                         # root
 ├── README.md
 ├── docs/                         # architecture, TRD, implementation plan, decisions
 ├── rulepacks/                    # versioned YAML rule packs — the legal logic
+├── bis/                          # versioned QCO/CRS applicability lists — BIS lookup data
 │
 ├── mobile/                       # FRONTEND — React Native (Expo dev build), Android
 │   ├── app/                      # expo-router screens
@@ -69,6 +70,7 @@ Rules for this layout:
 - The Celery worker is **not** a separate project. It imports from `app/services/` so pipeline code is written once.
 - Anything shared between `mobile/` and `backend/` flows one way: backend publishes an OpenAPI schema, mobile generates its client from it. Never hand-maintain duplicate types.
 - Rule packs live in `rulepacks/`, never inside `backend/app/`. They are data, versioned independently of code.
+- The BIS applicability lists live in `bis/`, on the same terms. Applicability is a deterministic table lookup, never retrieval, so no category, IS number or scheme name may appear in a `.py` file. They are separate from `rulepacks/` because they are not rule text: they carry catalogue metadata (IS number, title, scheme) and never a standard's content.
 
 ---
 
@@ -169,6 +171,7 @@ Stop and ask rather than deciding alone:
 - Changing an API contract that `mobile/` consumes
 - Adding or replacing a managed service, or repointing `DATABASE_URL` / `REDIS_URL` / the S3 endpoint at a different provider
 - Changing anything in `rulepacks/` — rule text has legal consequences and needs review
+- Changing a verdict or scheme in `bis/` — a wrong "no licence needed" is a seized consignment
 - Anything that touches a §3 non-negotiable
 
 Free to decide alone: internal refactors behind a stable interface, test additions, error-message wording, logging, performance work that does not change output.
