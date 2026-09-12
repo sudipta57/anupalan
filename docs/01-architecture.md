@@ -169,6 +169,7 @@ rulepacks(id, code, version, effective_from, checksum, body, published_by, publi
 reports(id, scan_id, org_id, evaluation_id, pdf_key, docx_key, json_key, sha256, generated_at)
 otp_requests(id, phone, code_hash, expires_at, consumed_at, attempts, request_ip)
 refresh_tokens(id, user_id, org_id, family_id, token_hash, expires_at, revoked_at, replaced_by)
+idempotency_keys(id, org_id, key, endpoint, request_fingerprint, entity_id, response_json)
 bis_queries(id, org_id, scan_id NULL, user_id, question, answer, citations_json, model, as_of)
 bis_documents(id, source_type, title, url, published_at, sha256)
 bis_chunks(id, document_id, text, embedding vector(1024), section_ref)
@@ -185,7 +186,9 @@ Five properties of this schema carry requirements that would otherwise depend on
 - **`rulepacks.body` holds the YAML itself**, so a report regenerated next year reproduces its verdict from the database alone rather than needing the right git revision checked out.
 - **The `verdict` CHECK constraint lists exactly four values.** There is no `NOT_APPLICABLE`: a rule that does not apply produces no row at all (`decisions.md`, 2026-09-12), and the not-applicable list is recovered from the pack.
 
-Three of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` — were added in B12 as reviewed deviations from the original model; `geo_point` became three columns to avoid a PostGIS dependency. Enumerated columns are `VARCHAR` + `CHECK` rather than native Postgres `ENUM`, so extending a value is a one-line migration and the same models build a SQLite schema for the org-isolation suite that CI runs without any datastore.
+- **`idempotency_keys` records what a creating POST produced**, fingerprinted by request body. The mobile app retries on a flaky connection and, with FR-04's offline queue, may retry a scan submitted days earlier — so a request arriving twice is the normal case. A replayed key returns the original response verbatim, presigned URLs included; a replayed key with a *different* body is a 409, because silently returning the earlier scan would answer a question the caller did not ask.
+
+Four of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` (B12) and `idempotency_keys` (B14) — were added as reviewed deviations from the original model; `geo_point` became three columns to avoid a PostGIS dependency. Enumerated columns are `VARCHAR` + `CHECK` rather than native Postgres `ENUM`, so extending a value is a one-line migration and the same models build a SQLite schema for the org-isolation suite that CI runs without any datastore.
 
 ---
 
@@ -215,7 +218,7 @@ Three of these tables — `scan_evaluations`, `otp_requests`, `refresh_tokens` �
 
 - Auth: phone OTP + JWT access/refresh; org-scoped RBAC (`admin`, `inspector`, `analyst`, `viewer`); row-level org isolation enforced in the repository layer, tested. Access tokens are stateless HS256 and short-lived, so verifying one costs no database round trip; they cannot be revoked before expiry, which is why revocation acts on the refresh family instead. Refresh tokens are opaque, stored as a peppered hash, and rotated — presenting a retired one revokes its whole family. OTP codes are single-use, short-lived, attempt-capped and rate-limited per phone *and* per IP; six digits carries only 10^6 of entropy, so those four properties are the defence and the hash is not. `org_id` is minted into the token from the user's row and read back from the verified token; a request body carrying an `org_id` is a 400, never an override.
 - Storage: presigned URLs only, private buckets, per-org key prefix, server-side encryption.
-- Evidence integrity (Mode A): SHA-256 of the raw image recorded at upload; `audit_log` is hash-chained (`hash = H(prev_hash || row)`); reports embed both hashes. Anyone can verify a report was not altered after issue.
+- Evidence integrity (Mode A): SHA-256 of the raw image recorded at upload; `audit_log` is hash-chained (`hash = H(prev_hash || row)`); reports embed both hashes. Anyone can verify a report was not altered after issue. Because the API never proxies image bytes — it signs an upload URL and the client uploads straight to object storage — the raw hash is **declared by the client at create time and verified by the worker** against the stored object before any processing; a mismatch fails the scan rather than attaching a hash the evidence does not have. The chain is per-org, starting from a fixed genesis value, and `GET /v1/admin/audit/verify` reports the **first broken link** with its entry id and whether the row was edited (`hash_mismatch`) or removed (`broken_link`) — everything before that point is still provably intact. The canonical row rendering the hash covers is versioned and must never be edited in place, since changing it would invalidate every chain already written.
 - Location and device data: collected only in Mode A, disclosed in-app, retention configurable per org.
 - DPDP Act 2023 posture: the data is about products, not people, which is a genuine advantage over most health/fintech entries. The only personal data is user accounts and inspector location. Say this explicitly to judges.
 - Rate limiting per org and per IP; upload size and MIME allow-list; EXIF stripped from anything served publicly.

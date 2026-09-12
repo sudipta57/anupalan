@@ -21,11 +21,12 @@ Audited against the working tree, not against the plan.
 | `app/main.py` | **Done.** CORS, the NFR-07 error envelope, five exception handlers, `/health`, and the auth router (B13). The envelope now carries an error's headers, so a 401 is a well-formed 401. |
 | `app/worker.py` | **Done.** Celery app, TLS off the URL scheme, `task_acks_late`, `include=["app.tasks.scan"]`. |
 | `app/health.py` | **Done.** db + redis + rulepack, 200-with-`degraded` semantics. |
-| `app/routers/*.py` | **`auth.py` implemented (B13)** — OTP request/verify, refresh rotation, `/me` — plus `deps.py` (session, principal, `requires`, `found`). The other six are docstrings only. |
-| `app/models/` | **Implemented (B12).** 18 tables across eight modules. Postgres-only types declared `with_variant`, so the same models build a SQLite schema for CI. |
-| `app/schemas/` | **`auth.py` + `base.py` (B13).** `StrictModel` forbids unknown fields and refuses a body-supplied `org_id` with a 400. |
-| `app/repositories/` | **Implemented (B12).** `OrgScopedRepository` cannot be constructed over a table without `org_id`; `scans.py` carries the concrete repositories and `ScanStoreAdapter`, the pipeline's persistence port. |
+| `app/routers/*.py` | **`auth.py` (B13), `scans.py` (B14, B15), `admin.py` (B16 verify + listing)**, plus `deps.py` (session, principal, `requires`, `found`, `Idempotency-Key`, enqueuer, storage). `products.py`, `reports.py`, `dashboard.py`, `sahayak.py` are docstrings only. |
+| `app/models/` | **Implemented (B12, B14).** 19 tables across nine modules. Postgres-only types declared `with_variant`, so the same models build a SQLite schema for CI. |
+| `app/schemas/` | **`base.py`, `auth.py` (B13), `scans.py`, `findings.py` (B14, B15).** `StrictModel` forbids unknown fields and refuses a body-supplied `org_id` with a 400. Literal unions are asserted against the models' CHECK tuples at import, so the contract and the database cannot drift. |
+| `app/repositories/` | **Implemented (B12, B14, B16).** `OrgScopedRepository` cannot be constructed over a table without `org_id`; `scans.py` carries the concrete repositories and `ScanStoreAdapter`; plus `idempotency.py`, `rulepacks.py` (resolve a pack by the version a scan was judged under) and `audit.py` (append and read, no update path). |
 | `app/services/auth/` | **Implemented (B13).** `tokens.py` (HS256 on the stdlib, no JWT dependency), `otp.py`, `rbac.py`. |
+| `app/services/audit.py` | **Implemented (B16).** Per-org hash chain, versioned canonicalisation, verification reporting the first broken link and whether the row was edited or removed. |
 | `app/services/rules/` | **Done (B0–B3).** `schema.py` validates with line-level errors, `loader.py` checksums and activates, `evaluate.py` interprets all seven rule kinds, `findings.py` assembles. 14 baseline cases green, 88% coverage. |
 | `app/services/reporting/` | **Done (B11).** `model.py` is the one structure PDF/DOCX/JSON all render from; `pdf.py` splits `render_html` (pure) from `render_pdf` (needs GTK3). Disclaimer and both hashes in every format. `explain.py` is the LLM guidance call site — it returns a `str`, so it structurally cannot express a verdict. |
 | `app/services/vision/` | **Implemented (B5, B6).** `marker.py` + `rectify.py` warp to `PX_PER_MM`; `ocr.py` is the FR-22 interface with stub and PaddleOCR adapters. Metrology (B7) not started. |
@@ -34,8 +35,8 @@ Audited against the working tree, not against the plan.
 | `app/services/llm/` | **Implemented (B8).** Vendor-neutral `LLMProvider`; a failure is a return value, never an exception. |
 | `app/services/pipeline.py` | **Done (B10).** All ten stages; `ScanStoreAdapter` (B12) implements the `ScanStore` port, and `app/tasks/scan.py` wires it into the worker. Golden-file pinned. |
 | `app/services/bis/` | **Empty `__init__.py`.** |
-| `alembic/` | **One migration, `0001_initial_schema.py`**, applied to Neon. Creates the `vector` extension, all 18 tables, the HNSW index while `bis_chunks` is empty, and B17's five dashboard indexes. |
-| `tests/` | 364 tests across 16 suites. New since B10: `test_org_isolation.py` (41), `test_auth.py` (116), `test_explain.py` (14), `test_scan_store.py` (12), `test_migration.py` (6, skipped without a database). One skip: PDF rasterisation needs GTK3. |
+| `alembic/` | **Two migrations**, both applied to Neon. `0001_initial_schema.py` creates the `vector` extension, 18 tables, the HNSW index while `bis_chunks` is empty, and B17's five dashboard indexes; `0002_idempotency_keys.py` adds `idempotency_keys` (B14). |
+| `tests/` | 433 tests across 19 suites. New since B13: `test_scans_api.py` (27), `test_confirm_fields.py` (16), `test_audit_chain.py` (25). `mypy` is now clean over the **whole** of `app/`, not just `app/services`. One skip: PDF rasterisation needs GTK3. |
 | `scripts/` | **Does not exist.** The three eval commands in `CLAUDE.md` §4 and `eval-results.md` have no module behind them. |
 | CI | ruff + mypy (strict on services) + pytest, no datastores. Green. |
 
@@ -97,9 +98,9 @@ track D — sahayak (independent of A/B, needs B12 for the pgvector tables)
 | ✅ B11 | Reporting: one data structure → PDF, DOCX, JSON | FR-27 | B3 | done | identical row count and verdict strings in both; DOCX table is a real `w:tbl` |
 | ✅ B12 | Data layer: models, migrations, org-scoped repositories | DR, SR | — | done | `test_org_isolation` green (41); `alembic upgrade head` applied to Neon, autogenerate diff empty |
 | ✅ B13 | Auth: OTP, JWT access/refresh, RBAC dependency | SR | B12 | done | role matrix exhaustive; token carries `org_id`, a body-supplied one is a 400 |
-| B14 | Scan intake API: create, submit, get | FR-20 | B12, B13, B4 | Oct 8–10 | submit returns 202 `queued` in <300 ms |
-| B15 | Findings API + `confirm-fields` recompute | FR-05, FR-06 | B3, B14 | Oct 11–13 | correction recorded `source=human`, verdict recomputes |
-| B16 | Audit log hash chain + verification endpoint | SR | B12 | Oct 14–15 | tampering one row breaks verification at that row |
+| ✅ B14 | Scan intake API: create, submit, get | FR-20 | B12, B13, B4 | done | 202 `queued`; a replayed `Idempotency-Key` returns the original scan, a changed body is a 409 |
+| ✅ B15 | Findings API + `confirm-fields` recompute | FR-05, FR-06 | B3, B14 | done | correction recorded `source=human`; recompute uses the scan's **original** pack, pinned by a test that forces the active pack to differ |
+| ✅ B16 | Audit log hash chain + verification endpoint | SR | B12 | done | tampering one row breaks verification at that row and not before it; chain survives a restart |
 | B17 | Dashboard aggregates + indexes | FR-30 | B12 | Oct 16–18 | <1 s on 50,000 seeded findings |
 | B18 | BIS corpus ingest + **blocklist** | P4.1 | B12 | Nov 1–6 | blocklist test: a priced IS text is refused by the ingester |
 | B19 | Hybrid retrieval: BM25 + dense + RRF + rerank | FR-28 | B18 | Nov 7–12 | top-6 recall measured on the E4 set |

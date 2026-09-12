@@ -32,6 +32,7 @@ from app.models.bis import BIS_SOURCE_TYPES, BisChunk, BisDocument, BisQuery
 from app.models.catalog import PACK_TYPES, SURFACES, Product, RulePackRow
 from app.models.evidence import EXTRACTION_SOURCES, FIELD_CODES, Extraction, Measurement
 from app.models.finding import EVALUATION_SOURCES, VERDICTS, Finding, ScanEvaluation
+from app.models.idempotency import IdempotencyKey
 from app.models.org import ORG_MODES, USER_ROLES, Org, User
 from app.models.report import Report
 from app.models.scan import ASSET_KINDS, MARKER_TYPES, SCAN_STATUSES, OCRResult, Scan, ScanAsset
@@ -58,6 +59,7 @@ __all__ = [
     "BisQuery",
     "Extraction",
     "Finding",
+    "IdempotencyKey",
     "Measurement",
     "OCRResult",
     "Org",

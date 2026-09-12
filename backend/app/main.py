@@ -20,7 +20,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
 from app.health import HealthReport, check_health
+from app.routers import admin as admin_router
 from app.routers import auth as auth_router
+from app.routers import scans as scans_router
 from app.schemas.base import BodyOrgIdError
 from app.services.auth.rbac import PermissionDeniedError
 
@@ -168,6 +170,8 @@ async def health() -> HealthReport:
 # Registered as they land. Everything a router needs beyond validation and response shaping lives
 # in app/services/ so the Celery worker shares it (CLAUDE.md §2).
 app.include_router(auth_router.router)
+app.include_router(scans_router.router)
+app.include_router(admin_router.router)
 
 
 __all__ = ["app", "error_response"]

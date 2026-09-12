@@ -32,7 +32,9 @@ from app.services.vision.ocr import get_engine
 from app.worker import celery_app
 
 
-@celery_app.task(bind=True, name="scan.process", max_retries=3)
+# Celery ships no type information for `task`, so mypy sees an untyped decorator and
+# would treat everything it wraps as untyped. The task body itself is annotated.
+@celery_app.task(bind=True, name="scan.process", max_retries=3)  # type: ignore[untyped-decorator]
 def process_scan_task(self: Any, scan_id: str) -> dict[str, str]:
     """Process one scan. Retries on an unexpected error, with the app's backoff."""
     try:

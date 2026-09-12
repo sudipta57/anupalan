@@ -68,6 +68,17 @@ class ScanAsset:
     asset_id: str
     storage_key: str
 
+    sha256: str | None = None
+    """The hash the client declared when it asked for the upload URL (B14).
+
+    The API never sees the bytes — it signs a URL and the client uploads straight to object
+    storage — so this is the only way ``scan_assets.sha256`` can be recorded at upload time
+    (architecture §10). It is a *claim* until this pipeline checks it against what was actually
+    stored, which is what makes the evidence chain verifiable rather than merely asserted.
+
+    ``None`` means nothing was declared, and verification is skipped.
+    """
+
 
 @dataclass(frozen=True)
 class ScanRecord:
@@ -149,6 +160,31 @@ class ScanStore(Protocol):
     def mark(self, scan_id: str, status: ScanStatus) -> None: ...
 
     def save_outcome(self, outcome: ScanOutcome) -> None: ...
+
+
+class AssetIntegrityError(Exception):
+    """The stored object is not the one the client said it was uploading.
+
+    Fails the scan rather than processing anyway. The declared hash is what ``scan_assets.sha256``
+    records, and a report that cites a hash which does not match the bytes that produced it is
+    worse than a report with no hash at all — it asserts an integrity guarantee it cannot keep.
+    """
+
+
+def _verify_declared_hash(asset: ScanAsset, payload: bytes) -> None:
+    """Check stored bytes against the hash declared at upload time.
+
+    Raises:
+        AssetIntegrityError: they differ.
+    """
+    if asset.sha256 is None:
+        return
+
+    actual = hashlib.sha256(payload).hexdigest()
+    if actual != asset.sha256:
+        raise AssetIntegrityError(
+            f"asset {asset.asset_id} hashes to {actual}, but {asset.sha256} was declared at upload"
+        )
 
 
 def _decode(payload: bytes) -> npt.NDArray[np.uint8]:
@@ -258,9 +294,12 @@ def process_scan(
     )
 
     try:
-        image = _decode(storage.get_bytes(record.assets[0].storage_key))
-    except (IndexError, ValueError) as exc:
-        # The one genuinely fatal case: nothing to look at.
+        asset = record.assets[0]
+        payload = storage.get_bytes(asset.storage_key)
+        _verify_declared_hash(asset, payload)
+        image = _decode(payload)
+    except (IndexError, ValueError, AssetIntegrityError) as exc:
+        # The one genuinely fatal case: nothing to look at, or not the thing we were promised.
         outcome.status = "failed"
         outcome.error = f"could not read the scan image: {exc}"
         store.save_outcome(outcome)
@@ -328,6 +367,7 @@ def process_scan(
 
 __all__ = [
     "MEASURED_FIELDS",
+    "AssetIntegrityError",
     "ObjectStorage",
     "ScanAsset",
     "ScanOutcome",

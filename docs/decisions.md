@@ -141,6 +141,79 @@ development, and an HTML report is a plausible future delivery format. A second 
 never be added that bypasses `ReportData`.
 **PR:** n/a (B11) · **Requirement:** FR-27
 
+### 2026-09-12 — `POST /v1/scans` takes an asset list, not an `asset_count`
+**Context:** TRD §5 abbreviates the intake body as `{..., asset_count}`. Implementing B14 showed a
+count cannot produce upload URLs: `presign_put` needs a **content type per asset**, because the
+type is part of the signature (B4) and is what stops a client presenting one type to the
+allow-list and uploading another.
+**Decision:** The body carries `assets: [{content_type, size_bytes, sha256}]`. The size lets the
+ceiling be enforced when the capability is issued rather than after the bytes arrive. The hash is
+declared by the client and **verified by the worker** against the stored object before any
+processing; a mismatch fails the scan.
+**Alternatives:** Making `scan_assets.sha256` nullable and having the worker fill it in — rejected
+because it weakens evidence integrity: architecture §10 wants the hash of the raw image recorded
+*at upload*, and a hash the server computes later attests to what is in the bucket now, not to
+what the camera produced. Having the API hash the object at submit — rejected outright, FR-20 gives
+submit 300 ms and forbids it touching an image.
+**Consequences:** The declared hash is a *claim* until the worker checks it, which is the honest
+framing and is tested both ways. The mobile client must hash before uploading — it already holds
+the bytes for the offline queue, so this costs nothing there. `services/pipeline.ScanAsset` gained
+an optional `sha256`; `None` skips verification, so the golden-file test is unaffected.
+**PR:** n/a (B14) · **Requirement:** FR-20, SR
+
+### 2026-09-12 — Idempotency is a table, fingerprinted by request body
+**Context:** TRD §5 requires `Idempotency-Key` on every creating POST. The mobile app retries on a
+flaky connection and, with FR-04's offline queue, may retry a scan submitted days earlier — so a
+request arriving twice is the normal case, not the exceptional one. Without a record of what the
+first attempt produced, every retry is duplicate evidence and a dashboard that counts one
+inspection twice.
+**Decision:** An `idempotency_keys` table (migration 0002), org-scoped like everything else,
+storing a fingerprint of the canonical request body and the original response verbatim. A retry
+with the same body replays that response, presigned URLs included. A retry with a *different* body
+is a **409**.
+**Alternatives:** Redis with a TTL — rejected because it makes scan creation depend on Redis being
+up, where today Redis being down only degrades the worker, and a flush silently reopens the
+duplicate window. A column on `scans` — rejected: it carries no request fingerprint, and products
+and B21's bulk endpoint would each need their own column and unique index.
+**Consequences:** Records accumulate and are genuinely disposable; `purge_before` exists for a
+retention policy B23 will set. Replaying the stored response rather than re-deriving it is what
+keeps a retry from minting a second live upload capability for the same object.
+**PR:** n/a (B14) · **Requirement:** FR-20
+
+### 2026-09-12 — A recompute resolves its pack by version, database first then disk
+**Context:** B15's `confirm-fields` must re-evaluate under the pack the scan was **originally**
+judged by, not the active one (CLAUDE.md §3.6) — the backend plan lists the obvious
+`active_pack()` implementation as a standing trap. Something therefore has to turn a stored
+version label back into a `RulePack`.
+**Decision:** `repositories/rulepacks.resolve_pack` looks in the `rulepacks` table first, then in
+`rulepacks/` on disk, and **records** what it resolved from disk. The database becomes the durable
+copy, and a pack file later removed from the repository stays reproducible. When neither source
+has it, `confirm-fields` returns **409** rather than substituting today's rules.
+**Alternatives:** Always reading from disk — rejected: it ties reproducibility to whichever git
+revision is deployed. Seeding the table at startup — rejected as a migration-shaped problem
+solved lazily for free.
+**Consequences:** A read path that writes, which is unusual enough to be documented where it
+lives. The refusal is a real outcome and is tested: a scan whose pack has vanished cannot be
+recomputed, and saying so is the only honest answer.
+**PR:** n/a (B15) · **Requirement:** FR-06
+
+### 2026-09-12 — Audit verification continues from what each row claims
+**Context:** B16 requires the endpoint to report the **first** broken link. The naive walk carries
+the expected hash forward, so one edited row reports every subsequent row as broken too.
+**Decision:** `verify` continues from the hash each row *claims*, not from the one it should have
+had. A single edit therefore produces exactly one break, at the edited row, distinguishing
+`hash_mismatch` (the row was edited) from `broken_link` (a row was removed or inserted).
+`created_at` is set in Python and signed into the hash; the row `id` is not, because it is
+assigned on flush and the chain's order comes from the links. Canonicalisation is versioned
+(`CANONICAL_FORM`) and must never be edited in place.
+**Alternatives:** Reporting a boolean — rejected by the card and useless in practice: "the audit
+log is corrupt" bounds nothing. Including the `id` in the hash — rejected, it would force a flush
+before the hash could be computed for no gain.
+**Consequences:** Everything before the first break is still provably intact, which is the claim
+an investigator actually needs. Concurrent appends within one org could fork the chain; the tail
+read takes a row lock on Postgres, and SQLite needs none because the suite is single-threaded.
+**PR:** n/a (B16) · **Requirement:** SR
+
 ### 2026-09-12 — Metric accuracy is bounded by a *relative* scale error, not an absolute one
 **Context:** FR-21 states "a printed test chart with known 10.00 mm bars measures 10.00 ± 0.25 mm".
 Implementing B5 against synthetic ground truth showed the dominant error is not a fixed

@@ -15,6 +15,7 @@ identical result by its digest and writes nothing.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -89,6 +90,9 @@ def seeded(db_session):  # type: ignore[no-untyped-def]
     db_session.add(scan)
     db_session.flush()
 
+    # The real hash of the committed fixture. The client declares this when it asks for an upload
+    # URL (B14) and the pipeline verifies the stored object against it, so a placeholder here
+    # would skip the check rather than exercise it.
     db_session.add(
         ScanAsset(
             id=asset_id,
@@ -96,7 +100,7 @@ def seeded(db_session):  # type: ignore[no-untyped-def]
             org_id=org.id,
             kind="raw",
             s3_key=key,
-            sha256="f" * 64,
+            sha256=hashlib.sha256(FIXTURE_IMAGE.read_bytes()).hexdigest(),
             content_type="image/png",
         )
     )
@@ -106,8 +110,22 @@ def seeded(db_session):  # type: ignore[no-untyped-def]
         "org": org,
         "scan": scan,
         "scan_id": str(scan_id),
+        "asset_id": asset_id,
+        "key": key,
         "storage": FakeStorage({key: FIXTURE_IMAGE.read_bytes()}),
     }
+
+
+def replace_upload(db_session, seeded, data: bytes) -> None:  # type: ignore[no-untyped-def]
+    """Swap the stored bytes and the declared hash together.
+
+    Both, always. Changing the object without the declaration would trip the integrity check, so
+    a test meaning to exercise some *other* failure would never reach it.
+    """
+    seeded["storage"].objects = {seeded["key"]: data}
+    asset = db_session.get(ScanAsset, seeded["asset_id"])
+    asset.sha256 = hashlib.sha256(data).hexdigest()
+    db_session.flush()
 
 
 def count_of(session, model) -> int:  # type: ignore[no-untyped-def]
@@ -286,9 +304,7 @@ def test_a_different_verdict_set_appends_a_revision(db_session, seeded, ocr, pac
 def test_a_failed_scan_records_its_error_and_no_verdicts(db_session, seeded, ocr, pack) -> None:  # type: ignore[no-untyped-def]
     """An unreadable image must not produce an empty findings set. An empty findings set reads
     exactly like a clean label."""
-    seeded["storage"].objects = dict.fromkeys(
-        seeded["storage"].objects, b"this is not an image"
-    )
+    replace_upload(db_session, seeded, b"this is not an image")
 
     outcome = run(db_session, seeded, ocr, pack)
 
@@ -299,6 +315,27 @@ def test_a_failed_scan_records_its_error_and_no_verdicts(db_session, seeded, ocr
     assert scan.error
     assert count_of(db_session, ScanEvaluation) == 0
     assert count_of(db_session, Finding) == 0
+
+
+def test_an_object_that_does_not_match_its_declared_hash_fails_the_scan(  # type: ignore[no-untyped-def]
+    db_session, seeded, ocr, pack
+) -> None:
+    """The other half of B14's evidence chain.
+
+    The API never sees the image: it signs an upload URL and records the SHA-256 the client says
+    it is about to upload. That declaration is only worth anything if somebody checks it, and the
+    worker is the first thing to hold the bytes. A mismatch means the stored object is not what
+    was declared — a broken upload, or a substitution — and processing it anyway would attach a
+    hash to a report that the evidence does not actually have.
+    """
+    seeded["storage"].objects = {seeded["key"]: b"completely different bytes"}
+
+    outcome = run(db_session, seeded, ocr, pack)
+
+    assert outcome.status == "failed"
+    assert outcome.error is not None
+    assert "declared at upload" in outcome.error
+    assert count_of(db_session, ScanEvaluation) == 0
 
 
 def test_status_moves_through_the_machine(db_session, seeded, ocr, pack) -> None:  # type: ignore[no-untyped-def]
@@ -338,9 +375,7 @@ def test_a_no_marker_scan_completes_and_stores_no_measurements(  # type: ignore[
     cv2.putText(blank, "Net Qty: 250 g", (40, 300), cv2.FONT_HERSHEY_SIMPLEX, 2.0, 0, 3)
     ok, encoded = cv2.imencode(".png", blank)
     assert ok
-    seeded["storage"].objects = {
-        key: encoded.tobytes() for key in seeded["storage"].objects
-    }
+    replace_upload(db_session, seeded, encoded.tobytes())
 
     outcome = run(db_session, seeded, ocr, pack)
 

@@ -135,6 +135,23 @@ _NORMALISERS = {
 }
 
 
+def normalise_value(field_code: str, raw: str, pack: RulePack) -> str | None:
+    """Normalise a declaration exactly as the regex layer would.
+
+    Exposed for the human-confirmation path (FR-06): a value a person types must be canonicalised
+    the same way as one the patterns found, or "250 gms" would mean one thing when read by OCR and
+    another when corrected by an inspector — and the recomputed verdict would differ from the
+    original for a reason nobody could see.
+
+    Returns None when the value cannot be canonicalised for that field, which the caller records
+    as a raw-only extraction rather than inventing a normal form.
+    """
+    normaliser = _NORMALISERS.get(field_code)
+    if normaliser is None:
+        return normalise.collapse_whitespace(raw)
+    return normaliser(raw, pack)
+
+
 def _bbox_for(spans: Sequence[TextSpan], start: int, end: int) -> BBox | None:
     """Union of the boxes of the words a span touches, so a finding can be pointed at."""
     touched: list[Word] = words_for_span(spans, start, end)

@@ -148,7 +148,7 @@ class ReportRepository(OrgScopedRepository[Report]):
 # --------------------------------------------------------------------------- the pipeline's port
 
 
-def _profile_from_json(payload: dict[str, Any]) -> Profile:
+def profile_from_json(payload: dict[str, Any]) -> Profile:
     """Rebuild the frozen ``Profile`` a scan was submitted with.
 
     Unknown keys are dropped rather than raising. A scan stored under an older shape of ``Profile``
@@ -206,11 +206,15 @@ class ScanStoreAdapter:
         return ScanRecord(
             scan_id=str(scan.id),
             org_id=str(scan.org_id),
-            profile=_profile_from_json(dict(scan.profile or {})),
+            profile=profile_from_json(dict(scan.profile or {})),
             marker_mm=float(scan.marker_mm),
             captured_at=scan.captured_at.date(),
             assets=tuple(
-                PipelineAsset(asset_id=str(asset.id), storage_key=asset.s3_key)
+                PipelineAsset(
+                    asset_id=str(asset.id),
+                    storage_key=asset.s3_key,
+                    sha256=asset.sha256,
+                )
                 for asset in assets
             ),
             marker_type=scan.marker_type,
@@ -407,7 +411,7 @@ class ScanStoreAdapter:
 def profile_to_json(profile: Profile) -> dict[str, Any]:
     """Freeze a profile for storage on the scan row.
 
-    The inverse of ``_profile_from_json``. Kept next to it so the two cannot drift — a profile
+    The inverse of ``profile_from_json``. Kept next to it so the two cannot drift — a profile
     written in one shape and read in another is a verdict that changes on reprocessing.
     """
     return asdict(profile)
@@ -424,5 +428,6 @@ __all__ = [
     "ScanNotFoundError",
     "ScanRepository",
     "ScanStoreAdapter",
+    "profile_from_json",
     "profile_to_json",
 ]

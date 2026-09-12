@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from app.services.extraction.llm_layer import extract_with_llm
-from app.services.extraction.regex_layer import extract_with_patterns
+from app.services.extraction.regex_layer import extract_with_patterns, normalise_value
 from app.services.extraction.text import build_text
 from app.services.llm.provider import LLMProvider
 from app.services.rules.loader import RulePack
@@ -111,4 +111,5 @@ __all__ = [
     "FIELD_CODES",
     "extract",
     "needs_confirmation",
+    "normalise_value",
 ]
