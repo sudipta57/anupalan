@@ -98,3 +98,6 @@ desktop.ini
 *.sqlite
 *.sqlite3
 *.db-journal
+
+# Locally generated sample reports (backend/scripts and ad-hoc renders)
+backend/sample_report/

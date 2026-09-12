@@ -87,6 +87,37 @@ must be a deliberate, reviewed change, never a silent update — see
 rewrites and then fails the run it rewrote, so a rewrite can never be mistaken for a pass; review
 the diff, then re-run without the flag.
 
+### PDF rendering and the GTK3 native stack
+
+`services/reporting/pdf.py` uses WeasyPrint, which rasterises through GTK3 (pango, cairo,
+gdk-pixbuf). Those are system libraries — `pip` cannot install them, and a stock Windows
+workstation does not have them.
+
+This does **not** block report work. `pdf.py` is split:
+
+| Function | Needs GTK3? | What it does |
+|---|---|---|
+| `render_html(data) -> str` | no | the complete report as HTML — pure, deterministic, testable anywhere |
+| `render_pdf(data) -> bytes` | yes | hands that HTML to WeasyPrint |
+
+Every content assertion in `tests/test_reporting.py` runs against the HTML. Only
+`test_pdf_actually_rasterises` needs the native stack, and it skips with a reason when the
+libraries are absent — which is what you will see on Windows:
+
+```
+tests/test_reporting.py ..........s
+```
+
+CI (Ubuntu) installs the libraries, so the PDF path is exercised on every push. To render a PDF
+locally, either work under WSL or install the stack there:
+
+```bash
+sudo apt install -y libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libgdk-pixbuf-2.0-0
+```
+
+To eyeball a report during development, render the HTML and open it in a browser — faster than
+producing a PDF to look at, and it is the same markup WeasyPrint consumes.
+
 **Coverage floor.** `services/rules` and `services/vision` carry an 80% floor (`CLAUDE.md` §5) —
 these are the two places a bug is silent.
 
@@ -107,7 +138,8 @@ Update that file, not this section, when a package lands.
 |---|---|
 | `app/config.py`, `app/db.py`, `app/main.py`, `app/worker.py`, `app/health.py` | Scaffolded and working. `GET /health` is real; no router is registered yet. |
 | `app/services/rules/` | **Implemented (B0–B3).** Rule pack validation with line-level errors, checksumming, the pure `evaluate()` interpreter over all seven rule kinds, findings assembly. 14 baseline cases green. |
-| `app/services/{vision,extraction,reporting,bis,llm}/` | Not started. |
+| `app/services/reporting/` | **Implemented (B11).** One `ReportData` structure; PDF (via HTML), DOCX and JSON all render from it, so they cannot disagree. Advisory disclaimer and both SHA-256 hashes in every format. |
+| `app/services/{vision,extraction,bis,llm}/` | Not started. |
 | `app/models/`, `app/repositories/`, `alembic/versions/` | Not started — no migration exists yet. |
 | `app/routers/*.py` | Docstrings only; zero routes registered. |
 

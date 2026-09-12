@@ -22,6 +22,12 @@ dependencies = [
     # Rule packs are YAML. uvicorn[standard] happens to pull PyYAML in today, but
     # services/rules/loader.py must not depend on another package's extras.
     "pyyaml",
+    # Reporting (FR-27). python-docx is pure Python. WeasyPrint needs the GTK3 native stack
+    # (pango, cairo, gdk-pixbuf) present on the host — see backend/README.md. Importing
+    # services/reporting/pdf.py does NOT require it: the import is lazy inside render_pdf, so
+    # HTML rendering and every other format work on a machine without those libraries.
+    "python-docx",
+    "weasyprint",
 ]
 
 [project.optional-dependencies]

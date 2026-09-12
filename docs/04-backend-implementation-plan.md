@@ -24,9 +24,10 @@ Audited against the working tree, not against the plan.
 | `app/routers/*.py` | **Docstrings only.** Seven modules, each specifying its endpoints. Zero routes. |
 | `app/models/`, `app/schemas/`, `app/repositories/` | **Empty `__init__.py`.** |
 | `app/services/rules/` | **Done (B0–B3).** `schema.py` validates with line-level errors, `loader.py` checksums and activates, `evaluate.py` interprets all seven rule kinds, `findings.py` assembles. 14 baseline cases green, 88% coverage. |
-| `app/services/{vision,extraction,reporting,bis,llm}/` | **Empty `__init__.py`.** |
+| `app/services/reporting/` | **Implemented (B11).** `model.py` is the one structure PDF/DOCX/JSON all render from; `pdf.py` splits `render_html` (pure) from `render_pdf` (needs GTK3). Disclaimer and both hashes in every format. |
+| `app/services/{vision,extraction,bis,llm}/` | **Empty `__init__.py`.** |
 | `alembic/` | Configured; `versions/` is empty. **Zero migrations.** |
-| `tests/` | `test_health.py`, `test_rules.py` (17), `test_rulepack_loader.py` (12), `test_findings.py` (7). `conftest.py` carries the fixture loaders and the `--update-golden` contract; `tests/fixtures/rulepacks/` holds the deliberately broken packs. |
+| `tests/` | `test_health.py`, `test_rules.py` (17), `test_rulepack_loader.py` (12), `test_findings.py` (7), `test_reporting.py` (11, one skipped without GTK3). `conftest.py` carries the fixture loaders and the `--update-golden` contract; `tests/fixtures/rulepacks/` holds the deliberately broken packs. |
 | `scripts/` | **Does not exist.** The three eval commands in `CLAUDE.md` §4 and `eval-results.md` have no module behind them. |
 | CI | ruff + mypy (strict on services) + pytest, no datastores. Green. |
 
@@ -85,7 +86,7 @@ track D — sahayak (independent of A/B, needs B12 for the pgvector tables)
 | B8 | `LLMProvider` interface + two adapters (hosted, open-weight) | §9 | — | Oct 10 | vendor name appears only in config + adapter |
 | B9 | Extraction: regex layer, normalisation, LLM layer, span validation | FR-24 | B8 | Oct 11–14 | regex recall ≥0.8, +LLM ≥0.95 on 20 fixtures; every value has a verified `source_span` |
 | B10 | `process_scan` Celery task, status machine, retries | P2.3, NFR-04 | B4–B9, B12 | Oct 14–16 | golden-file test byte-identical; kill worker mid-job → job completes |
-| B11 | Reporting: one data structure → PDF, DOCX, JSON | FR-27 | B3 | Oct 16–18 | identical row count and verdict strings in both; DOCX table is a real `w:tbl` |
+| ✅ B11 | Reporting: one data structure → PDF, DOCX, JSON | FR-27 | B3 | done | identical row count and verdict strings in both; DOCX table is a real `w:tbl` |
 | B12 | Data layer: models, migrations, org-scoped repositories | DR, SR | — | Oct 1–4 (parallel) | `test_org_isolation` → 404 not 403 |
 | B13 | Auth: OTP, JWT access/refresh, RBAC dependency | SR | B12 | Oct 5–7 | role matrix test; token carries `org_id`, never trusted from the body |
 | B14 | Scan intake API: create, submit, get | FR-20 | B12, B13, B4 | Oct 8–10 | submit returns 202 `queued` in <300 ms |
@@ -682,7 +683,7 @@ DONE WHEN:   the §5 gates below are all green and the numbers are in docs/eval-
 | B6 | `paddleocr`, `paddlepaddle` | OCR | large; decide model caching so CI never downloads weights |
 | B8 | `httpx` (promote from dev) | LLM adapters | |
 | B9 | `python-dateutil`, possibly `regex` | month-year resolution, Unicode classes for Devanagari | |
-| B11 | `weasyprint`, `python-docx` | PDF, DOCX | weasyprint needs native pango/cairo on the deploy VM — raise with infra together |
+| ✅ B11 | `weasyprint`, `python-docx` | PDF, DOCX | **Added.** GTK3 native stack needed only by `render_pdf`; CI installs it, Windows dev skips that one test |
 | B12 | `pgvector` (Python bindings) | the vector column type | |
 | B13 | a JWT library, a hasher | auth | |
 | B19 | embedding + reranker runtime | BGE-M3, cross-encoder | heaviest addition; pin the model revisions |

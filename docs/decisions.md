@@ -118,3 +118,25 @@ is a code change — acceptable, since a new kind needs evaluator support anyway
 *option* to an existing kind stays a pure pack change: rule bodies are passed through to the
 evaluator unvalidated beyond their required keys.
 **PR:** n/a (B1) · **Requirement:** FR-26
+
+### 2026-09-12 — PDF rendering split into `render_html` and `render_pdf`
+**Context:** `03-implementation-plan.md` §P2.6 specifies WeasyPrint for PDF output. WeasyPrint
+rasterises through the GTK3 native stack (pango, cairo, gdk-pixbuf), which pip cannot install and
+which is absent on a stock Windows workstation — where development is currently happening. Taken
+naively that blocks all work on reports, not just PDF output.
+**Decision:** Keep WeasyPrint. `services/reporting/pdf.py` exposes `render_html(data) -> str`,
+which is pure and needs no native libraries, and `render_pdf(data) -> bytes`, which imports
+WeasyPrint lazily inside the function and hands it that HTML. Every content assertion in
+`tests/test_reporting.py` runs against the HTML; only `test_pdf_actually_rasterises` needs the
+native stack and it skips with a reason where it is missing. CI installs the apt packages so the
+rasterisation path is exercised on every push.
+**Alternatives:** Swapping to a pure-Python PDF library (reportlab, fpdf2) — rejected because it
+reverses a documented choice for a local-environment reason, and because an HTML/CSS template is
+far cheaper to iterate on than a drawing API for a document this layout-heavy. Requiring every
+developer to install MSYS2/GTK before touching reports — rejected as an unnecessary barrier given
+the split costs nothing.
+**Consequences:** PDF output is not verified on a Windows developer machine; CI is the gate for
+it. `render_html` is also independently useful — the layout can be opened in a browser during
+development, and an HTML report is a plausible future delivery format. A second renderer must
+never be added that bypasses `ReportData`.
+**PR:** n/a (B11) · **Requirement:** FR-27
