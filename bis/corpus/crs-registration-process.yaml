@@ -1,0 +1,76 @@
+# Fetched 2026-09-13 by scripts/fetch_bis.py from the url below.
+# sha256(normalised text): 96ef6ce1d6e5f0bf
+# Content region only - nav, breadcrumbs, sidebar and footer stripped. Link density 11%.
+# How registration works and what is submitted. Carries the phone-charger answer together with about-crs. Also linked as "instructions for applying online".
+source_type: crs_list
+title: CRS Registration Process
+url: https://www.crsbis.in/BIS/registration-page.do
+text: 'Registration
+
+  How to generate Test Request and select available Laboratory
+
+  Login using existing credentials
+
+  Enter Sample details.
+
+  Select any approved Laboratory from the list..
+
+  Await for confirmation from the selected Laboratory...
+
+  Read More »
+
+  Steps involved in Registration
+
+  Login with valid credentials
+
+  Generate Test Request
+
+  Get product tested from BIS recognized lab
+
+  Verify the test report upon issue by Testing Lab
+
+  Apply on portal using the verified Test Report within 90 days of it''s issue
+
+  Submit documents as per checklist
+
+  How to obtain login credentials
+
+  Go to
+
+  https://www.crsbis.in/BIS
+
+  Upload Business License in English (Copy of certified translation is required, if the document is in
+  foreign languages), establishing the name and address of the factory and indicating manufacturing activity
+  in its scope.
+
+  Read More »
+
+  How to submit the Sample
+
+  Display/Paste the QR code on the sample/ packet to lab for easy scanning along & submit along with a
+  copy of test request.
+
+  Send Sample and Test Request within 60 days of generation of Test Request to the Laboratory..........
+
+  Read More »
+
+  How to apply for licence online
+
+  Procedure for filing Form I under Smart Registration..
+
+  Login using existing credentials.
+
+  Submit Test Request Reference in alphanumeric form (this will upload the Test Report).
+
+  Submit Undertaking regarding declaration of conformity........
+
+  Read More »
+
+  Registered Manufacturesrs
+
+  Search facility has been provided to search for licences/products in the list of Registered Manufacturers
+  under Compulsory Registration Scheme...
+
+  Click here
+
+  to perform the search'

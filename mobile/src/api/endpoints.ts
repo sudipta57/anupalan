@@ -25,6 +25,7 @@ import type {
   ListingCheck,
   Page,
   Product,
+  ProductProfile,
   Report,
   SahayakAnswer,
   Scan,
@@ -36,6 +37,8 @@ import type {
 import {
   fromMarkerType,
   fromProfile,
+  toAcceptedPrefill,
+  toPrefill,
   toApplicability,
   toAnswer,
   toCsv,
@@ -53,6 +56,8 @@ import {
   type WireApplicability,
   type WireBulkListing,
   type WireFindings,
+  type WirePrefill,
+  type WirePrefillAccepted,
   type WireProductPage,
   type WireReport,
   type WireScan,
@@ -201,6 +206,31 @@ export const api = {
     };
   },
 
+  /**
+   * Ask the server to read a label photograph so the context form fills itself (FR-03).
+   *
+   * Returns as soon as the read is queued; `getPrefill` collects the answer. The image is sent
+   * base64 in the body rather than PUT to a presigned URL — see `adapters/prefill.ts` for why this
+   * one image takes the short path and the scan's own photographs do not.
+   *
+   * No idempotency key: a repeated prefill costs one OCR pass and yields the same suggestions, and
+   * a key would make a retry return a *stale* read of a photograph the user has since retaken.
+   */
+  requestPrefill: async (body: PrefillRequestBody): Promise<PrefillResult> =>
+    toAcceptedPrefill(
+      await transport.request<WirePrefillAccepted>({
+        method: 'POST',
+        path: '/prefill',
+        body: { image_base64: body.imageBase64, content_type: body.contentType },
+      })
+    ),
+
+  /** Collect a prefill. A 404 means it expired, which the form treats as "type it yourself". */
+  getPrefill: async (prefillId: string): Promise<PrefillResult> =>
+    toPrefill(
+      await transport.request<WirePrefill>({ method: 'GET', path: `/prefill/${prefillId}` })
+    ),
+
   submitScan: async (scanId: string): Promise<{ status: ScanStatus }> => {
     const submitted = await transport.request<{ status: WireScanStatus }>({
       method: 'POST',
@@ -263,6 +293,29 @@ export const api = {
       }),
       body.question,
       localId('ans')
+    ),
+
+  /**
+   * BIS applicability for a scan, from the profile the scan was **frozen** with.
+   *
+   * Not `bisApplicability` with the profile passed in: this endpoint stamps the answer with the
+   * scan's own `captured_at` rather than today, so a scan re-opened next year reproduces the
+   * verdict issued under the lists in force when the package was photographed. The same reason
+   * findings carry `rulepack_version` (CLAUDE.md §3.6).
+   *
+   * It needs no `productId`. A photographed label is almost never matched to a catalogue product,
+   * and requiring one is what made this screen a dead end.
+   */
+  bisApplicabilityForScan: async (
+    scanId: string,
+    profile: ProductProfile
+  ): Promise<BisApplicability> =>
+    toApplicability(
+      await transport.request<WireApplicability>({
+        method: 'POST',
+        path: `/scans/${scanId}/applicability`,
+      }),
+      profile
     ),
 
   bisApplicability: async (body: BisApplicabilityBody): Promise<BisApplicability> =>

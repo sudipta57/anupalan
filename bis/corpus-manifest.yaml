@@ -1,0 +1,235 @@
+# BIS corpus manifest
+#
+# Every URL below was read off the live bis.gov.in navigation on 2026-09-13, from a
+# real fetch of the products-under-compulsory-certification page. They are not
+# recalled or constructed. They are still unverified as *content* until the ingester
+# fetches each one and its soft-404 guards pass — status 200 proves nothing on this host.
+#
+# `note` is what to expect and what to keep. The ingester copies it into the file header.
+#
+# Coverage check against the six starter questions:
+#   Does a phone charger need BIS registration?   -> crs-about, crs-registration, scheme-ii
+#   Which purities can be hallmarked?             -> hallmarking-overview, hallmarking-faq-mandatory
+#   Difference between ISI and CRS?               -> scheme-i, scheme-ii, crs-about
+#   Does this product need BIS certification?     -> compulsory-cert, qco-guidance, upcoming-qcos
+#   Which scheme applies, ISI or CRS?             -> scheme-i/ii/iv/x
+#   How do I apply for a licence?                 -> cert-process, apply-online, cert-fee, crs-registration
+
+sources:
+
+  # ---- what a QCO is, and which products are covered ----------------------
+
+  - source_type: mandatory_cert_list
+    title: Products under Compulsory Certification
+    url: https://www.bis.gov.in/product-certification/products-under-compulsory-certification/
+    note: >
+      VERIFIED BY FETCH 2026-09-13. Content region is ONE paragraph (certification is
+      voluntary by default; the Central Government makes conformity mandatory via a QCO,
+      requiring the Standard Mark under licence or CoC) plus five links and a
+      "Last Updated on April 15, 2026" stamp. Everything else on the page is menu.
+      Expect a high link density flag. Keep the paragraph; the scheme links are
+      ingested separately below.
+
+  - source_type: scheme_guide
+    title: Guidance Document on Quality Control Orders
+    url: https://www.bis.gov.in/wp-content/uploads/2021/07/Guidance-document-on-QCOs-Revised-1.pdf
+    note: >
+      PDF, ~695 KB, linked from the compulsory-certification page. This is the primary
+      explanation of what a QCO is and how one is issued. Needs PDF text extraction,
+      not the HTML path — run it through the pdf reader before the blocklist check.
+
+  - source_type: mandatory_cert_list
+    title: Upcoming QCOs Notified and Due for Implementation
+    url: https://www.bis.gov.in/upcoming-qcos-notified-and-due-for-implementation/
+    note: >
+      Forward-looking QCO dates. High value because the assistant must not tell a user
+      a product is unregulated when a QCO takes effect next quarter. Likely a table;
+      keep the table, drop the surrounding nav. Re-ingest monthly.
+
+  # ---- the four schemes ---------------------------------------------------
+
+  - source_type: scheme_guide
+    title: Scheme I - ISI Mark Scheme
+    url: https://www.bis.gov.in/product-certification/products-under-compulsory-certification/scheme-i-mark-scheme/
+    note: >
+      The ISI mark route. This is the half of the ISI-vs-CRS answer that involves a
+      factory audit. If this page is a bare product index with no explanatory prose,
+      record that in the skip report rather than shipping a link dump.
+
+  - source_type: scheme_guide
+    title: Scheme II - Registration Scheme
+    url: https://www.bis.gov.in/product-certification/products-under-compulsory-certification/scheme-ii-registration-scheme/
+    note: >
+      The CRS route on bis.gov.in. Pair with crs-about below; between them the corpus
+      must support the key distinction that CRS is a test-report-based registration
+      with no factory audit.
+
+  - source_type: scheme_guide
+    title: Scheme IV - Certificate of Conformity
+    url: https://www.bis.gov.in/product-certification/products-under-compulsory-certification/scheme-4/
+    note: The CoC route. Needed so the assistant does not present ISI and CRS as the only two options.
+
+  - source_type: scheme_guide
+    title: Scheme X - Certification
+    url: https://www.bis.gov.in/products-under-compulsory-certification-scheme-x/
+    note: >
+      Note the different URL shape — this one is NOT under the
+      /product-certification/products-under-compulsory-certification/ path. Copied
+      verbatim from the live nav; do not "correct" it to match the others.
+
+  # ---- CRS, on its own host ----------------------------------------------
+
+  - source_type: crs_list
+    title: About the Compulsory Registration Scheme
+    url: https://www.crsbis.in/BIS/about-crs.do
+    note: >
+      crsbis.in is a separate application, not WordPress — the CSS selectors that work
+      on bis.gov.in may not apply. Check the extracted text by eye the first time.
+
+  - source_type: crs_list
+    title: CRS Registration Process
+    url: https://www.crsbis.in/BIS/registration-page.do
+    note: >
+      How registration works and what is submitted. Carries the phone-charger answer
+      together with about-crs. Also linked as "instructions for applying online".
+
+  - source_type: faq
+    title: CRS Frequently Asked Questions
+    url: https://www.crsbis.in/BIS/faq-bis.do
+    note: FAQ format retrieves well. Keep question and answer together when chunking.
+
+  - source_type: crs_list
+    title: CRS Inclusion and Renewal
+    url: https://www.crsbis.in/BIS/inclusion_renewal.do
+    note: Adding products to an existing registration, and renewal. Secondary priority.
+
+  - source_type: lab_directory
+    title: BIS Recognised Laboratories for CRS
+    url: https://www.crsbis.in/BIS/bis_lab.do
+    note: >
+      Labs that can issue CRS test reports. Probably a long table — if it exceeds a
+      sensible size, store the page as a pointer with a short summary rather than
+      the full table, and let the assistant link out.
+
+  # ---- applying for a licence --------------------------------------------
+
+  - source_type: scheme_guide
+    title: Product Certification Process
+    url: https://www.bis.gov.in/product-certification/product-certification-process/
+    note: The steps, who applies, what is submitted. Core to the "how do I apply" question.
+
+  - source_type: scheme_guide
+    title: Product Certification Apply Online
+    url: https://www.bis.gov.in/product-certification/product-certificatin-apply-online/
+    note: >
+      The typo "certificatin" is in the real BIS URL. Do not fix it — the corrected
+      spelling will return a soft 200 and poison the corpus.
+
+  - source_type: scheme_guide
+    title: Product Certification Fee
+    url: https://www.bis.gov.in/product-certification/product-certification-fee/
+    note: Fees change. Re-ingest quarterly and let the assistant show the fetched date.
+
+  - source_type: faq
+    title: Product Certification Frequently Asked Questions
+    url: https://www.bis.gov.in/product-certification/product-certification-faq/
+    note: Highest retrieval value per byte on the whole list. Prioritise it.
+
+  # ---- hallmarking --------------------------------------------------------
+
+  - source_type: hallmarking
+    title: Hallmarking Overview
+    url: https://www.bis.gov.in/hallmarking-overview/
+    note: Entry point for the purities and articles question.
+
+  - source_type: hallmarking
+    title: Mandatory Hallmarking Order
+    url: https://www.bis.gov.in/hallmarking-overview/mandatory-hallmarking-order/
+    note: >
+      Index page for the order and its amendments. Amended repeatedly — the live nav on
+      2026-09-13 listed amendments through 03 August 2026 plus a phase-wise district
+      coverage document. Ingest this index, then the individual gazette PDFs below.
+
+  - source_type: qco_gazette
+    title: Phase-wise Coverage of Districts under Gold Mandatory Hallmarking
+    url: https://www.bis.gov.in/wp-content/uploads/2026/09/Phase-wise-coverage-of-districts-under-gold-mandatory-hallmarking.pdf
+    note: >
+      Most recent document on the hallmarking nav (uploads/2026/09). Answers "is my
+      district covered", which is the question jewellers actually ask.
+
+  - source_type: qco_gazette
+    title: Mandatory Hallmarking Amendment Notification 03 August 2026
+    url: https://www.bis.gov.in/wp-content/uploads/2026/08/Notification-related-to-mandatory-Hallmarking-2.pdf
+    note: Latest amendment PDF on the nav. Gazette text, public.
+
+  - source_type: faq
+    title: Hallmarking FAQ - Mandatory Hallmarking
+    url: https://www.bis.gov.in/hallmarking-overview/hallmarking-faqs/mandatory/
+    note: >
+      The purities/karatages answer most likely lives here. BIS splits hallmarking FAQs
+      into three pages — general, mandatory, and BIS Act & Regulation. Take all three.
+
+  - source_type: faq
+    title: Hallmarking FAQ - General
+    url: https://www.bis.gov.in/hallmarking-overview/hallmarking-faqs/hallmarking-faq/
+    note: >
+      Likely covers HUID. Watch for a soft 404 here — the URL repeats the word
+      "hallmarking-faq" inside "hallmarking-faqs" and looks like a typo but is the real path.
+
+  - source_type: hallmarking
+    title: Jewellers Registration Scheme
+    url: https://www.bis.gov.in/hallmarking-overview/jewellers-registration-scheme/
+    note: Who must register and how. The "who must register" half of the hallmarking question.
+
+  - source_type: hallmarking
+    title: Guidelines for Jewellers
+    url: https://www.bis.gov.in/wp-content/uploads/2026/07/Guidelines-for-Jewellers.pdf
+    note: 2026 revision, linked from the jewellers nav. PDF.
+
+  # ---- laboratories -------------------------------------------------------
+
+  - source_type: lab_directory
+    title: List of BIS Recognised and Empanelled Laboratories
+    url: https://www.bis.gov.in/laboratorys/list-of-bis-recognized-lab/
+    note: >
+      The public explainer page. The actual lists are two PDFs (Group 1 recognised,
+      Group 2 empanelled) linked below. Take the explanation here, not the tables.
+
+  - source_type: lab_directory
+    title: Group 1 BIS Recognised Laboratories
+    url: https://www.bis.gov.in/wp-content/uploads/2026/06/Group_1_24062026.pdf
+    note: >
+      Dated PDF (24-06-2026). Filenames carry the revision date, so a stale corpus is
+      detectable — compare the manifest URL against the live nav before each re-ingest.
+
+  - source_type: lab_directory
+    title: Group 2 Laboratories Empanelled by BIS
+    url: https://www.bis.gov.in/wp-content/uploads/2026/04/Group-2_23042026.pdf
+    note: Dated PDF (23-04-2026). Same staleness check as Group 1.
+
+  - source_type: scheme_guide
+    title: Uniform Test Report Format for the Compulsory Registration Scheme
+    url: https://www.bis.gov.in/laboratorys/utrf/
+    note: What a CRS test report must look like. Supports the "no factory audit, test report instead" point.
+
+# -----------------------------------------------------------------------------
+# DELIBERATELY EXCLUDED — do not add these
+# -----------------------------------------------------------------------------
+# https://standardsbis.bsbedge.com/                     BIS e-store. Sells standards. Blocklisted host.
+# https://standards.bis.gov.in/website/published-standards/department-wise
+#                                                       Standards catalogue browser. Index metadata may
+#                                                       be acceptable as catalogue_metadata under the 8k
+#                                                       cap, but only after someone confirms the pages
+#                                                       carry no scope text lifted from the standards.
+#                                                       Left out until that check is done.
+# https://standards.bis.gov.in/website/know-your-standards
+#                                                       Same reservation as above.
+# https://www.services.bis.gov.in/php/BIS_2.0/dgdashboard/Published_Standards
+#                                                       "Swadeshi Indian Standards - free download".
+#                                                       Free of charge is not the same as free of
+#                                                       copyright, and these are standards. Excluded.
+#
+# Worth reading yourself, not ingesting:
+# https://bis.gov.in/PDF/lab/copyright.pdf              BIS's own copyright position on Indian Standards.
+#                                                       Read it before anyone argues the boundary is
+#                                                       more generous than this manifest assumes.

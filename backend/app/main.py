@@ -23,6 +23,7 @@ from app.health import HealthReport, check_health
 from app.routers import admin as admin_router
 from app.routers import auth as auth_router
 from app.routers import dashboard as dashboard_router
+from app.routers import prefill as prefill_router
 from app.routers import products as products_router
 from app.routers import reports as reports_router
 from app.routers import sahayak as sahayak_router
@@ -236,6 +237,7 @@ app.include_router(dashboard_router.router)
 app.include_router(sahayak_router.router)
 app.include_router(products_router.router)
 app.include_router(reports_router.router)
+app.include_router(prefill_router.router)
 
 
 __all__ = ["app", "error_response"]

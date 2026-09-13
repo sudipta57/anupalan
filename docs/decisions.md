@@ -1383,3 +1383,40 @@ verdict was visible — it is that it existed at all. A computed verdict over un
 number somebody will eventually read out of the database, whatever the UI does with it.
 
 **PR:** n/a · **Requirement:** FR-05, FR-06, architecture §5 S6, CLAUDE.md §3.4, §3.6
+
+---
+
+## 2026-09-13 — BIS applicability reads the scan, and Sahayak is grounded in it
+
+**Decision:** the scan's BIS screen calls `POST /v1/scans/{id}/applicability` instead of gating on a
+`productId` it never has, and `scan_id` on `POST /v1/sahayak/ask` now loads that scan's frozen
+profile into the generation prompt. The screen shows the deterministic verdict with the conversation
+beneath it.
+
+**Why:** the button was a dead end. Every scan taken in the field has `product_id = null` — a
+photographed label is not matched to a catalogue product — and the screen returned "no applicability
+record" without making a request, for an endpoint that had never needed a product row. It reads the
+frozen profile and stamps the answer with `captured_at`, so the verdict stays reproducible under the
+lists in force at capture (CLAUDE.md §3.6).
+
+The chat was the other half. It existed and worked, but `scan_id` was used only for org-scoping and
+for the `bis_queries` row, so a question about "this product" reached the model with no product
+attached. Grounding is what makes one tap from a scan useful.
+
+**What did not change, deliberately:** retrieval still receives the question exactly as typed, so
+which sources an answer may cite is still a function of the question alone. The product is context,
+never a source — every claim must still name a retrieved passage — and applicability is still
+decided by the table lookup and nothing else. A wrong "no licence needed" is a seized consignment,
+so the chat sits under the verdict rather than in place of it.
+
+**Alternative rejected:** replacing the applicability screen with the chat, which is the literal
+shape of the request. It reads better and it inverts §3.1 in the BIS half of the system: the thing
+that answers "does this need certification" would become a model with a citation check rather than a
+reviewed list, and the answer people act on would stop being reproducible.
+
+**Known limit, not fixed here:** the corpus is one document and one chunk, so most questions refuse
+with `no_supporting_source`. That is the refusal working — an answer with no source is withheld —
+but it is now the binding constraint on answer quality, and it is a `bis/` data change needing review
+under CLAUDE.md §7.
+
+**PR:** n/a · **Requirement:** FR-07, FR-28, FR-29, CLAUDE.md §3.1, §3.5, §3.6

@@ -124,6 +124,36 @@ def build_key(
     return f"{org_id}/{scan_id}/{kind}/{asset_id}.{clean_extension}"
 
 
+PREFILL_PREFIX = "prefill"
+"""Key prefix for context-prefill scratch images (FR-03).
+
+Its own top-level prefix, not a ``kind`` under a scan, because these objects belong to no scan and
+must not be reachable as a scan asset. The worker deletes each one as soon as it has read it; the
+bucket carries a short lifecycle rule on this prefix as the backstop for a worker that died
+between the upload and the read (``infra/README.md``).
+"""
+
+
+def build_prefill_key(*, org_id: str, prefill_id: str, extension: str) -> str:
+    """Assemble a scratch key as ``prefill/{org_id}/{prefill_id}.{ext}``.
+
+    Same validation as ``build_key`` and the same guarantee: the org prefix comes first and cannot
+    be escaped.
+
+    Raises:
+        StorageError: a segment is empty, malformed, or attempts traversal.
+    """
+    for label, value in (("org_id", org_id), ("prefill_id", prefill_id)):
+        if not _SEGMENT.match(value or ""):
+            raise StorageError(f"{label} {value!r} is not a valid key segment")
+
+    clean_extension = extension.lstrip(".").lower()
+    if not re.match(r"^[a-z0-9]{1,8}$", clean_extension):
+        raise StorageError(f"extension {extension!r} is not valid")
+
+    return f"{PREFILL_PREFIX}/{org_id}/{prefill_id}.{clean_extension}"
+
+
 def strip_exif(data: bytes) -> bytes:
     """Return ``data`` with image metadata removed, or unchanged if it is not an image.
 

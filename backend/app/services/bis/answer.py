@@ -200,16 +200,25 @@ Rules you must follow:
 - Do not reproduce the technical content of a standard. You do not have it and must not invent it.
 - Answer in {language}.
 
+The question may be accompanied by a "Product" block describing what the user scanned. It is
+context for understanding the question, never a source: it is the user's own declaration, not
+published BIS material. You may refer to it, but every claim about what the RULES require must
+still come from a passage and name its id. If the passages do not cover this product, say that —
+do not reason from the product description to a certification requirement.
+
 Reply with JSON in exactly this shape, and nothing else:
 {{"answer": "the answer, in {language}",
   "claims": [{{"text": "one factual sentence from the answer",
-               "chunk_id": "the id of the passage it came from"}}]}}
+               "chunk_id": "the label of the passage it came from, e.g. P1"}}]}}
 
 Every factual sentence in "answer" needs its own entry in "claims", and every chunk_id must be one
-of the ids below. An answer that refuses because the passages do not cover the question carries an
-empty "claims" list.
+of the labels below. An answer that refuses because the passages do not cover the question carries
+an empty "claims" list.
 
-Question:
+Put the label in "claims" only. Do not write passage labels into the "answer" text itself — the
+answer is read by a person who cannot see these passages, so "according to P2" tells them nothing.
+
+{product}Question:
 {question}
 
 Passages:
@@ -217,12 +226,45 @@ Passages:
 """
 
 
+def _render_product(product: str | None) -> str:
+    """The scanned product as a prompt block, or nothing at all.
+
+    Empty rather than a "Product: unknown" placeholder — a slot that says the model was told
+    nothing invites it to fill the gap, and the free-chat path genuinely has no product.
+    """
+    text = (product or "").strip()
+    return f"Product the user scanned:\n{text}\n\n" if text else ""
+
+
+def _label(index: int) -> str:
+    """The name a passage is given in the prompt: ``P1``, ``P2``, ...
+
+    Short and almost digit-free, and both properties are load-bearing.
+
+    Passages used to be labelled with their chunk UUID. A model asked to cite ``P1`` writes "P1";
+    a model asked to cite ``e2afcf2c-a8b0-4a19-8eb2-9e72f42183c0`` sometimes writes *that* into the
+    prose — "According to passage e2afcf2c-...-9e72f42183c0, products are brought under..." — and
+    the number validator below then reads ``42183``, ``19``, ``72`` out of the id and withholds a
+    correct answer for stating figures no source contains. Observed on a real question; the answer
+    was accurate and the citation genuine.
+
+    Labels are positional and live only for the length of one call, so nothing persists them and
+    ``_citation`` still resolves them back to the real chunk before anything is stored or shown.
+    """
+    return f"P{index + 1}"
+
+
+_LABEL_IN_TEXT = re.compile(r"\bP\d+\b")
+"""A passage label appearing in the answer prose. Removed before the number check, so the ``1`` in
+``P1`` cannot be read as a figure — the smaller version of the bug the labels themselves fix."""
+
+
 def _render_passages(chunks: Sequence[RetrievedChunk]) -> str:
     return "\n\n".join(
-        f"[{chunk.chunk_id}] ({chunk.candidate.title}"
+        f"[{_label(index)}] ({chunk.candidate.title}"
         + (f", {chunk.candidate.section_ref}" if chunk.candidate.section_ref else "")
         + f")\n{chunk.text}"
-        for chunk in chunks
+        for index, chunk in enumerate(chunks)
     )
 
 
@@ -262,10 +304,11 @@ def _freshness(citations: Sequence[Citation], fallback: date) -> date:
 
 
 def _confidence(chunks: Sequence[RetrievedChunk], cited: set[str]) -> float | None:
+    """Mean reranker score over the cited passages. ``cited`` holds prompt labels, not chunk ids."""
     scores = [
         chunk.rerank_score
-        for chunk in chunks
-        if str(chunk.chunk_id) in cited and chunk.rerank_score is not None
+        for index, chunk in enumerate(chunks)
+        if _label(index) in cited and chunk.rerank_score is not None
     ]
     if not scores:
         return None
@@ -280,6 +323,7 @@ def answer(
     as_of: date,
     fallback_sources: Sequence[Source] = (),
     language: str = "English",
+    product: str | None = None,
     max_tokens: int = 700,
 ) -> Answer:
     """Write a cited answer, or refuse.
@@ -294,6 +338,10 @@ def answer(
         fallback_sources: official pages to offer on a refusal. Data from the BIS lists, so a
             changed URL is a reviewed edit and not a deploy.
         language: the language to answer in (NFR-08).
+        product: the scanned product, rendered for the prompt, or ``None`` for free chat. Grounds
+            the answer in what the user actually photographed. It is **context, never a source**:
+            the citation check below still requires every claim to name a retrieved passage, so a
+            product description cannot become the authority for a certification requirement.
 
     The order of the checks matters. Priced-content requests are refused **before** retrieval runs,
     because the corpus does not hold that content and a search for it returns something adjacent
@@ -322,7 +370,7 @@ def answer(
             sources=tuple(fallback_sources),
         )
 
-    available = {str(chunk.chunk_id): chunk for chunk in chunks}
+    available = {_label(index): chunk for index, chunk in enumerate(chunks)}
 
     if llm is None:
         return Answer(
@@ -342,6 +390,7 @@ def answer(
             question=question.strip(),
             passages=_render_passages(chunks),
             language=language,
+            product=_render_product(product),
         ),
         schema=ANSWER_SCHEMA,
         temperature=0.0,
@@ -395,8 +444,13 @@ def answer(
         )
 
     supporting = " ".join(available[chunk_id].text for chunk_id in set(cited_ids))
-    allowed_numbers = _numbers(supporting) | _numbers(question)
-    fabricated = _numbers(text) - allowed_numbers
+    # The product block counts as allowed provenance for *numbers* alone. A net quantity the user
+    # declared is not a fabricated figure when the answer repeats it back — without this line every
+    # product-grounded answer that mentions "36 g" is refused as an unsupported claim, which is a
+    # refusal nobody could diagnose from the message. It buys the model no authority over what the
+    # rules require: that still needs a claim naming a passage.
+    allowed_numbers = _numbers(supporting) | _numbers(question) | _numbers(product or "")
+    fabricated = _numbers(_LABEL_IN_TEXT.sub(" ", text)) - allowed_numbers
     if fabricated:
         # A number in the answer that is in no cited passage and was not in the question. Fees,
         # durations and clause numbers are exactly what a reader acts on, and exactly what a model

@@ -108,6 +108,16 @@ def cited(result: Answer) -> set[str]:
     return {citation.chunk_id for citation in result.citations}
 
 
+def label(index: int = 0) -> str:
+    """What the prompt calls the passage at this position — mirrors ``answer._label``.
+
+    Passages are named ``P1``, ``P2`` ... in the prompt rather than by chunk UUID, so this is what
+    a model's ``claims`` must carry. The *output* citations still carry the real chunk ids, which
+    is why every ``cited(result)`` assertion below is unchanged.
+    """
+    return f"P{index + 1}"
+
+
 # --------------------------------------------------------------------------- the IP boundary
 
 UNANSWERABLE: tuple[str, ...] = (
@@ -219,7 +229,7 @@ def test_a_numeric_claim_absent_from_the_cited_chunks_fails() -> None:
         {
             "answer": "A Scheme I licence costs 65000 rupees.",
             "claims": [
-                {"text": "A licence costs 65000 rupees.", "chunk_id": str(CRS_CHUNK.chunk_id)}
+                {"text": "A licence costs 65000 rupees.", "chunk_id": label()}
             ],
         }
     )
@@ -240,7 +250,7 @@ def test_a_number_that_came_from_the_question_is_allowed() -> None:
     llm = FakeLLM(
         {
             "answer": "A 65 W charger is covered by the Compulsory Registration Scheme.",
-            "claims": [{"text": "covered by CRS", "chunk_id": str(CRS_CHUNK.chunk_id)}],
+            "claims": [{"text": "covered by CRS", "chunk_id": label()}],
         }
     )
 
@@ -260,7 +270,7 @@ def test_a_reformatted_number_still_matches_its_source() -> None:
     llm = FakeLLM(
         {
             "answer": "The application fee is 1000 rupees.",
-            "claims": [{"text": "fee", "chunk_id": str(FEE_CHUNK.chunk_id)}],
+            "claims": [{"text": "fee", "chunk_id": label()}],
         }
     )
 
@@ -341,8 +351,8 @@ def test_a_valid_answer_carries_its_citations_freshness_and_confidence() -> None
         {
             "answer": "Laptop chargers require CRS registration against IS 13252 (Part 1).",
             "claims": [
-                {"text": "require CRS registration", "chunk_id": str(CRS_CHUNK.chunk_id)},
-                {"text": "against IS 13252", "chunk_id": str(CRS_CHUNK.chunk_id)},
+                {"text": "require CRS registration", "chunk_id": label()},
+                {"text": "against IS 13252", "chunk_id": label()},
             ],
         }
     )
@@ -372,7 +382,7 @@ def test_the_model_is_asked_for_strict_json_at_temperature_zero() -> None:
     llm = FakeLLM(
         {
             "answer": "Laptop chargers require CRS registration.",
-            "claims": [{"text": "CRS", "chunk_id": str(CRS_CHUNK.chunk_id)}],
+            "claims": [{"text": "CRS", "chunk_id": label()}],
         }
     )
 
@@ -383,7 +393,7 @@ def test_the_model_is_asked_for_strict_json_at_temperature_zero() -> None:
     assert call["schema"]["required"] == ["answer", "claims"]
     assert call["tier"] == "mid"
     # The passages are the model's only context. Nothing else may reach it.
-    assert str(CRS_CHUNK.chunk_id) in call["prompt"]
+    assert f"[{label()}]" in call["prompt"]
     assert "Do laptop chargers need registration?" in call["prompt"]
 
 
@@ -392,8 +402,8 @@ def test_a_citation_repeated_across_claims_appears_once() -> None:
         {
             "answer": "Registration applies.",
             "claims": [
-                {"text": "a", "chunk_id": str(CRS_CHUNK.chunk_id)},
-                {"text": "b", "chunk_id": str(CRS_CHUNK.chunk_id)},
+                {"text": "a", "chunk_id": label()},
+                {"text": "b", "chunk_id": label()},
             ],
         }
     )
@@ -401,3 +411,159 @@ def test_a_citation_repeated_across_claims_appears_once() -> None:
     result = answer("q", chunks=[CRS_CHUNK], llm=llm, as_of=AS_OF)
 
     assert len(result.citations) == 1
+
+
+# --------------------------------------------------------------------------- product grounding
+
+
+PRODUCT = "name: Protein 4; category: food.dairy; net quantity: 36 g; pack: flexible; sold: retail"
+"""What `routers/sahayak._product_context` renders for a scan whose profile was frozen at capture.
+
+Deliberately carries a number (36) that appears in no passage — that is the case the number
+validator gets wrong if the product block is not counted as provenance.
+"""
+
+
+def test_the_scanned_product_reaches_the_prompt() -> None:
+    """A question about "this product" is unanswerable unless the model is told what it is."""
+    llm = FakeLLM(
+        {
+            "answer": "Chargers need CRS registration.",
+            "claims": [
+                {
+                    "text": "Chargers need CRS registration.",
+                    "chunk_id": label(),
+                }
+            ],
+        }
+    )
+
+    answer(
+        "Does this product need BIS certification?",
+        chunks=[CRS_CHUNK],
+        llm=llm,
+        as_of=AS_OF,
+        product=PRODUCT,
+    )
+
+    prompt = llm.calls[0]["prompt"]
+    assert "Product the user scanned:" in prompt
+    assert PRODUCT in prompt
+
+
+def test_free_chat_carries_no_product_block() -> None:
+    """No scan, no slot. A "Product: unknown" placeholder invites the model to fill the gap."""
+    llm = FakeLLM(
+        {
+            "answer": "Chargers need CRS registration.",
+            "claims": [
+                {
+                    "text": "Chargers need CRS registration.",
+                    "chunk_id": label(),
+                }
+            ],
+        }
+    )
+
+    answer("Which standard covers chargers?", chunks=[CRS_CHUNK], llm=llm, as_of=AS_OF)
+
+    assert "Product the user scanned" not in llm.calls[0]["prompt"]
+
+
+def test_a_quantity_the_user_declared_is_not_a_fabricated_figure() -> None:
+    """The regression the `allowed_numbers` line exists for.
+
+    ``36`` is in the product block and in no passage. Without the product counted as provenance,
+    every grounded answer that repeats the pack size back is refused as an unsupported claim — and
+    the refusal message blames the model for a figure the user themselves supplied.
+    """
+    llm = FakeLLM(
+        {
+            "answer": "For a 36 g pack, registration is under CRS.",
+            "claims": [
+                {"text": "Registration is under CRS.", "chunk_id": label()}
+            ],
+        }
+    )
+
+    result = answer(
+        "Does this need certification?",
+        chunks=[CRS_CHUNK],
+        llm=llm,
+        as_of=AS_OF,
+        product=PRODUCT,
+        fallback_sources=FALLBACK,
+    )
+
+    assert not result.refused, result.refusal_reason
+    assert "36 g" in result.text
+
+
+def test_the_product_block_buys_no_authority_over_the_rules() -> None:
+    """Grounding is not sourcing.
+
+    The product is context, so an answer that cites nothing but the product is still withheld. If
+    this ever passes, a user's own typed-in category has become the authority for a certification
+    verdict — CLAUDE.md §3.1 in the BIS half of the system.
+    """
+    llm = FakeLLM({"answer": "It is food, so no BIS licence is needed.", "claims": []})
+
+    result = answer(
+        "Does this product need BIS certification?",
+        chunks=[CRS_CHUNK],
+        llm=llm,
+        as_of=AS_OF,
+        product=PRODUCT,
+        fallback_sources=FALLBACK,
+    )
+
+    assert result.refused
+    assert result.refusal_reason == "unsupported_claim"
+
+
+def test_a_citation_id_in_the_prose_is_not_read_as_a_fabricated_figure() -> None:
+    """The regression that `_label` exists for.
+
+    Passages used to be labelled with their chunk UUID, and a model asked to cite
+    ``e2afcf2c-a8b0-4a19-8eb2-9e72f42183c0`` sometimes wrote it into the answer itself. The number
+    validator then read ``42183``, ``19`` and ``72`` out of the id and withheld the answer for
+    stating figures no source contained — a correct answer with a genuine citation, binned by its
+    own provenance. Seen on a real question against the live corpus.
+
+    The fix is upstream (short labels, so there is no id full of digits to quote), and this pins the
+    downstream half: a label that reaches the prose anyway must not be mistaken for a figure.
+    """
+    llm = FakeLLM(
+        {
+            "answer": f"According to passage {label()}, chargers need CRS registration.",
+            "claims": [{"text": "Chargers need CRS registration.", "chunk_id": label()}],
+        }
+    )
+
+    result = answer(
+        "Do chargers need registration?",
+        chunks=[CRS_CHUNK],
+        llm=llm,
+        as_of=AS_OF,
+        fallback_sources=FALLBACK,
+    )
+
+    assert not result.refused, result.refusal_reason
+    assert cited(result) == {str(CRS_CHUNK.chunk_id)}
+
+
+def test_the_prompt_never_shows_a_chunk_uuid() -> None:
+    """A UUID in the prompt is a UUID the model can copy into its answer.
+
+    Also why the labels are short: six passages of BIS prose plus six 36-character ids is tokens
+    spent on something the reader never sees.
+    """
+    llm = FakeLLM({"answer": "CRS.", "claims": [{"text": "CRS.", "chunk_id": label()}]})
+
+    answer("Do chargers need registration?", chunks=[CRS_CHUNK, FEE_CHUNK], llm=llm, as_of=AS_OF)
+
+    prompt = llm.calls[0]["prompt"]
+    assert str(CRS_CHUNK.chunk_id) not in prompt
+    assert str(FEE_CHUNK.chunk_id) not in prompt
+    assert f"[{label(0)}]" in prompt
+    assert f"[{label(1)}]" in prompt

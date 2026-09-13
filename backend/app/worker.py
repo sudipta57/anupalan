@@ -32,7 +32,7 @@ celery_app = Celery(
     backend=settings.celery_backend,
     # Task modules are imported here as they land. app.services.* is the only place
     # pipeline code may live, so the worker and the API share one implementation.
-    include=["app.tasks.scan"],
+    include=["app.tasks.prefill", "app.tasks.scan"],
 )
 
 celery_app.conf.update(

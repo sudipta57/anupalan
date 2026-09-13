@@ -16,4 +16,7 @@ export const queryKeys = {
   sahayak: (question: string) => ['sahayak', question] as const,
   listingCheck: (checkId: string) => ['listing-check', checkId] as const,
   bisApplicability: (productId: string) => ['bis-applicability', productId] as const,
+  // Keyed by scan, because the answer is stamped with that scan's capture date: the same product
+  // asked about under next year's lists is a different answer, and must not be served from here.
+  bisApplicabilityForScan: (scanId: string) => ['bis-applicability-scan', scanId] as const,
 } as const;

@@ -653,6 +653,17 @@ export const en = {
     notFoundTitle: 'No applicability record',
     notFoundBody:
       'Sahayak has no BIS applicability record for this product category. Ask about it in the chat, or check the official list of products under compulsory certification.',
+
+    lookupFailed: 'The applicability lookup could not be completed',
+    lookupFailedBody:
+      'The public lists could not be checked just now. The chat below still works, but nothing in it is a determination — re-run the check before relying on an answer.',
+
+    askTitle: 'Ask about this product',
+    askBody:
+      'Sahayak knows what you scanned. It answers from published BIS material and cites every source. It does not decide whether certification applies \u2014 the check above does that.',
+    suggestion1: 'Does this product need BIS certification?',
+    suggestion2: 'Which scheme would apply, ISI or CRS?',
+    suggestion3: 'How do I apply for a licence for this product?',
   },
 
   auth: {

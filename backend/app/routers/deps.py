@@ -30,6 +30,7 @@ from typing import Annotated, Any
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import session_scope
 from app.services.auth.rbac import Permission
 from app.services.auth.rbac import check as check_permission
@@ -139,6 +140,21 @@ def enqueuer() -> Callable[[str], str | None]:
 Enqueuer = Annotated[Callable[[str], str | None], Depends(enqueuer)]
 
 
+def prefill_enqueuer() -> Callable[[str, str, str], str | None]:
+    """The function that hands a label photograph to the worker to be read (FR-03).
+
+    Separate from ``enqueuer`` because it takes different arguments and has different failure
+    semantics — it swallows a broker failure rather than raising, see ``services/queue.py``. A
+    dependency for the same reason: the prefill suite runs without a broker.
+    """
+    from app.services.queue import enqueue_prefill
+
+    return enqueue_prefill
+
+
+PrefillEnqueuer = Annotated[Callable[[str, str, str], str | None], Depends(prefill_enqueuer)]
+
+
 def storage() -> Any:
     """The object store. A dependency so a test can substitute an in-memory one — the API never
     proxies image bytes, but it does sign URLs, and signing needs a client."""
@@ -162,35 +178,63 @@ def _resolved_embedder() -> Any | None:
     ``None`` puts Sahayak on the lexical-only path. A corpus that is ingested but not embedded is
     a narrower assistant, not a broken one (architecture §11 takes the same line on the LLM).
     """
-    from app.services.bis.embedding import (
-        EmbedderUnavailableError,
-        UnknownEmbedderError,
-        embed_query,
-        get_embedder,
-    )
+    from app.services.bis.embedding import embed_query, get_embedder
 
     try:
         embedder = get_embedder()
         embed_query(embedder, "probe")
-    except (UnknownEmbedderError, EmbedderUnavailableError):
-        logger.warning("no embedder available; Sahayak retrieval is lexical-only")
+    except Exception:  # degrading is always correct here — see below
+        # Broad for the same reason as `_resolved_reranker`, and the stakes are higher. The
+        # embedder shares a 6 GB GPU with the OCR worker, so `torch.OutOfMemoryError` — a
+        # `RuntimeError`, caught by neither named exception above — is a live failure mode, and
+        # letting it escape turns a narrower assistant into a 500. Losing dense search is a real
+        # loss and not a silent one: measured on this corpus, lexical alone answers "does a phone
+        # charger need BIS registration" with three hallmarking chunks, where dense finds the MeitY
+        # electronics order. Hence the warning, and hence it is a degradation rather than a default.
+        logger.warning("no embedder available; Sahayak retrieval is lexical-only", exc_info=True)
         return None
     return embedder
 
 
+#: Needs no model, no GPU and no download. Tried when the configured reranker cannot load, because
+#: lexical overlap over the fused candidates still beats fusion order alone.
+_FALLBACK_RERANKER = "overlap"
+
+
 @lru_cache(maxsize=1)
 def _resolved_reranker() -> Any | None:
-    """The reranker, probed once per process, or ``None`` to keep the fusion order."""
-    from app.services.bis.embedding import EmbedderUnavailableError
+    """The reranker, probed once per process, or ``None`` to keep the fusion order.
+
+    **Any failure here degrades; none of them raises.** The reranker reorders candidates that
+    retrieval already found — it is an improvement to an answer, never a precondition for one — so
+    there is no failure mode where taking the whole request down is the better outcome. This caught
+    a real 500: the cross-encoder needs ~1 GB of VRAM, the embedder and the OCR worker had the GPU,
+    and ``torch.OutOfMemoryError`` is a ``RuntimeError`` that walked straight past a clause catching
+    only ``LookupError`` and ``EmbedderUnavailableError``. Every other way this can fail — absent
+    weights, no network to fetch them, a CUDA driver mismatch, a model name that moved — has the
+    same correct response, so the except clause is deliberately broad rather than a list of the
+    ones seen so far.
+
+    The probe is a real ``score()`` call, not just construction: the cross-encoder loads its weights
+    lazily, so building it proves nothing about whether it can run.
+    """
     from app.services.bis.retrieve import get_reranker
 
-    try:
-        reranker = get_reranker()
-        reranker.score("probe", ["probe"])
-    except (LookupError, EmbedderUnavailableError):
-        logger.warning("no reranker available; Sahayak returns the fused order")
-        return None
-    return reranker
+    for name in (None, _FALLBACK_RERANKER):
+        try:
+            reranker = get_reranker(name)
+            reranker.score("probe", ["probe"])
+        except Exception:  # degrading is always correct here — see the docstring
+            logger.warning(
+                "reranker %r unavailable", name or settings.BIS_RERANKER, exc_info=True
+            )
+            continue
+        if name is not None:
+            logger.warning("falling back to the %r reranker", name)
+        return reranker
+
+    logger.warning("no reranker available; Sahayak returns the fused order")
+    return None
 
 
 def bis_searchers(session: DbSession) -> tuple[Any, Any]:

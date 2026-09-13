@@ -13,19 +13,28 @@
  * question the stance just declined to answer, and it would answer it with "no certification
  * needed", which is what the reader hoped to hear.
  *
- * A scan whose profile was typed in rather than matched to a catalogue product has no `productId`, so
- * there is nothing to look up and the request is never made. That is the not-found state, reached
- * without a round trip.
+ * **The lookup runs off the scan's frozen profile, not a `productId`.** It used to require one, and
+ * that was a dead end rather than a safeguard: a photographed label is almost never matched to a
+ * catalogue product, so every scan in the field has `productId: null` and this screen reported "no
+ * applicability record" for a record nobody had asked for. `POST /scans/{id}/applicability` needs no
+ * product row — it reads the profile the scan was frozen with and stamps the answer with that scan's
+ * capture date, so the verdict stays reproducible under the lists in force when the package was
+ * photographed.
+ *
+ * **Underneath the verdict is a conversation, and the order is the point.** The deterministic lookup
+ * answers "does this need certification"; the chat answers everything that is genuinely prose — how
+ * to apply, which lab, what a scheme means. Sahayak is grounded in this scan, so it knows what the
+ * product is without the user describing it, but it decides nothing: `services/bis/answer` requires
+ * every claim to name a published passage, and a wrong "no licence needed" is a seized consignment.
+ * Putting the chat above the verdict, or in place of it, would invert exactly that.
  */
 
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
-import { useBisApplicability, useScan } from '@/api';
+import { useBisApplicabilityForScan, useScan } from '@/api';
 import {
-  AdvisoryDisclaimer,
   Banner,
-  Button,
   Card,
   Chip,
   Screen,
@@ -48,11 +57,20 @@ import {
   showsScheme,
   stanceFor,
 } from '@/features/sahayak';
+import { SahayakChat } from '@/features/sahayak/chat';
 import { SourceList } from '@/features/sahayak/source-list';
 import { useT } from '@/i18n';
+import { scanThread } from '@/store/sahayak';
 import { spacing } from '@/theme';
 
-function Result({ record, now }: { record: BisApplicability; now: number }) {
+/**
+ * The deterministic verdict, as the chat's header.
+ *
+ * A fragment rather than a `Screen`: it is rendered inside the conversation's scroll view, so the
+ * verdict and the questions about it scroll as one column instead of the answer being a tap away
+ * from the thing it answers.
+ */
+function Verdict({ record, now }: { record: BisApplicability; now: number }) {
   const t = useT();
 
   const stance = stanceFor(record.qcoApplicable);
@@ -62,7 +80,7 @@ function Result({ record, now }: { record: BisApplicability; now: number }) {
   const freshCopy = FRESHNESS_COPY[freshness];
 
   return (
-    <Screen scroll>
+    <>
       <Card>
         <Text variant="caption" tone="subtle">
           {t('bis.product')}
@@ -157,37 +175,42 @@ function Result({ record, now }: { record: BisApplicability; now: number }) {
         ) : null}
       </Card>
 
-      <AdvisoryDisclaimer detailed />
-    </Screen>
+    </>
   );
 }
 
-function NotFound() {
+/**
+ * The lookup could not answer, as the chat's header.
+ *
+ * A card rather than a screen. It used to replace the whole screen, which meant the one case where
+ * a user most needs to ask a question — the lists do not place this product — was the one case with
+ * nothing to ask it with. The chat below stays mounted; this only says the check came back empty.
+ */
+function Unavailable({ reason }: { reason: 'not-found' | 'failed' }) {
   const t = useT();
 
   return (
-    <Screen scroll>
-      <Card>
-        <Text variant="heading">{t('bis.notFoundTitle')}</Text>
-        <Text variant="body" tone="muted">
-          {t('bis.notFoundBody')}
-        </Text>
-        <Button label={t('tabs.sahayak')} onPress={() => router.dismissTo('/(tabs)/sahayak')} />
-      </Card>
-      <AdvisoryDisclaimer />
-    </Screen>
+    <Banner
+      tone={reason === 'failed' ? 'error' : 'warning'}
+      title={t(reason === 'failed' ? 'bis.lookupFailed' : 'bis.notFoundTitle')}
+      body={t(reason === 'failed' ? 'bis.lookupFailedBody' : 'bis.notFoundBody')}
+    />
   );
 }
+
+/** The starter questions for a scan's thread. Product-generic, because the product is grounding. */
+const SUGGESTIONS = ['bis.suggestion1', 'bis.suggestion2', 'bis.suggestion3'] as const;
 
 export default function BisScreen() {
   const t = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const scan = useScan(id);
-  const productId = scan.data?.productId ?? undefined;
   const profile = scan.data?.profile;
 
-  const applicability = useBisApplicability(productId, profile ? { profile } : undefined);
+  // The scan's own frozen profile is the whole input. No `productId` — see the note at the top of
+  // this file for why requiring one made this screen a dead end for every scan taken in the field.
+  const applicability = useBisApplicabilityForScan(scan.data ? id : undefined, profile);
 
   if (scan.isPending) {
     return (
@@ -200,29 +223,50 @@ export default function BisScreen() {
     );
   }
 
-  // Nothing to look up, so nothing was asked. Not an error — a typed-in profile was never matched to
-  // a catalogue product, and inventing a match would be a confident answer about a different product.
-  if (!scan.data || !productId) return <NotFound />;
+  const header = (() => {
+    if (!scan.data) return <Unavailable reason="not-found" />;
 
-  if (applicability.isPending) {
-    return (
-      <Screen scroll>
+    if (applicability.isPending) {
+      return (
         <Card>
           <Text variant="body" tone="muted">
             {t('bis.pending')}
           </Text>
           <Skeleton height={120} />
         </Card>
-      </Screen>
-    );
-  }
+      );
+    }
 
-  if (applicability.isError || !applicability.data) return <NotFound />;
+    // A failed lookup is distinguished from an empty one. "We could not check" and "the lists do
+    // not cover this" lead to different next actions, and collapsing them would let a dropped
+    // connection read as an answer about the product.
+    if (applicability.isError) return <Unavailable reason="failed" />;
+    if (!applicability.data) return <Unavailable reason="not-found" />;
 
-  // The fetch's own timestamp, not `Date.now()` — the same clock the report screen polls with. It
-  // advances when the record does, which is the only cadence on which its freshness can change, and
-  // it keeps the render pure.
-  return <Result record={applicability.data} now={applicability.dataUpdatedAt} />;
+    // The fetch's own timestamp, not `Date.now()` — the same clock the report screen polls with. It
+    // advances when the record does, which is the only cadence on which its freshness can change,
+    // and it keeps the render pure.
+    return <Verdict record={applicability.data} now={applicability.dataUpdatedAt} />;
+  })();
+
+  return (
+    <SahayakChat
+      thread={scanThread(id)}
+      // What makes this conversation about this package: the backend loads the scan's frozen
+      // profile into the prompt. The question still reaches retrieval exactly as typed.
+      scanId={id}
+      suggestions={SUGGESTIONS}
+      header={header}
+      intro={
+        <>
+          <Text variant="heading">{t('bis.askTitle')}</Text>
+          <Text variant="body" tone="muted">
+            {t('bis.askBody')}
+          </Text>
+        </>
+      }
+    />
+  );
 }
 
 const styles = StyleSheet.create({

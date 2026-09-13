@@ -1,0 +1,94 @@
+# Fetched 2026-09-13 by scripts/fetch_bis.py from the url below.
+# sha256(normalised text): 94aecfc98c39d480
+# Content region only - nav, breadcrumbs, sidebar and footer stripped. Link density 1%.
+# Forward-looking QCO dates. High value because the assistant must not tell a user a product is unregulated when a QCO takes effect next quarter. Likely a table; keep the table, drop the surrounding nav. Re-ingest monthly.
+source_type: mandatory_cert_list
+title: Upcoming QCOs Notified and Due for Implementation
+url: https://www.bis.gov.in/upcoming-qcos-notified-and-due-for-implementation/?lang=en
+text: "Like Us on\nFacebook\nFollow Us on\nTwitter\nFollow Us on\nLinkedIn\nSubscribe on\nYouTube\nFollow\
+  \ Us on\nInstagram\nHome\n/\nUpcoming QCOS – notified...\nUpcoming QCOS - notified and due for implementation\n\
+  This is for information of all the stakeholders that quality control orders (QCOs) issued by the concerned\
+  \ Ministry/Department of Government of India will be coming into force for implementation as per the\
+  \ date indicated against each product.\nThis is an advance information for better awareness \r\n   \
+  \ purposes.\nSr. No.\nMinistry/ Department\nProduct\nIndian Standard\nEnforcement date\n1\nDepartment\
+  \ of Chemicals and Petrochemicals\nLinear Alkyl Benzene\nIS 12795:2020\n30 September 2026\n2\nDepartment\
+  \ for Promotion of Industry and Internal Trade\nPipe Wrenches-General Purpose\n4003 (Part 1):1978\n\
+  01 October 2026\n3\nDepartment for Promotion of Industry and Internal Trade\nPipe Wrenches Heavy Duty\n\
+  4003(Part 2):1986\n01 October 2026\n4\nDepartment for Promotion of Industry and Internal Trade\nOpen-Jaw\
+  \ Wrenched(Spanners)\n2028:2004\n01 October 2026\n5\nDepartment for Promotion of Industry and Internal\
+  \ Trade\nRing Wrenches(Spanners)\n2029:1998\n01 October 2026\n6\nDepartment for Promotion of Industry\
+  \ and Internal Trade\nSingle-ended Open-jaw Adjustable Wrenches\n6149:1984\n01 October 2026\n7\nDepartment\
+  \ for Promotion of Industry and Internal Trade\nChain Pipe Wrenches\n4123:1982\n01 October 2026\n8\n\
+  Department for Promotion of Industry and Internal Trade\nOpen Ended Slugging Wrenches(Spanners)\n4508:1992\n\
+  01 October 2026\n9\nDepartment for Promotion of Industry and Internal Trade\nRing Slugging Wrenches\
+  \ (Spanners)\n4509:1992\n01 October 2026\n10\nDepartment for Promotion of Industry and Internal Trade\n\
+  Combination Side Cutting Pliers\n3650:1981\n01 October 2026\n11\nDepartment for Promotion of Industry\
+  \ and Internal Trade\nWrought Aluminium Utensils\nIS 1660:2024\n01 October 2026\n12\nDepartment of Chemicals\
+  \ and Petrochemicals\nAluminium cans for beverages\nIS 14407:2023\n01 October 2026\n13\nDepartment for\
+  \ Promotion of Industry and Internal Trade\nAll electrical appliance intended for household,commercial\
+  \ or similar application with rated voltage not exceeding 250 V for single-phase appliances and 480\
+  \ V for other appliances including direct current supplied appliances and battery operated appliances\
+  \ Illustrative list of electrical appliances is given below:\nIS 302 (Part 1) : 2024 IEC 60335-1:2020\n\
+  01 October, 2026\nVacuum Cleaners and Water Suction Cleaning Appliances\nSpin Extractors\nCooking Ranges,\
+  \ Hobs, Ovens and Similar Appliances\nElectrical Shavers Hair, Clippers and Similar Appliances\nTumbler\
+  \ Dryers\nWarming Plates and Similar Appliances\nFrying Pans, Deep Fat Fryers and similar appliances\n\
+  Appliances for Heating Liquids\nMassage Appliances\nElectric Forced Convection Ovens, Steam Cookers\
+  \ and Steam -Convection Ovens\nElectric Heating Tools\nElectric Steam Cookers\nInsect Killers\nElectric\
+  \ Call Bells and Buzzers for Indoor Use\nElectric Water Boilers\nElectric Coffee Makers\nElectric Bean\
+  \ Slicers\nElectric Berryjuice Extractors\nElectric Can Openers\nElectric Centrifugal Juicers\nElectric\
+  \ Churn\nElectric Citrusfruit Squeezers\nElectric Coffee Mills not exceeding 500g hopper capacity\n\
+  Electric Cream Whippers\nElectric Egg Beaters\nElectric Food Processors\nElectric Grain Grinders not\
+  \ exceeding 3l hopper capacity\nElectric Graters\nElectric IceCream Machines, including those for use\
+  \ in refrigerators and freezers\nElectric Knife Sharpeners\nElectric Knives\nElectric Noodle Makers\n\
+  Electric Potato Peelers\nElectric Shredders\nElectric Sieving Machines\nSlicing Machines\nElectric Hot\
+  \ Plates\nSingle Walled Baking Ovens\nLow Speed Food Grinding Machines\nDishwashers\nFloor Treatment\
+  \ Machines and Wet Scrubbing Machines\nFood Waste Disposers\nBlankets, Pads, Clothing and Similar Flexible\
+  \ Heating Appliances\nAppliances for Skin Exposure to Optical Radiation\nCommercial Electric Cooking\
+  \ Ranges, Ovens, Hobs and Hob Elements\nCommercial Electric Doughnut Fryers and Deep Fat Fryers\nCommercial\
+  \ Electric Griddles and Griddle Grills\nCommercial Electric Multi – purpose Cooking Pans\nCommercial\
+  \ Electric Forced Convection Ovens, Steam Cookers and Steam – Convection Ovens\nClothes Dryers and Towel\
+  \ Rails\nCommercial Electric Boiling Pans\nCommercial Electric Grillers and Toasters\nCommercial Electric\
+  \ Appliances for keeping Food and Crockery Warm\nCommercial Electric BainsMarie\nOral Hygiene Appliances\n\
+  Sauna Heating Appliances and Infrared Cabins\nSurface-Cleaning Appliances for Household use Employing\
+  \ Liquids or Steam\nElectrical Appliances for use with Aquariums and Garden Ponds\nCommercial Electric\
+  \ Dishwashing Machines\nWhirlpool Baths and Whirlpool Spas\nThermal Storage Room Heaters\nCommercial\
+  \ Electric Rinsing Sinks\nCommercial Electric Kitchen Machines\nAir-Cleaning Appliances\nWater-Bed Heaters\n\
+  Fixed Immersion Heaters\nOutdoor Barbecues\nFoot Warmers and Heating Mats\nAmusement Machines and Personal\
+  \ Service Machines\nToilet Appliances\nFabric Steamers\nDrives for Vertically Moving Garage Doors for\
+  \ Residential Use\nHumidifiers\nCommercial Electric Hoods\nVaporizers\nGas, Oil and Solid-Fuel Burning\
+  \ Appliances Having Electrical Connections\nElectrolysers\nBeauty Care Appliances Incorporating Lasers\
+  \ and Intense Light Sources\nPersonal-eTransporters\nSkin Beauty Care Appliances\nFurniture with Electrically\
+  \ Motorized Parts\nCommercial Vacuum Packaging Appliances\nHand held electric Engraving Tools\nDC supplied/\
+  \ battery-operated vacuum cleaners\nDC supplied/ battery-operated shavers, trimmers, clippers and similar\
+  \ appliances\nDC supplied/ battery-operated Massage appliances\nDC supplied/ battery-operated blenders,\
+  \ juicers\nDC supplied/ battery-operated toothbrush and other oral hygiene appliances\nDC supplied/\
+  \ battery-operated foot warmer and heating mats\nDC supplied/ battery-operated air purifier\n14\nDepartment\
+  \ of Chemicals and Petrochemicals\nTextiles — High Density Polyethylene (HDPE)/ Polypropylene (PP) Woven\
+  \ Sacks for Packaging of 50 kg Cement\nIS 11652 : 2017\n06 October 2026\n15\nDepartment of Chemicals\
+  \ and Petrochemicals\nTextiles — Polypropylene (PP)/ High Density Polyethylene (HDPE) Laminated Woven\
+  \ Sacks for Mail Sorting, Storage, Transport and Distribution\nIS 17399 : 2020\n06 October 2026\n16\n\
+  Department of Chemicals and Petrochemicals\nTextiles — Polypropylene (PP) Woven, Laminated, Block Bottom\
+  \ Valve Sacks for Packaging of 50 kg Cement\nIS 16709 : 2017\n06 October 2026\n17\nDepartment for Promotion\
+  \ of Industry and Internal Trade\nWrought aluminium and aluminium alloy bars, rods and sections (For\
+  \ General Engineering Purposes)\nIS 733:1983\n01 December 2026\n18\nDepartment for Promotion of Industry\
+  \ and Internal Trade\nWrought aluminium and aluminium alloys, forging stock and forgings for general\
+  \ engineering purposes\nIS 734:1975\n01 December 2026\n19\nDepartment for Promotion of Industry and\
+  \ Internal Trade\nWrought aluminium and aluminium alloy plate for general engineering purposes\nIS 736:1986\n\
+  01 December 2026\n20\nDepartment for Promotion of Industry and Internal Trade\nWrought aluminium and\
+  \ aluminium alloy sheet and strip for general engineering purposes\nIS 737:2008\n01 December 2026\n\
+  21\nDepartment for Promotion of Industry and Internal Trade\nWrought aluminium and aluminium alloy wire\
+  \ for general engineering purposes\nIS 739:1992\n01 December 2026\n22\nDepartment for Promotion of Industry\
+  \ and Internal Trade\nWrought aluminium and aluminium alloy rivet stock for general engineering purposes\n\
+  IS 740:1977\n01 December 2026\n23\nDepartment for Promotion of Industry and Internal Trade\nWrought\
+  \ aluminium and aluminium alloys- Extruded round tube and hollow section for general engineering purposes\n\
+  IS 1285:2002\n01 December 2026\n24\nDepartment for Promotion of Industry and Internal Trade\nWrought\
+  \ Aluminium Wire for Electrical Purposes\nIS 2067:1975\n01 December 2026\n25\nDepartment for Promotion\
+  \ of Industry and Internal Trade\nWrought aluminium and aluminium alloys for manufacture of utensils\n\
+  IS 21:1992\n01 December 2026\n26\nDepartment for Promotion of Industry and Internal Trade\nWrought aluminium\
+  \ and aluminium alloy bars, rods, tubes, sections, plates and sheets for electrical applications\nIS\
+  \ 5082:1998\n01 December 2026\n27\nMinistry of Electronics and Information Technology\nDigital Television\
+  \ Receiver for Satellite Broadcast Transmission\nIS 18112:2022\n26 January 2027\n28\nMinistry of Textiles\n\
+  Fibre Ropes — Polypropylene Split Film, Monofilament And Multifilament ( PP2 ) and Polypropylene High-Tenacity\
+  \ Multifilament ( PP3 ) —3-, 4-, 8- and 12- Strand Ropes\nIS 5175:2022\n05 June 2027\nLast Updated on\
+  \ August 4, 2026\nPause\n|\nPlay"
+published_at: 2026-08-04

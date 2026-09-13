@@ -20,6 +20,7 @@ import type {
   ListingCheck,
   Page,
   Product,
+  ProductProfile,
   Report,
   SahayakAnswer,
   Scan,
@@ -197,6 +198,25 @@ export function useCheckListings(): UseMutationResult<
 export function useAskSahayak(): UseMutationResult<SahayakAnswer, Error, SahayakAskBody> {
   return useMutation({
     mutationFn: (body: SahayakAskBody) => api.askSahayak(body),
+  });
+}
+
+/**
+ * BIS applicability for a scan, from the profile frozen at capture.
+ *
+ * Gated on the profile rather than on a `productId`. A photographed label is almost never matched
+ * to a catalogue product — every scan in the field has `productId: null` — so the old gate meant
+ * the lookup was never attempted and the screen reported "no applicability record" for a record
+ * nobody had asked for.
+ */
+export function useBisApplicabilityForScan(
+  scanId: string | undefined,
+  profile: ProductProfile | undefined
+): UseQueryResult<BisApplicability> {
+  return useQuery({
+    queryKey: queryKeys.bisApplicabilityForScan(scanId ?? ''),
+    queryFn: () => api.bisApplicabilityForScan(scanId as string, profile as ProductProfile),
+    enabled: Boolean(scanId && profile),
   });
 }
 

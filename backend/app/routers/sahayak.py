@@ -3,6 +3,7 @@
 Endpoints (docs/02-trd.md §5):
 
     POST /v1/sahayak/ask          {question, scan_id?, lang}
+        scan_id grounds the answer in that scan's frozen product profile
         -> {answer, citations, confidence, as_of, refused, refusal_reason, sources}
     POST /v1/bis/applicability    {profile}
         -> {qco_applicable, scheme, candidate_is_numbers, next_steps, sources, ...}
@@ -159,6 +160,30 @@ def _profile_from(payload: ProfileIn) -> Profile:
     return profile_from_json(payload.model_dump())
 
 
+def _product_context(profile: Profile) -> str:
+    """The scanned product as a line the prompt can use.
+
+    Only the facts the profile actually carries. A field the user never filled is omitted rather
+    than rendered as "unknown" — a prompt that lists blanks invites the model to fill them, and the
+    one thing a certification answer must never invent is what the product is.
+
+    This is context, never a source. ``services/bis/answer`` still requires every claim to name a
+    retrieved passage, so nothing here can become the authority for a certification requirement.
+    """
+    parts: list[str] = []
+    if profile.name:
+        parts.append(f"name: {profile.name}")
+    if profile.category_code:
+        parts.append(f"category: {profile.category_code}")
+    if profile.net_qty_value is not None and profile.net_qty_unit:
+        parts.append(f"net quantity: {profile.net_qty_value:g} {profile.net_qty_unit}")
+    if profile.pack_type:
+        parts.append(f"pack: {profile.pack_type}")
+    parts.append(f"sold: {profile.channel}")
+    parts.append("imported" if profile.is_imported else "manufactured in India")
+    return "; ".join(parts)
+
+
 def _sources_out(sources: object) -> list[SourceOut]:
     return [SourceOut(title=source.title, url=source.url) for source in sources]  # type: ignore[attr-defined]
 
@@ -200,14 +225,29 @@ def ask(
 ) -> AnswerOut:
     """Retrieve, generate with mandatory citation, post-validate, and record.
 
-    The question is passed to retrieval **as asked**. A ``scan_id`` links the query to a scan of
-    this org — it is not folded into the question text, because rewriting what the user asked
-    before searching makes the answer depend on a rewrite nobody can see.
+    The question is passed to retrieval **as asked**, and that has not changed: rewriting what the
+    user asked before searching makes the answer depend on a rewrite nobody can see. A ``scan_id``
+    is still not folded into the question text.
+
+    What a ``scan_id`` now does add is **grounding for the generation**: the scan's frozen profile
+    is rendered into the prompt so an answer about "this product" knows what the product is,
+    instead of the model inferring it from whatever the question happened to spell out. The two
+    stages are deliberately separate — retrieval stays reproducible from the question alone, and
+    the product can steer the wording of an answer without steering which sources it may cite.
+
+    It grants the product no authority. ``services/bis/answer`` requires every claim to name a
+    retrieved passage, so a certification requirement can still only come from published material;
+    the lookup at ``/bis/applicability`` remains the only thing that decides applicability.
     """
+    product: str | None = None
     if payload.scan_id is not None:
-        # Loaded only to prove it is this org's. A scan from another org is a 404, never a 403
-        # (CLAUDE.md §3.7).
-        found(ScanRepository(session, principal.org_id).get(payload.scan_id), what="scan")
+        # Loaded to prove it is this org's — a scan from another org is a 404, never a 403
+        # (CLAUDE.md §3.7) — and, now, to ground the answer in what was actually photographed.
+        scan = found(ScanRepository(session, principal.org_id).get(payload.scan_id), what="scan")
+        # The scan's **frozen** profile, not the product row, for the reason `models/scan.py`
+        # gives: a product edited next month must not change an answer already given about a
+        # package photographed today.
+        product = _product_context(profile_from_json(dict(scan.profile or {})))
 
     lists = active_lists()
     lexical, dense = searchers
@@ -221,6 +261,7 @@ def ask(
         as_of=datetime.now(UTC).date(),
         fallback_sources=lists.fallback_sources,
         language=_LANGUAGE_NAMES[payload.lang],
+        product=product,
     )
 
     citations = [

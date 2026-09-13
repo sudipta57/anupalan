@@ -266,6 +266,31 @@ class Settings(BaseSettings):
     ``services.vision.ocr.get_engine``.
     """
 
+    # ------------------------------------------------------------------ context prefill
+    # Reading a label to prefill the product context form (FR-03). See services/prefill.py for
+    # why this is not the scan pipeline and why every failure here is silence rather than an
+    # error.
+    PREFILL_ENABLED: bool = True
+    """Off switch. With this false the endpoint answers 503 and the app fills the form by hand,
+    which is exactly what it does with no network — so disabling this degrades the UX and breaks
+    nothing."""
+
+    PREFILL_STORE: str = "redis"
+    """Where a prefill waits to be collected: ``redis``, or ``memory`` for tests and a single-
+    process dev run. ``memory`` cannot work in a real deployment, where the worker that writes a
+    prefill and the API that reads it are different processes."""
+
+    PREFILL_TTL_SECONDS: int = 900
+    """How long a prefill is collectable. Fifteen minutes: long enough for a user interrupted
+    mid-form by a phone call, short enough that nothing accumulates."""
+
+    PREFILL_MAX_BYTES: int = 4 * 1024 * 1024
+    """Ceiling on the decoded image, enforced before anything is stored or enqueued.
+
+    The app sends a downscaled JPEG — a few hundred kilobytes — because prefill reads words and
+    never measures. This is the ceiling on what a *client* may send, not a target.
+    """
+
     # ------------------------------------------------------------------ rate limiting
     # Two axes, both required (B23, NFR-01). Per-IP alone lets one org flood from many addresses;
     # per-org alone lets one address sweep many orgs. See services/ratelimit.py.

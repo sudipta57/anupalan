@@ -49,11 +49,13 @@ Fifteen calls: fourteen in `mobile/src/api/endpoints.ts`, plus the refresh that
 | 12 | `getReport` | `GET /v1/reports/{id}` | ✅ | **built** (§8 W6) |
 | 13 | `askSahayak` | `POST /v1/sahayak/ask` | ✅ | existed on `main` (B20) |
 | 14 | `bisApplicability` | `POST /v1/bis/applicability` | ✅ | existed on `main` (B20) |
+| 14b | `bisApplicabilityForScan` | `POST /v1/scans/{id}/applicability` | ✅ | **now called** — see §3.4 |
 | 15 | `checkListings` | `POST /v1/listings/check` | ⚠️ | exists at **`POST /v1/products/listings/check`**, and takes `{csv}` rather than `{rows[]}` — the app adapts, see §8 |
 
 **All fifteen now have a server.** Twenty `/v1` paths are registered in total; the extras are
-`GET /v1/auth/me`, `GET /v1/dashboard/violations`, `POST /v1/scans/{id}/applicability`,
-`GET /v1/admin/audit` and `GET /v1/admin/audit/verify`.
+`GET /v1/auth/me`, `GET /v1/dashboard/violations`, `GET /v1/admin/audit` and
+`GET /v1/admin/audit/verify`. `POST /v1/scans/{id}/applicability` used to be on that list of
+endpoints nobody called; it is now what the scan's BIS screen runs on (§3.4).
 
 Three endpoints exist that the app does not call: `GET /v1/auth/me` (**answers flag 9** — it is
 there, and it is a better session restore than trusting the local cache, so the app should adopt
@@ -296,6 +298,48 @@ gap to close, not the backend's.
 
 **Refresh exists (answers flag 8).** `POST /v1/auth/refresh` is implemented with rotation, which is
 what Stage 2 assumed. Only the body field name differs, as above.
+
+---
+
+### 3.4 BIS applicability runs off the scan, and the chat is grounded in it
+
+Two changes, 2026-09-13, both on the path behind **Check BIS requirement**.
+
+**The lookup no longer needs a `productId`.** `app/scan/[id]/bis.tsx` used to return its not-found
+state whenever `scan.productId` was null, without calling the backend at all. That is every scan
+taken in the field — a photographed label is not matched to a catalogue product — so the screen
+reported "no applicability record" for a record nobody had asked for. It now calls
+`POST /v1/scans/{id}/applicability`, which reads the profile the scan was **frozen** with and needs
+no product row. That endpoint also stamps the answer with the scan's `captured_at` rather than
+today, so a scan re-opened next year reproduces the verdict issued under the lists in force when the
+package was photographed — the same reason findings carry `rulepack_version` (CLAUDE.md §3.6).
+
+The app's `useBisApplicability(productId, …)` hook is unchanged and still serves the catalogue path;
+`useBisApplicabilityForScan(scanId, profile)` is the new one, cached under its own key because the
+capture date is part of the answer.
+
+**`scan_id` on `POST /v1/sahayak/ask` now grounds the generation.** It used to do two things — prove
+the scan belongs to the caller's org, and record the link on `bis_queries`. It now also loads that
+scan's frozen profile into the prompt, so a question about "this product" reaches the model with the
+product attached instead of the model inferring it from whatever the question spelled out. This is
+additive: the request body is unchanged, and an ask without `scan_id` behaves exactly as before.
+
+Three boundaries hold, and they are the reason this is safe:
+
+- **Retrieval is untouched.** The question still reaches `retrieve()` exactly as typed. The profile
+  steers how an answer is worded, never which sources it may cite, so retrieval stays reproducible
+  from the question alone.
+- **The product is context, never a source.** `services/bis/answer` still requires every claim to
+  name a retrieved passage, so a user's own typed-in category cannot become the authority for a
+  certification requirement. `test_the_product_block_buys_no_authority_over_the_rules` pins it.
+- **The lookup still decides applicability.** The chat sits *under* the verdict on the screen, and
+  nothing in it produces a `qco_applicable`.
+
+One subtlety that would otherwise have been a silent, undiagnosable refusal: the answer validator
+rejects any number in the answer that appears in no cited passage and was not in the question. A
+declared net quantity repeated back — "for a 36 g pack" — is exactly that, so the product block is
+counted as provenance for **numbers only**
+(`test_a_quantity_the_user_declared_is_not_a_fabricated_figure`).
 
 ---
 

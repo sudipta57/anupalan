@@ -38,4 +38,25 @@ def enqueue_scan(scan_id: str) -> str | None:
     return str(task_id) if task_id is not None else None
 
 
-__all__ = ["enqueue_scan"]
+def enqueue_prefill(prefill_id: str, org_id: str, key: str) -> str | None:
+    """Queue a label read for the context form (FR-03). Returns the task id, or None.
+
+    Unlike ``enqueue_scan``, a failure here is **swallowed**. A submit that cannot enqueue must
+    fail loudly because a scan is work the user is owed; a prefill that cannot enqueue is a form
+    the user fills in themselves, which is what they do today. Raising would turn a degraded
+    convenience into a failed request on the capture path — the one path that must never break.
+    """
+    from app.tasks.prefill import read_label_task
+
+    try:
+        result = read_label_task.delay(prefill_id, org_id, key)
+    except Exception as exc:  # noqa: BLE001 — see the docstring
+        logger.warning("could not queue prefill %s: %s", prefill_id, exc)
+        return None
+
+    task_id = getattr(result, "id", None)
+    logger.info("queued prefill %s as task %s", prefill_id, task_id)
+    return str(task_id) if task_id is not None else None
+
+
+__all__ = ["enqueue_prefill", "enqueue_scan"]

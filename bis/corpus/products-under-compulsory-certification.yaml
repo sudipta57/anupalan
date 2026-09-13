@@ -1,17 +1,17 @@
-# Fetched 2026-09-12 from the page named below and checked by eye against it.
-# The page is a list of scheme links with one explanatory paragraph; that paragraph is the
-# retrievable content, and the scheme names are what a question about 'which scheme' needs.
+# Fetched 2026-09-13 by scripts/fetch_bis.py from the url below.
+# sha256(normalised text): bd05dfdfec22c683
+# Content region only - nav, breadcrumbs, sidebar and footer stripped. Link density 4%.
+# VERIFIED BY FETCH 2026-09-13. Content region is ONE paragraph (certification is voluntary by default; the Central Government makes conformity mandatory via a QCO, requiring the Standard Mark under licence or CoC) plus five links and a "Last Updated on April 15, 2026" stamp. Everything else on the page is menu. Expect a high link density flag. Keep the paragraph; the scheme links are ingested separately below.
 source_type: mandatory_cert_list
 title: Products under Compulsory Certification
-url: https://www.bis.gov.in/product-certification/products-under-compulsory-certification/
+url: https://www.bis.gov.in/product-certification/products-under-compulsory-certification/?lang=en
+text: 'Products under Compulsory Certification
+
+  BIS certification scheme is basically voluntary in nature. However, for a number of products compliance
+  to Indian Standards is made compulsory by the Central Government under various considerations viz. public
+  interest, protection of human, animal or plant health, safety of environment, prevention of unfair trade
+  practices and national security. For such products, the Central Government directs mandatory use of
+  Standard Mark under a Licence or Certificate of Conformity (CoC) from BIS through issuance of QCOs.
+
+  Last Updated on April 15, 2026'
 published_at: 2026-04-15
-text: |
-  BIS certification scheme is basically voluntary in nature. However, for a number of products compliance to Indian Standards is made compulsory by the Central Government under various considerations viz. public interest, protection of human, animal or plant health, safety of environment, prevention of unfair trade practices and national security. For such products, the Central Government directs mandatory use of Standard Mark under a Licence or Certificate of Conformity (CoC) from BIS through issuance of QCOs.
-  Guidance Document on Quality Control Orders (QCOs)(size – 695 KB)
-  Products Under Compulsory Certification
-  Scheme – I (Mark Scheme)
-  Scheme – II (Registration Scheme)
-  Scheme – IV (Certificate Of Conformity )
-  Scheme – X (Certification)
-  Upcoming QCOs – Notified and Due for Implementation
-  Indigenous Indian Standards – Free Download
