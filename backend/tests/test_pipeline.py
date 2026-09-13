@@ -132,6 +132,68 @@ def test_a_scan_completes_end_to_end(record, storage, ocr, pack) -> None:  # typ
     assert outcome.rulepack_version == "LM-2011-v1.0"
 
 
+def test_a_scan_with_an_unconfirmed_field_is_not_judged(  # type: ignore[no-untyped-def]
+    record, storage, pack, monkeypatch
+) -> None:
+    """No verdict is issued over a value nobody has checked (FR-06).
+
+    This is the whole point of the state. A rule asked about a field the machine does not believe
+    it read answers with the same confidence it answers anything, and Rule 6(1) only checks that a
+    declaration is *present* — so an unchecked `mrp = "02"` earns a PASS and the report files it.
+    Computing the verdict and labelling it provisional was the previous shape, and it put that
+    PASS in front of a reader before anyone had checked the value underneath it.
+    """
+    import app.services.pipeline as pipeline_module
+    from app.services.rules.types import Extraction
+
+    unsure = [
+        Extraction(field_code="mrp", value_raw="02", source="regex", confidence=0.25),
+        Extraction(field_code="net_quantity", value_raw="250 g", source="regex", confidence=0.98),
+    ]
+    monkeypatch.setattr(pipeline_module, "extract", lambda *a, **k: unsure)
+
+    outcome = process_scan(
+        SCAN_ID,
+        store=FakeStore(record),
+        storage=storage,
+        ocr=StubOCREngine.from_fixture("label_250g_printed"),
+        pack=pack,
+        llm=None,
+    )
+
+    assert outcome.status == "needs_confirmation"
+    assert outcome.findings == [], "evaluate() must not run over an unchecked value"
+    assert [item.field_code for item in outcome.needs_confirmation] == ["mrp"]
+    # Everything read is still recorded — the scan is unjudged, not unprocessed.
+    assert outcome.extractions == unsure
+    assert outcome.words
+
+
+def test_a_scan_whose_fields_are_all_confident_is_judged_immediately(  # type: ignore[no-untyped-def]
+    record, storage, pack, monkeypatch
+) -> None:
+    """The gate is about doubt, not about confirmation being mandatory paperwork."""
+    import app.services.pipeline as pipeline_module
+    from app.services.rules.types import Extraction
+
+    sure = [
+        Extraction(field_code="net_quantity", value_raw="250 g", source="regex", confidence=0.98),
+    ]
+    monkeypatch.setattr(pipeline_module, "extract", lambda *a, **k: sure)
+
+    outcome = process_scan(
+        SCAN_ID,
+        store=FakeStore(record),
+        storage=storage,
+        ocr=StubOCREngine.from_fixture("label_250g_printed"),
+        pack=pack,
+        llm=None,
+    )
+
+    assert outcome.status == "complete"
+    assert outcome.findings
+
+
 def test_the_rectified_image_is_stored(record, storage, ocr, pack) -> None:  # type: ignore[no-untyped-def]
     """The annotated evidence in a report is drawn on the rectified image, so it has to persist
     under a key scoped to the owning org."""

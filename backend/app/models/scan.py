@@ -29,6 +29,7 @@ SCAN_STATUSES: tuple[str, ...] = (
     "created",
     "queued",
     "processing",
+    "needs_confirmation",
     "complete",
     "failed",
     "no_marker",
@@ -36,7 +37,13 @@ SCAN_STATUSES: tuple[str, ...] = (
 """``created`` is the state between ``POST /v1/scans`` and ``/submit`` (B14) — the scan row exists
 so presigned upload URLs can be issued against its id, but nothing has been enqueued.
 
-The remaining five are ``services.pipeline.ScanStatus``, which is deliberately the narrower
+``needs_confirmation`` is the pipeline having read the label and stopped short of judging it: a
+field came back below FR-06's threshold, and no verdict is issued on a value nobody has checked.
+The scan has its OCR, its extractions and its measurements, and an evaluation row carrying the
+pack it will be judged under — but **no findings**, because ``evaluate()`` was never called. It
+leaves this state through ``confirm-fields``, once nothing is still below the threshold.
+
+The remaining six are ``services.pipeline.ScanStatus``, which is deliberately the narrower
 post-submit set: the pipeline can never put a scan back into ``created``.
 """
 

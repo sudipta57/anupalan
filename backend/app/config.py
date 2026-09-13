@@ -244,6 +244,20 @@ class Settings(BaseSettings):
     """
 
     # ------------------------------------------------------------------ ocr
+    OCR_SIDEWAYS_SHARE: float = 0.6
+    """Share of taller-than-wide word boxes that means the page was photographed on its side.
+
+    Measured on a real scan: 100% of boxes taller than wide as shot, 0% once rotated upright — so
+    this is a wide margin rather than a tuned one. Above it, the page is read again at other
+    orientations and the readings merged (``services/vision/orientation.py``).
+    """
+
+    OCR_MIN_WORDS: int = 12
+    """Below this many words, an upright pass is not trusted as the whole label on its own."""
+
+    OCR_MIN_CONFIDENCE: float = 0.70
+    """Below this mean confidence, likewise — the engine found text it could not read."""
+
     OCR_ENGINE: str = "paddle"
     """Which OCREngine implementation to use: ``paddle`` in production, ``stub`` in tests.
 

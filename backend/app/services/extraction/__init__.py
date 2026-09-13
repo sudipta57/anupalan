@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from app.services.extraction.llm_layer import extract_with_llm
+from app.services.extraction.plausibility import screen
 from app.services.extraction.regex_layer import extract_with_patterns, normalise_value
 from app.services.extraction.text import build_text
 from app.services.llm.provider import LLMProvider
@@ -116,7 +117,11 @@ def extract(
         by_code.update({item.field_code: item for item in overrides})
         found = list(by_code.values())
 
-    return sorted(found, key=lambda item: item.field_code)
+    # Last, over both layers: a value that cannot be what its field claims has its confidence
+    # capped below FR-06's threshold, so a person confirms it before any verdict rests on it. This
+    # is what stops `mrp = "02"` and `best_before = "Date:"` sailing through at 0.95 and becoming a
+    # PASS on a presence rule. It changes confidence only — never a value, never a verdict.
+    return sorted(screen(found), key=lambda item: item.field_code)
 
 
 def needs_confirmation(extractions: Sequence[Extraction]) -> list[Extraction]:

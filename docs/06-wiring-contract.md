@@ -249,6 +249,20 @@ is also what sets G4's `report_issued_at`. Card W6.
 
 Recorded so nobody fixes them twice.
 
+**`needs_confirmation` is a seventh scan status, and the app has a word for it (2026-09-13).** The
+backend stops before evaluation when a field is below FR-06's threshold, so `GET /v1/scans/{id}`
+can return `needs_confirmation` and `GET /v1/scans/{id}/findings` then answers **200 with an empty
+`findings` array** and a populated `extractions` array. An empty findings list is a real answer
+here, not an error: the scan was read and deliberately not judged. The 409 on that endpoint still
+means what it always meant — no evaluation row at all, i.e. not yet processed.
+
+The app maps it to a domain status of the same name rather than folding it into `processing` or
+`complete`. Folding into `processing` would leave the offline queue polling for a change only the
+confirmation sheet can make; folding into `complete` would claim verdicts that do not exist. It
+counts as `needsAttention` (the user's turn) but not as `isPending` (the queue's work), and the
+scan and findings screens both route to the confirmation sheet instead of rendering a verdict list.
+
+
 **Casing (flag 10, now decided).** The backend is snake_case throughout; the app is camelCase
 throughout. The app will convert at the transport seam with **explicit per-endpoint adapters**, not a
 generic deep key transform. The reason is specific: a blind converter would rewrite

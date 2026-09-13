@@ -59,6 +59,7 @@ function row(overrides: Partial<Schedulable> = {}): Schedulable {
 }
 
 const ALL_STATUSES: ScanStatus[] = [
+  'needs_confirmation',
   'captured',
   'queued',
   'uploading',
@@ -149,6 +150,21 @@ describe('what the queue still owns', () => {
     expect(needsAttention('failed')).toBe(true);
     expect(needsAttention('queued')).toBe(false);
     expect(needsAttention('uploading')).toBe(false);
+  });
+
+  it('counts an unconfirmed scan as the user’s turn but not as the queue’s work', () => {
+    // The two halves matter separately. The queue has nothing left to do — polling would wait for
+    // a change only the confirmation sheet can make — but the scan is one tap from a verdict, so
+    // it must not sit silently among the finished ones.
+    expect(isPending('needs_confirmation')).toBe(false);
+    expect(needsAttention('needs_confirmation')).toBe(true);
+  });
+
+  it('lets an unconfirmed scan reach a verdict, and never go backwards', () => {
+    expect(canTransition('processing', 'needs_confirmation')).toBe(true);
+    expect(canTransition('needs_confirmation', 'complete')).toBe(true);
+    expect(canTransition('needs_confirmation', 'uploading')).toBe(false);
+    expect(canTransition('needs_confirmation', 'queued')).toBe(false);
   });
 });
 

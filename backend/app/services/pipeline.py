@@ -40,6 +40,7 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
+from app.config import settings
 from app.services.extraction import extract, needs_confirmation
 from app.services.extraction.text import build_text, words_for_span
 from app.services.llm.provider import LLMProvider
@@ -49,9 +50,12 @@ from app.services.rules.types import BBox, Extraction, Finding, Measurement, Pro
 from app.services.vision.marker import Quality, detect_marker, quality
 from app.services.vision.metrology import measure_text_span
 from app.services.vision.ocr import OCREngine, Word
+from app.services.vision.orientation import read as read_oriented
 from app.services.vision.rectify import RectificationError, rectify
 
-ScanStatus = Literal["queued", "processing", "complete", "failed", "no_marker"]
+ScanStatus = Literal[
+    "queued", "processing", "needs_confirmation", "complete", "failed", "no_marker"
+]
 
 MEASURED_FIELDS: tuple[str, ...] = ("net_quantity",)
 """Declarations that carry a metric rule and therefore need measuring.
@@ -396,9 +400,19 @@ def process_scan(
         source = rectified_image if (is_metric and rectified_image is not None) else page
         # Each word remembers which photograph it came from. Extraction reads them as one text,
         # so without this there is no way back to the image a value was actually seen on.
+        # Read through `orientation`, not the engine directly: a pack photographed on its side
+        # is recognised as fragments, and no later layer can recover from that. It costs nothing
+        # on an upright capture — the extra passes only run when the first one says they are
+        # needed (FR-22, `services/vision/orientation.py`).
         page_words = [
             replace(word, metadata={**word.metadata, "asset_id": asset.asset_id})
-            for word in ocr.detect_and_recognise(source)
+            for word in read_oriented(
+                source,
+                ocr,
+                min_words=settings.OCR_MIN_WORDS,
+                min_confidence=settings.OCR_MIN_CONFIDENCE,
+                sideways_share=settings.OCR_SIDEWAYS_SHARE,
+            )
         ]
         outcome.ocr_pages.append((asset.asset_id, page_words))
         words.extend(page_words)
@@ -424,6 +438,24 @@ def process_scan(
             rectified_image, metric_words, extractions, capture_quality, pack
         )
     outcome.measurements = measurements
+
+    if outcome.needs_confirmation:
+        # Stop short of judging. A field below FR-06's threshold is one the machine does not
+        # believe it read, and a rule asked about it answers with the same confidence it answers
+        # anything — Rule 6(1) only checks that a declaration is *present*, so `mrp = "02"` earns
+        # a PASS and the report files it. Calling `evaluate()` here and labelling the result
+        # provisional was the old shape, and it put a verdict in front of a reader before anyone
+        # had checked the value it rests on.
+        #
+        # The evaluation row is still written, with no findings on it. It carries the pack version,
+        # its checksum and the `as_of` date, so the confirmation that follows is judged under the
+        # rules in force when the label was photographed rather than whatever is active by then
+        # (CLAUDE.md §3.6) — which is why this is a row with nothing in it rather than no row.
+        outcome.findings = []
+        outcome.status = "needs_confirmation"
+        store.save_outcome(outcome)
+        store.mark(scan_id, outcome.status)
+        return outcome
 
     # No marker means no millimetres, never an estimate (CLAUDE.md §3.3). Passing an empty
     # measurement list is what makes every metric rule NOT_ASSESSABLE.

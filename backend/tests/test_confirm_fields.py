@@ -225,8 +225,22 @@ def test_the_corrected_value_is_normalised_the_same_way_extraction_would(  # typ
 def test_a_unit_defect_still_fails_after_correction(api, evaluated) -> None:  # type: ignore[no-untyped-def]
     """The format rule reads ``value_raw``, so correcting a quantity to the variant that is
     actually printed still catches it (docs/decisions.md, 2026-09-12). Normalising away the defect
-    the rule exists to find would make LM-QTY-UNIT-SYMBOL pass every label it was written for."""
-    response = confirm(api, evaluated, "net_quantity", "250 gms")
+    the rule exists to find would make LM-QTY-UNIT-SYMBOL pass every label it was written for.
+
+    Both fields are confirmed, not just the quantity, because verdicts are issued only when nothing
+    is still below the threshold — the fixture's ``mrp`` sits at 0.42. This test is about what the
+    format rule reads, and it has to get as far as a verdict to say anything about that.
+    """
+    response = api.post(
+        f"/v1/scans/{evaluated['scan'].id}/confirm-fields",
+        json={
+            "fields": [
+                {"code": "net_quantity", "value": "250 gms"},
+                {"code": "mrp", "value": "MRP Rs. 250.00 (inclusive of all taxes)"},
+            ]
+        },
+        headers=evaluated["auth"],
+    )
 
     findings = {f["rule_id"]: f for f in response.json()["findings"]}
     unit_rule = findings.get("LM-QTY-UNIT-SYMBOL")

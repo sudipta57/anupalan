@@ -38,7 +38,7 @@ import {
   Skeleton,
   Text,
 } from '@/components';
-import type { Extraction, ExtractionSource, ScanAsset } from '@/domain';
+import type { Extraction, ExtractionSource, Finding, ScanAsset } from '@/domain';
 import {
   CONFIDENCE_THRESHOLD,
   FIELD_LABEL_KEYS,
@@ -153,6 +153,22 @@ function FieldRow({
   );
 }
 
+/**
+ * How many rules came back with a different verdict than they had before.
+ *
+ * Keyed by rule id rather than by list position: a recompute is a fresh evaluation revision, so the
+ * findings are new rows and their ids differ even where the verdict did not move. A rule absent
+ * from either side is not counted — it did not change, it was not there.
+ */
+function countChangedVerdicts(before: readonly Finding[], after: readonly Finding[]): number {
+  const was = new Map(before.map((finding) => [finding.ruleId, finding.verdict]));
+
+  return after.filter((finding) => {
+    const prior = was.get(finding.ruleId);
+    return prior !== undefined && prior !== finding.verdict;
+  }).length;
+}
+
 export default function ConfirmScreen() {
   const t = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -166,7 +182,16 @@ export default function ConfirmScreen() {
   const rectified = scan.data?.assets.find((asset) => asset.kind === 'rectified') ?? null;
 
   const [error, setError] = useState<string | null>(null);
-  const [recomputed, setRecomputed] = useState(false);
+  /**
+   * How many verdicts the last correction actually moved, or null before one has been sent.
+   *
+   * A count rather than a flag, because "recomputed" on its own reads as a claim the screen cannot
+   * back up. Most Rule 6(1) checks ask whether a declaration is *present*, so correcting
+   * `NDUSTRIES PVT.LTD` to `Saipro Industries` leaves every verdict exactly where it was — the
+   * recompute is real and its result is identical. Announcing that as though something happened is
+   * what makes the feature look broken when it is working.
+   */
+  const [changed, setChanged] = useState<number | null>(null);
 
   const confirm = useCallback(
     (extraction: Extraction, value: string) => {
@@ -174,19 +199,40 @@ export default function ConfirmScreen() {
       if (!correction) return;
 
       setError(null);
+      setChanged(null);
+
+      // Snapshot before the cache is replaced: the hook swaps in the recomputed findings, so this
+      // is the only moment the previous verdicts are still readable.
+      const before = findings.data?.findings ?? [];
 
       confirmFields.mutate(
         { fields: [correction] },
         {
           // The hook replaces the findings cache with the recomputed result rather than merely
           // invalidating it, so this list shrinks and the verdicts behind it change together.
-          onSuccess: () => setRecomputed(true),
+          onSuccess: (result) => setChanged(countChangedVerdicts(before, result.findings)),
           onError: (cause) =>
             setError(cause instanceof ApiError ? cause.message : t('confirm.saveFailed')),
         }
       );
     },
-    [confirmFields, t]
+    [confirmFields, findings.data, t]
+  );
+
+  /** The recompute's own report: in flight, then what it moved. Null when nothing has been sent. */
+  const recomputeNotice = confirmFields.isPending ? (
+    <Banner tone="info" title={t('confirm.recomputing')} />
+  ) : changed === null ? null : (
+    <Banner
+      tone="info"
+      title={
+        changed === 0
+          ? t('confirm.recomputedSame')
+          : changed === 1
+            ? t('confirm.recomputedOne')
+            : t('confirm.recomputedMany', { count: String(changed) })
+      }
+    />
   );
 
   if (findings.isPending || scan.isPending) {
@@ -210,7 +256,7 @@ export default function ConfirmScreen() {
           <Text variant="body" tone="muted">
             {t('confirm.allDoneBody')}
           </Text>
-          {recomputed ? <Banner tone="info" title={t('confirm.recomputed')} /> : null}
+          {recomputeNotice}
           <Button label={t('confirm.done')} onPress={() => router.back()} />
         </Card>
       </Screen>
@@ -229,7 +275,7 @@ export default function ConfirmScreen() {
       </View>
 
       {error ? <Banner tone="error" title={error} /> : null}
-      {recomputed ? <Banner tone="info" title={t('confirm.recomputed')} /> : null}
+      {recomputeNotice}
 
       {pending.map((extraction) => (
         <FieldRow

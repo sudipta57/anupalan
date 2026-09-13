@@ -65,6 +65,7 @@ function wireStatus(scan: Pick<Scan, 'status' | 'issues'>): WireScanStatus {
       return 'processing';
     case 'queued':
     case 'processing':
+    case 'needs_confirmation':
     case 'complete':
     case 'failed':
       return scan.status;

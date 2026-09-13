@@ -765,6 +765,26 @@ export default function FindingsScreen() {
     );
   }
 
+  // Read and deliberately unjudged: there are no verdicts to draw, because none were computed.
+  // Saying "still on its way through the pipeline" here would be wrong twice over — the pipeline
+  // has finished, and what it is waiting for is this user.
+  if (scan.data.status === 'needs_confirmation') {
+    return (
+      <Screen scroll>
+        <Card>
+          <Text variant="heading">{t('findings.awaitingTitle')}</Text>
+          <Text variant="body" tone="muted">
+            {t('findings.awaitingBody')}
+          </Text>
+          <Button
+            label={t('processing.awaitingAction')}
+            onPress={() => router.push(`/scan/${id}/confirm`)}
+          />
+        </Card>
+      </Screen>
+    );
+  }
+
   if (scan.data.status !== 'complete') {
     return (
       <Screen scroll>

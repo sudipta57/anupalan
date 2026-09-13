@@ -1274,3 +1274,112 @@ but it makes correctness depend on having written a good enough validator per fi
 brittleness that produced the bad matches — and it was not what was asked for.
 
 **PR:** n/a · **Requirement:** FR-24, architecture §5 S6, CLAUDE.md §3.1, §3.3, §6
+
+## 2026-09-13 — Orientation is recovered before recognition is trusted, and implausible values lose their confidence
+
+**Context:** A scan of a protein sachet returned `manufacturer_name` as `NDUSTRIES PVT.LTD`,
+`mrp` as `02` and `best_before` as `Date:`. None of these were extraction failures. The OCR text
+genuinely contained those strings, the extraction layer reported them faithfully, and Rule 6(1) —
+which asks whether a declaration is *present*, not what it says — returned **PASS** for the MRP and
+the shelf life. Both were recorded at 0.95, above FR-06's threshold, so nobody was ever asked.
+
+Two distinct causes, addressed separately.
+
+**Recognition.** The pack was photographed lying on its side and folded across the middle. Read as
+shot it gave 50 words at 0.865 confidence; rotated it gave 107 at 0.906 — and the two rotations
+returned *different halves of the pack*, because the fold put them 180° apart. Clockwise recovered
+the nutrition table, anticlockwise the manufacturer, address, both dates and the MRP.
+
+**Decision:** `services/vision/orientation.py` reads a page again at other orientations when the
+upright pass is not trustworthy, and **merges** the readings rather than scoring them and keeping a
+winner. Merging is the whole point: a folded or multi-panel pack has no single correct orientation,
+and picking the best one would have chosen clockwise here and lost every declaration the label is
+judged on. On the real photograph the merge took 50 words to 243, and `138.00` — the actual MRP,
+previously read as `02` — became readable.
+
+**Why the trigger is box shape.** Word count and mean confidence were measured first and rejected:
+50 words at 0.865 looks like an ordinary read, and any threshold tight enough to catch it fires on
+healthy captures. Words are wider than tall in both Latin and Devanagari, so the share of
+taller-than-wide boxes is a direct measurement of the thing being asked about — 100% as shot, 0%
+upright, on the same photograph. `looks_thin` is kept as a second signal for the different failure
+it actually describes: a page read badly rather than sideways.
+
+**Cost.** Three extra recognition passes, but only on a page that asks for them; an upright
+photograph returns on the first pass unchanged. Every word is mapped back to the coordinates of the
+image as handed in, because a polygon left in a rotated frame is a real rectangle in the wrong
+place, and the confirmation sheet's evidence crop would show the wrong words.
+
+**Extraction.** Separately, `services/extraction/plausibility.py` caps the confidence of a value
+that could not be a value of its field at all. It lowers confidence and nothing else: the value,
+its span and its evidence box are kept, and no verdict is touched — `evaluate()` remains the only
+thing that decides compliance (§3.1). A flagged field simply falls below FR-06's threshold and is
+put in front of a person before a verdict rests on it.
+
+**These are not thresholds in the §3.2 sense.** Nothing here encodes a rule, a limit or a table
+row. The question is narrower and has no legal content — a date field with no digit in it, an email
+with no `@`, a price that is a leading zero. Whether the value then complies stays the rule pack's
+business.
+
+**Deliberately asymmetric, and deliberately not clever.** A false flag costs one tap on the
+confirmation sheet; a missed one costs a wrong verdict in a report carrying a gazette citation, so
+the checks lean toward asking. They do **not** guess at content: `INDUSTRIES PVT.LID` is plausible
+as a manufacturer's name and is not flagged, because nothing about the string reveals it is
+truncated. Flagging it would put half of every real label on the confirmation sheet. That damage is
+recognition's, and is fixed at S4 rather than papered over here.
+
+**Alternative rejected:** scoring the orientations and keeping the best. Simpler, and wrong for the
+case that motivated the work — see above.
+
+**PR:** n/a · **Requirement:** FR-06, FR-22, FR-24, architecture §5 S4/S6, CLAUDE.md §3.1, §3.2
+
+## 2026-09-13 — A verdict is not issued over a value nobody has checked
+
+**Context:** FR-06 existed and was working: fields below 0.75 were surfaced for confirmation, the
+screens flagged the verdicts as provisional, and report generation was blocked until they were
+answered. What it did not do was stop the verdict being *computed and shown* first. So a real scan
+produced `mrp = "02"` — a fragment of `138.00 (3.83/g)` — at 0.95 confidence, Rule 6(1)(e) asked
+only whether an MRP was declared, found one, and returned **PASS**. The user then corrected the
+value, the recompute ran correctly, and the verdict did not move, because a presence rule is
+satisfied by the correct value and by junk alike. The feature looked broken while working exactly
+as designed.
+
+**Decision:** confirmation becomes a gate rather than a review. When any extraction is below the
+threshold the pipeline persists its OCR, extractions and measurements, sets the scan to a new
+`needs_confirmation` status, and does **not** call `evaluate()`. `confirm-fields` evaluates once
+nothing is outstanding, and the scan reaches `complete` or `no_marker` only then.
+
+**The evaluation row is still written, with no findings on it.** This is the part worth recording,
+because it looks like an empty row for nothing. It carries `rulepack_version`, `rulepack_checksum`
+and `as_of`, which is what makes the confirmation that follows judge the label under the rules in
+force when it was photographed rather than whatever is active whenever the user gets round to it
+(§3.6). Deferring evaluation without it would have meant either a new column on `scans` or quietly
+re-resolving the active pack at confirmation time — the second of which is the §3.6 bug the
+confirm-fields handler was already written to avoid. So: a row with nothing in it, rather than no
+row, and no schema change beyond the status itself.
+
+**`complete` vs `no_marker` after confirmation** is decided by whether a rectified asset exists.
+That asset is written if and only if a marker was found *and* yielded a homography, so it is the
+durable record of the fact. Re-deriving it from an empty measurement list would confuse "no marker"
+with "a marker, but nothing measurable on this label".
+
+**What this does not fix, stated plainly.** It does not change the `mrp = "02"` verdict. That PASS
+came from a presence rule being satisfied by junk, and confirming earlier, later or never leaves it
+a PASS. The fix for that shipped separately the same day — plausibility screening caps the
+confidence of a value that could not be its field at all, which is what puts `"02"` in front of a
+person in the first place. This change is about not *showing* a verdict computed from unchecked
+text; that one is about catching the junk.
+
+**Costs.** A seventh scan status and its migration (0004), a seventh value in the app's domain
+`ScanStatus`, and one more state for the offline queue's machine — where it is deliberately
+`needsAttention` but not `isPending`: the queue has nothing left to do, and the user has. `GET
+/findings` now returns 200 with an empty findings array for such a scan, which is a contract change
+`mobile/` consumes and is recorded in `06-wiring-contract.md` §3.3. One existing test,
+`test_a_unit_defect_still_fails_after_correction`, now confirms two fields instead of one: it is
+about what a format rule reads, and it has to reach a verdict to say anything about that.
+
+**Alternative rejected:** evaluating as before and hiding the result behind the existing
+`verdictsAreProvisional` flag. It is what the code already did, and the objection is not that the
+verdict was visible — it is that it existed at all. A computed verdict over unchecked text is a
+number somebody will eventually read out of the database, whatever the UI does with it.
+
+**PR:** n/a · **Requirement:** FR-05, FR-06, architecture §5 S6, CLAUDE.md §3.4, §3.6

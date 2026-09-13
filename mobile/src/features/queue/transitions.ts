@@ -37,7 +37,11 @@ const ALLOWED: Readonly<Record<ScanStatus, readonly ScanStatus[]>> = {
   // Back to `queued` on a retryable error, so the next drain picks it up after the backoff.
   uploading: ['processing', 'queued', 'failed'],
   // Only the server moves a scan off `processing`; the client polls (Stage 7).
-  processing: ['complete', 'failed'],
+  processing: ['needs_confirmation', 'complete', 'failed'],
+  // Terminal for the queue, not for the scan: the server has finished and is waiting on a person.
+  // Nothing the queue does will move it, so polling stops here and the confirmation sheet takes
+  // over. It reaches `complete` through `confirm-fields`, which the findings screens drive.
+  needs_confirmation: ['complete', 'failed'],
   complete: [],
   failed: ['queued'],
 };
@@ -56,7 +60,10 @@ export function isPending(status: ScanStatus): boolean {
 
 /** Waiting on a person rather than on the queue — the badge counts these separately. */
 export function needsAttention(status: ScanStatus): boolean {
-  return status === 'captured' || status === 'failed';
+  // `needs_confirmation` belongs here and not in `PENDING_STATUSES`: the queue has nothing left
+  // to do with the scan, but the user does, and a scan that is one tap from a verdict must not sit
+  // silently among the finished ones.
+  return status === 'captured' || status === 'failed' || status === 'needs_confirmation';
 }
 
 export function canTransition(from: ScanStatus, to: ScanStatus): boolean {

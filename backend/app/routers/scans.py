@@ -917,6 +917,14 @@ def get_findings(
 
     Always carries ``rulepack_version`` (CLAUDE.md §3.6) and the summary block, including the
     count of rules that did not apply.
+
+    **An empty findings list is a real answer, not an error.** A scan in ``needs_confirmation``
+    has been read and deliberately not judged: its extractions, measurements and OCR are all here,
+    and there are no verdicts because ``evaluate()`` was never run over a value nobody has checked.
+    The response still carries the pack version the confirmation will be judged under, so a client
+    can say *which* rules are waiting rather than only that something is. The 409 below is
+    therefore about a scan that has not been *processed* — no evaluation row at all — which is a
+    different statement and the one it was always meant to make.
     """
     scan = _load_scan(session, principal, scan_id)
     evaluations = ScanEvaluationRepository(session, principal.org_id)
@@ -983,14 +991,26 @@ def confirm_fields(
     extractions = _domain_extractions(session, scan)
     measurements = _domain_measurements(session, scan)
 
+    from app.services.extraction import needs_confirmation
     from app.services.rules.evaluate import evaluate
 
-    findings = evaluate(
-        profile_from_json(dict(scan.profile or {})),
-        extractions,
-        measurements,
-        rulepack=pack,
-        as_of=previous.as_of if isinstance(previous.as_of, date) else scan.captured_at.date(),
+    # Nothing is judged while a field is still unchecked. The pipeline stops here for the same
+    # reason (`services/pipeline.py`): a rule asked about a value nobody believes answers with the
+    # same confidence it answers anything, and Rule 6(1) only checks that a declaration is
+    # present — so an unchecked `mrp = "02"` earns a PASS. Confirming one field of three therefore
+    # records that correction and still returns no verdicts.
+    outstanding = needs_confirmation(extractions)
+
+    findings = (
+        []
+        if outstanding
+        else evaluate(
+            profile_from_json(dict(scan.profile or {})),
+            extractions,
+            measurements,
+            rulepack=pack,
+            as_of=previous.as_of if isinstance(previous.as_of, date) else scan.captured_at.date(),
+        )
     )
 
     evaluation = evaluations.add(
@@ -1035,6 +1055,14 @@ def confirm_fields(
     if rows:
         FindingRepository(session, principal.org_id).add_all(rows)
 
+    # The scan leaves `needs_confirmation` only when nothing is outstanding. Whether it lands on
+    # `complete` or `no_marker` is decided by whether a rectified asset exists: that asset is
+    # written if and only if a marker was found and yielded a homography, so it is the durable
+    # record of the fact, and the alternative — re-deriving it from an empty measurement list —
+    # would confuse "no marker" with "a marker but nothing measurable on this label".
+    if scan.status == "needs_confirmation" and not outstanding:
+        scan.status = "complete" if _has_rectified_asset(session, scan) else "no_marker"
+
     audit.append(
         session,
         org_id=principal.org_id,
@@ -1046,11 +1074,26 @@ def confirm_fields(
             "fields": sorted({item.code for item in payload.fields}),
             "revision": evaluation.revision,
             "rulepack_version": previous.rulepack_version,
+            "outstanding": len(outstanding),
         },
     )
 
     stored = list(FindingRepository(session, principal.org_id).for_evaluation(evaluation.id))
     return _findings_response(session, scan, evaluation, stored)
+
+
+def _has_rectified_asset(session: Any, scan: Scan) -> bool:
+    """Whether this scan was rectified against a marker."""
+    count: int = session.execute(
+        sa.select(sa.func.count())
+        .select_from(ScanAsset)
+        .where(
+            ScanAsset.scan_id == scan.id,
+            ScanAsset.org_id == scan.org_id,
+            ScanAsset.kind == "rectified",
+        )
+    ).scalar_one()
+    return count > 0
 
 
 def _apply_corrections(

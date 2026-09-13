@@ -130,7 +130,14 @@ async function pollProcessing(): Promise<boolean> {
     try {
       const remote = await api.getScan(scan.remoteId);
 
-      if (remote.status === 'complete' || remote.status === 'failed') {
+      // `needs_confirmation` ends the queue's involvement as surely as `complete` does: the
+      // server has finished and is waiting on a person, so polling it would be waiting for a
+      // change only the confirmation sheet can make.
+      if (
+        remote.status === 'complete' ||
+        remote.status === 'failed' ||
+        remote.status === 'needs_confirmation'
+      ) {
         repo.setStatus(scan.id, remote.status);
         moved = true;
       }

@@ -122,6 +122,19 @@ describe('the status vocabulary', () => {
   it('raises no issue for a scan that simply finished', () => {
     expect(issuesOf({ status: 'complete' })).toEqual([]);
   });
+
+  it('keeps needs_confirmation as its own state rather than folding it into processing', () => {
+    // Folding it into `processing` would leave the queue polling forever for a change only the
+    // confirmation sheet can make — the server has finished and is waiting on a person. It is
+    // also not `complete`: no verdict exists, because `evaluate()` was never run over a value
+    // nobody has checked (FR-06).
+    expect(toScanStatus('needs_confirmation')).toBe('needs_confirmation');
+  });
+
+  it('raises no degradation issue for a scan that is merely unconfirmed', () => {
+    // Not a degraded result. Nothing failed, nothing is missing — a person has not answered yet.
+    expect(issuesOf({ status: 'needs_confirmation' })).toEqual([]);
+  });
 });
 
 describe('the marker vocabulary', () => {

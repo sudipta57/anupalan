@@ -33,7 +33,15 @@ from app.models.scan import ASSET_KINDS, MARKER_TYPES, SCAN_STATUSES
 from app.schemas.base import StrictModel
 
 MarkerType = Literal["aruco_4x4_50", "id1_card", "user_declared"]
-ScanStatus = Literal["created", "queued", "processing", "complete", "failed", "no_marker"]
+ScanStatus = Literal[
+    "created",
+    "queued",
+    "processing",
+    "needs_confirmation",
+    "complete",
+    "failed",
+    "no_marker",
+]
 AssetKind = Literal["raw", "rectified", "annotated"]
 
 # The Literals above are the API contract and the tuples are the database's. They must not drift,

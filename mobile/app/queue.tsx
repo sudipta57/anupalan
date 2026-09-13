@@ -32,6 +32,7 @@ const STATUS_KEYS: Record<ScanStatus, TranslationKey> = {
   queued: 'queue.statusQueued',
   uploading: 'queue.statusUploading',
   processing: 'queue.statusProcessing',
+  needs_confirmation: 'queue.statusNeedsConfirmation',
   complete: 'queue.statusComplete',
   failed: 'queue.statusFailed',
 };

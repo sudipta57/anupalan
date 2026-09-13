@@ -34,7 +34,7 @@ import {
   Text,
   VerdictBadge,
 } from '@/components';
-import type { FindingsResult, PipelineStage, Scan } from '@/domain';
+import type { Extraction, FindingsResult, PipelineStage, Scan } from '@/domain';
 import {
   ISSUE_COPY,
   PIPELINE_STAGES,
@@ -97,6 +97,42 @@ function StageList({
         );
       })}
     </View>
+  );
+}
+
+/**
+ * The scan is read and deliberately unjudged — FR-06.
+ *
+ * Not a degraded result and not an error, so it says neither. The server has the text, the
+ * extractions and the measurements, and stopped before `evaluate()` because a field came back
+ * below the confidence threshold. Issuing a verdict over it and labelling that provisional was the
+ * previous shape, and it put a PASS in front of a reader before anyone had checked the value
+ * underneath it — Rule 6(1) only asks whether a declaration is *present*, so an unchecked `02`
+ * read as an MRP satisfies it.
+ *
+ * There is therefore exactly one action on this screen, and it is the confirmation sheet.
+ */
+function AwaitingConfirmation({ id, pending }: { id: string; pending: readonly Extraction[] }) {
+  const t = useT();
+  const count = pending.length;
+
+  return (
+    <Screen scroll>
+      <Card>
+        <Text variant="display">{t('processing.awaitingTitle')}</Text>
+        <Text variant="body" tone="muted">
+          {count === 1
+            ? t('processing.awaitingBody', { count: String(count) })
+            : t('processing.awaitingBodyPlural', { count: String(count) })}
+        </Text>
+        <Button
+          label={t('processing.awaitingAction')}
+          onPress={() => router.push(`/scan/${id}/confirm`)}
+        />
+      </Card>
+
+      <AdvisoryDisclaimer />
+    </Screen>
   );
 }
 
@@ -250,8 +286,13 @@ export default function ScanScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const scan = useScan(id);
-  // Only fetched once there is something to fetch: findings do not exist until the scan completes.
-  const findings = useFindings(scan.data?.status === 'complete' ? id : undefined);
+  // Also fetched while the scan waits on a confirmation: the response then carries no findings,
+  // deliberately, but it does carry the extractions — which is how this screen can say *which*
+  // fields are waiting rather than only that something is.
+  const status = scan.data?.status;
+  const findings = useFindings(
+    status === 'complete' || status === 'needs_confirmation' ? id : undefined
+  );
 
   if (scan.isPending) {
     return (
@@ -293,6 +334,11 @@ export default function ScanScreen() {
         </Card>
       </Screen>
     );
+  }
+
+  if (scan.data.status === 'needs_confirmation') {
+    const waiting = findings.data ? fieldsNeedingConfirmation(findings.data) : [];
+    return <AwaitingConfirmation id={id} pending={waiting} />;
   }
 
   if (scan.data.status !== 'complete') return <InFlight scan={scan.data} />;

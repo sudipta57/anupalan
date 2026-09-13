@@ -75,7 +75,13 @@ export interface WireAsset {
 }
 
 export type WireScanStatus =
-  'created' | 'queued' | 'processing' | 'complete' | 'failed' | 'no_marker';
+  | 'created'
+  | 'queued'
+  | 'processing'
+  | 'needs_confirmation'
+  | 'complete'
+  | 'failed'
+  | 'no_marker';
 
 export type WireMarkerType = 'aruco_4x4_50' | 'id1_card' | 'user_declared';
 
@@ -139,6 +145,9 @@ const STATUS: Record<WireScanStatus, ScanStatus> = {
   created: 'queued',
   queued: 'queued',
   processing: 'processing',
+  // Not `processing`: the server has finished and is waiting on a person. Mapping it to
+  // `processing` would leave the queue polling forever for a change only the user can make.
+  needs_confirmation: 'needs_confirmation',
   complete: 'complete',
   failed: 'failed',
   no_marker: 'complete',

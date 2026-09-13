@@ -23,7 +23,22 @@ export type MarkerType = 'aruco_40mm' | 'id1_card' | 'user_dimension';
  *
  * `captured` and `queued` are local-only; the rest mirror the server.
  */
-export type ScanStatus = 'captured' | 'queued' | 'uploading' | 'processing' | 'complete' | 'failed';
+export type ScanStatus =
+  | 'captured'
+  | 'queued'
+  | 'uploading'
+  | 'processing'
+  | 'needs_confirmation'
+  | 'complete'
+  | 'failed';
+
+/**
+ * `needs_confirmation` is the server having read the label and stopped short of judging it: a field
+ * came back below the confidence threshold, and no verdict is issued on a value nobody has checked
+ * (FR-06). The scan has its text, its extractions and its measurements, and **no findings**. It is
+ * not a degraded result and not an error — it is work waiting on a person, and the only thing that
+ * moves it on is the confirmation sheet.
+ */
 
 /** Why a scan could not produce a full result. Drives the degradation UI (architecture §11). */
 export type ScanIssue =

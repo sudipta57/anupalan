@@ -135,6 +135,10 @@ export const en = {
   processing: {
     title: 'Scan',
     waitingTitle: 'Working on it',
+    awaitingTitle: 'Read, not yet judged',
+    awaitingBody: '{count} field was read with low confidence. No verdict is issued until you check it — a rule asked about a value nobody has confirmed answers just as confidently as one that is right.',
+    awaitingBodyPlural: '{count} fields were read with low confidence. No verdict is issued until you check them — a rule asked about a value nobody has confirmed answers just as confidently as one that is right.',
+    awaitingAction: 'Check what was read',
     waitingBody: 'This usually takes under ten seconds on a good connection.',
     queuedTitle: 'Waiting to upload',
     queuedBody: 'It will go up as soon as there is a network. You can leave this screen.',
@@ -199,7 +203,10 @@ export const en = {
     accepted: 'Confirmed',
     saving: 'Recomputing…',
     saveFailed: 'That correction could not be saved. Try again.',
-    recomputed: 'Verdicts recomputed against your correction.',
+    recomputing: 'Recomputing the verdicts…',
+    recomputedSame: 'Recomputed. No verdict changed — these rules ask whether a declaration is present, not what it says.',
+    recomputedOne: 'Recomputed. 1 verdict changed.',
+    recomputedMany: 'Recomputed. {count} verdicts changed.',
     allDone: 'Everything is confirmed',
     allDoneBody: 'No field on this scan is waiting on you.',
     done: 'Back to the scan',
@@ -258,6 +265,10 @@ export const en = {
     noImage: 'No rectified image',
     noImageBody:
       'Findings are anchored to the rectified image and this scan has none, so there is nothing to draw the outlines on. The list below is complete.',
+
+    awaitingTitle: 'No verdicts yet',
+
+    awaitingBody: 'This scan was read but not judged: a field came back with low confidence, and no rule is applied to a value nobody has checked. Confirm what was read and the verdicts follow.',
 
     notComplete: 'This scan has no findings yet',
     notCompleteBody: 'It is still on its way through the pipeline. The scan screen shows where.',
@@ -356,6 +367,7 @@ export const en = {
     statusQueued: 'Waiting for a network',
     statusUploading: 'Uploading',
     statusProcessing: 'Processing on the server',
+    statusNeedsConfirmation: 'Waiting for you to confirm',
     statusComplete: 'Complete',
     statusFailed: 'Could not be uploaded',
     attempt: 'Attempt {count} of {max}',
