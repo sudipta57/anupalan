@@ -47,6 +47,22 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_default_retry_delay=10,
     task_max_retries=3,
+    # ---- Redis connection budget.
+    #
+    # Redis Cloud's shared tiers cap *total* clients across everything that connects, and this
+    # project connects from more than one place: the API, the worker's main process, and each
+    # forked child. Celery's defaults are sized for a Redis you own — `broker_pool_limit` alone is
+    # 10 — and two developers running a worker each is enough to exhaust the cap. What that looks
+    # like is not an error anyone would connect to the cause: scans sit in `processing`, the worker
+    # burns no CPU, and every new connection is refused with "max number of clients reached",
+    # including the one you open to find out why.
+    #
+    # A small pool costs nothing here. The worker runs `--concurrency=2` with
+    # `worker_prefetch_multiplier=1`, so it is never usefully holding ten broker connections; the
+    # pool just sizes how many stay open between tasks.
+    broker_pool_limit=2,
+    redis_max_connections=4,
+    broker_transport_options={"max_connections": 4},
 )
 
 if settings.redis_is_tls:

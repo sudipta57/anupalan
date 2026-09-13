@@ -34,8 +34,9 @@ file would create two lists to keep in step for no gain. This module proposes th
 client matches it against the vocabulary it already owns.
 
 Pure, like ``rules/evaluate()``: no I/O, no model call, no clock. The model ran earlier, in
-``extraction.llm_layer``, and its output arrives here as ordinary ``Extraction`` values — so no
-new LLM call site is introduced and §9's table still lists three.
+``extraction.llm_layer``, and its output arrives here as ordinary ``Extraction`` values. The one
+model answer that is not a declaration — the product name asked for when a label prints no common
+name — is asked for in ``extraction.product_name`` and arrives here already a ``Suggestion``.
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from app.services.extraction import CONFIRMATION_THRESHOLD
+from app.services.extraction.countries import INDIA_NAMES, country_named
 from app.services.rules.types import Extraction
 
 SUGGESTED_FIELDS: tuple[str, ...] = ("name", "net_qty_value", "net_qty_unit", "is_imported")
@@ -202,7 +204,7 @@ def _quantity(found: dict[str, Extraction]) -> list[Suggestion]:
     ]
 
 
-def _imported(found: dict[str, Extraction]) -> list[Suggestion]:
+def _imported(found: dict[str, Extraction], patterns: dict[str, Extraction]) -> list[Suggestion]:
     """Whether the label declares this an imported package.
 
     One direction only (rule 2 in the module docstring): this returns a suggestion of ``true`` or
@@ -217,9 +219,42 @@ def _imported(found: dict[str, Extraction]) -> list[Suggestion]:
     * a **country of origin that is not India** — which appears on imported packages under Rule 6
       and on e-commerce listings generally, so "India" here is not evidence of import and is
       treated as no evidence at all rather than as evidence of the opposite.
+
+    **Both readings must be ones the extractor believes** — below FR-06's threshold, neither is
+    grounds for switching a set of rules on.
+
+    That bar came from a real pack, photographed on a real phone: a Dabur fruit drink for which the
+    model returned ``country_of_origin = "Nepal"`` and ``importer_name = "DABUR INDALID"``, both at
+    0.70, and at the time both were taken for misreads of a domestic product. **They were not.**
+    The carton says "Country of Origin Nepal" and "Imported & Marketed by DABUR INDIA LTD" — it is
+    made by Dabur Nepal and imported. The bar stands anyway, because a 0.70 reading is still the
+    model's guess about what OCR text meant, and on a garbled string that guess can be wrong. What
+    the episode showed is that the bar had a cost: a correct importer declaration never reached the
+    form, because the model's answer *replaces* the pattern's in ``extract`` and a pattern-matched
+    0.95 became a model-read 0.70.
+
+    **So the pattern layer's own reading is consulted too** (``patterns``), and it is believed on
+    tighter terms than a merged reading:
+
+    * a pattern-matched **importer declaration** is believed as it is above — "Imported by" is a
+      phrase, not an inference;
+    * a pattern-matched **country of origin** must *name a country* (``extraction.countries``)
+      before its not being India means anything. "Not India" alone is a negative test that any
+      misread passes — ``DABURNDIAID`` is not India either — and a positive one does not have that
+      hole;
+    * and when the model read the same field as **India**, the two readings disagree and nothing
+      is proposed. Silence is the cheap way to be wrong here.
+
+    **Why the direction matters.** ``is_imported=true`` turns *more* rules on, so a wrong one is a
+    Rule 6 importer FAIL against a compliant domestic pack. CLAUDE.md §3.4 names accusing a
+    compliant label as the failure mode that kills the product, so this is the expensive direction
+    to be wrong in, not the cheap one. The consequence of the bar is that ``is_imported`` is
+    proposed only from a **pattern-matched** declaration, since the model's own values all arrive
+    at 0.70 — which is the right bar for a field that decides which rules run at all. When nothing
+    is proposed the form's default stands, visible and one tap from being changed.
     """
     importer = found.get("importer_name")
-    if importer is not None:
+    if importer is not None and importer.confidence >= CONFIRMATION_THRESHOLD:
         return [
             Suggestion(
                 field="is_imported",
@@ -231,7 +266,11 @@ def _imported(found: dict[str, Extraction]) -> list[Suggestion]:
         ]
 
     origin = found.get("country_of_origin")
-    if origin is not None and not _is_india(origin.value):
+    if (
+        origin is not None
+        and origin.confidence >= CONFIRMATION_THRESHOLD
+        and not _is_india(origin.value)
+    ):
         return [
             Suggestion(
                 field="is_imported",
@@ -242,15 +281,70 @@ def _imported(found: dict[str, Extraction]) -> list[Suggestion]:
             )
         ]
 
-    return []
+    return _imported_from_patterns(found, patterns)
 
 
-def suggest(extractions: Sequence[Extraction]) -> list[Suggestion]:
+def _imported_from_patterns(
+    found: dict[str, Extraction], patterns: dict[str, Extraction]
+) -> list[Suggestion]:
+    """The pattern layer's reading of the importer or origin line, when the merged one fell short.
+
+    See ``_imported`` for why this exists and for why a country must be *named*, not merely be
+    something other than India.
+    """
+    importer = patterns.get("importer_name")
+    if importer is not None and importer.confidence >= CONFIRMATION_THRESHOLD:
+        return [
+            Suggestion(
+                field="is_imported",
+                value="true",
+                confidence=importer.confidence,
+                from_field_code="importer_name",
+                source_text=importer.value_raw,
+            )
+        ]
+
+    origin = patterns.get("country_of_origin")
+    if origin is None or origin.confidence < CONFIRMATION_THRESHOLD:
+        return []
+
+    country = country_named(_cleaned(origin.value))
+    if country is None or country in INDIA_NAMES:
+        return []
+
+    # The model's reading of the same line, whatever its confidence, as a contradiction check only.
+    model_read = found.get("country_of_origin")
+    if model_read is not None and model_read.source != "regex" and _is_india(model_read.value):
+        return []
+
+    return [
+        Suggestion(
+            field="is_imported",
+            value="true",
+            confidence=origin.confidence,
+            from_field_code="country_of_origin",
+            # The country, not the whole capture: the pattern runs on into the next line of the
+            # label, and "read: Nepal Net Quantity" beside the toggle would explain nothing.
+            source_text=" ".join(origin.value_raw.split()[: len(country.split())]),
+        )
+    ]
+
+
+def suggest(
+    extractions: Sequence[Extraction],
+    *,
+    pattern_readings: Sequence[Extraction] = (),
+    product_name: Suggestion | None = None,
+) -> list[Suggestion]:
     """Propose product-context values from declarations read off a label.
 
     Args:
         extractions: what the extraction layer found. Only present declarations are read; a field
             extracted as an empty string is an absent declaration, not a value (FR-24).
+        pattern_readings: the pattern layer's own output, before the model's answers replaced it.
+            Consulted only for ``is_imported``, on the terms ``_imported`` sets out.
+        product_name: a name from ``extraction.product_name``. Used only when the label's common
+            name proposed none — a declaration read off the pack outranks a name the model composed.
 
     Returns:
         Zero or more suggestions, ordered by ``SUGGESTED_FIELDS`` so the output is deterministic
@@ -259,7 +353,11 @@ def suggest(extractions: Sequence[Extraction]) -> list[Suggestion]:
     """
     found = _by_code(extractions)
 
-    proposed = [*_name(found), *_quantity(found), *_imported(found)]
+    names = _name(found)
+    if not names and product_name is not None and product_name.field == "name":
+        names = [product_name]
+
+    proposed = [*names, *_quantity(found), *_imported(found, _by_code(pattern_readings))]
 
     order = {field: index for index, field in enumerate(SUGGESTED_FIELDS)}
     return sorted(proposed, key=lambda item: order[item.field])

@@ -11,9 +11,9 @@ waiting on it — by the time a retry ran they would have typed the fields thems
 answer would arrive for a form that is already gone. So a failure is recorded as ``failed``, the
 app stops polling, and the form stays what it always was: something you can fill in.
 
-**The photograph is deleted as soon as it is read**, whatever happened. It is not evidence — the
-scan's own full-resolution images are, and they arrive by a different path with a declared hash
-(``services/prefill.py`` explains the split). Keeping it would mean holding a picture of a
+**The photographs are deleted as soon as they are read**, whatever happened. They are not evidence
+— the scan's own full-resolution images are, and they arrive by a different path with a declared
+hash (``services/prefill.py`` explains the split). Keeping them would mean holding pictures of a
 stranger's shopping in object storage for no reason anyone could name.
 """
 
@@ -38,14 +38,18 @@ logger = logging.getLogger(__name__)
 
 # Celery ships no type information for `task`; the body below is annotated.
 @celery_app.task(bind=True, name="prefill.read", max_retries=0)  # type: ignore[untyped-decorator]
-def read_label_task(self: Any, prefill_id: str, org_id: str, key: str) -> dict[str, str]:
-    """Read the photograph at ``key`` and record what it suggests for the context form.
+def read_label_task(
+    self: Any, prefill_id: str, org_id: str, keys: list[str]
+) -> dict[str, str]:
+    """Read the photographs at ``keys`` and record what they suggest for the context form.
 
     Args:
         prefill_id: the id the client is polling.
         org_id: the org that asked. Part of the store key, so one org cannot collect another's
             prefill (CLAUDE.md §3.7).
-        key: the object storage key of the uploaded photograph. Deleted before this returns.
+        keys: object storage keys of the uploaded photographs, in capture order. All are read
+            together — a pack's declarations are spread across its panels — and all are deleted
+            before this returns.
 
     Returns:
         The id and the status recorded, for the log. The client reads the store, not this.
@@ -57,22 +61,24 @@ def read_label_task(self: Any, prefill_id: str, org_id: str, key: str) -> dict[s
 
     try:
         reading = read_label(
-            objects.get_bytes(key),
+            [objects.get_bytes(key) for key in keys],
             ocr=get_engine(),
             pack=active_pack(),
             llm=get_provider(),
         )
         record = PrefillRecord.of(prefill_id, reading)
     except Exception as exc:  # noqa: BLE001 — a prefill never fails a user's request
-        logger.warning("prefill %s could not read %s: %s", prefill_id, key, exc)
+        logger.warning("prefill %s could not read %s: %s", prefill_id, keys, exc)
         record = PrefillRecord.failed(prefill_id)
     finally:
-        try:
-            objects.delete(key)
-        except Exception as exc:  # noqa: BLE001
-            # Worth a log and nothing more: the bucket's lifecycle rule on the prefill/ prefix is
-            # the backstop, and a scratch thumbnail surviving an hour is not an incident.
-            logger.warning("could not delete prefill scratch object %s: %s", key, exc)
+        # Every key, and one failure does not strand the rest.
+        for key in keys:
+            try:
+                objects.delete(key)
+            except Exception as exc:  # noqa: BLE001
+                # Worth a log and nothing more: the bucket's lifecycle rule on the prefill/ prefix
+                # is the backstop, and a scratch thumbnail surviving an hour is not an incident.
+                logger.warning("could not delete prefill scratch object %s: %s", key, exc)
 
     store.put(org_id, record)
     return {"prefill_id": prefill_id, "status": record.status}

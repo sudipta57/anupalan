@@ -15,6 +15,7 @@ export const SCENARIOS = [
   'no-marker',
   'low-confidence',
   'llm-unavailable',
+  'prefill-unreadable',
   'report-failed',
   'listing-metric-verdict',
   'offline',
@@ -28,6 +29,9 @@ export const SCENARIO_LABELS: Record<Scenario, string> = {
   'no-marker': 'No marker detected',
   'low-confidence': 'Low-confidence field',
   'llm-unavailable': 'LLM unavailable',
+  // FR-03's prefill reading a photograph it cannot make anything of — a back panel, a blur, a
+  // thumb over the label. The form must be exactly as usable as it was before the feature.
+  'prefill-unreadable': 'Label unreadable for prefill',
   // Not in architecture §11's table: report generation is S10 and can fail on its own, and the
   // screen has to handle a `failed` report whether or not §11 lists it.
   'report-failed': 'Report generation fails',

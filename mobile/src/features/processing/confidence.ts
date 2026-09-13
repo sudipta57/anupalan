@@ -62,6 +62,44 @@ export function verdictsAreProvisional(result: Pick<FindingsResult, 'extractions
   return result.extractions.some(needsConfirmation);
 }
 
+/**
+ * Below this, a field awaiting confirmation is folded away under "Also unclear" rather than listed.
+ *
+ * Presentation only. It decides the *order of asking*, never whether a field is asked: everything
+ * under `CONFIDENCE_THRESHOLD` still has to be confirmed before a verdict is issued, folded or not.
+ *
+ * 0.70 is where the language model's readings land. What falls below it is almost always a reading
+ * the plausibility screen capped at 0.25 because the string cannot be what its field claims — a real
+ * Dabur scan's `best_before` came back as "please see top panel." Those are the least useful rows to
+ * lead with: they are the ones a person corrects by typing, not by glancing and tapping.
+ */
+export const UNCLEAR_BELOW = 0.7;
+
+export interface ConfirmationGroups {
+  /** Worth a glance and a tap, in the order `fieldsNeedingConfirmation` gives them. */
+  likely: Extraction[];
+  /** Read too poorly to lead with. Still awaiting confirmation. */
+  unclear: Extraction[];
+}
+
+/**
+ * Everything awaiting confirmation, split at `UNCLEAR_BELOW`.
+ *
+ * Nothing is dropped: `likely` and `unclear` together are exactly `fieldsNeedingConfirmation`. That
+ * is the property that matters, because the backend holds every verdict until each of those fields
+ * is confirmed, so a field that is filtered out rather than folded leaves the scan unjudged for good.
+ */
+export function groupForConfirmation(
+  result: Pick<FindingsResult, 'extractions'>
+): ConfirmationGroups {
+  const pending = fieldsNeedingConfirmation(result);
+
+  return {
+    likely: pending.filter((extraction) => extraction.confidence >= UNCLEAR_BELOW),
+    unclear: pending.filter((extraction) => extraction.confidence < UNCLEAR_BELOW),
+  };
+}
+
 /** Confidence as a whole-number percentage, for display. */
 export function confidencePercent(confidence: number): number {
   return Math.round(Math.max(0, Math.min(1, confidence)) * 100);

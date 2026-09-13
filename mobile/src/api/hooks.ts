@@ -26,6 +26,7 @@ import type {
   Scan,
   ScanListItem,
 } from '@/domain';
+import type { PrefillResult } from '@/features/scan-context/prefill';
 import { pollIntervalFor } from '@/features/reports/status';
 
 import { api } from './endpoints';
@@ -37,6 +38,7 @@ import type {
   CreateScanResult,
   ListingCheckBody,
   ListScansQuery,
+  PrefillRequestBody,
   SahayakAskBody,
 } from './types';
 
@@ -46,6 +48,9 @@ type ScanPage = Page<ScanListItem>;
 
 /** How often to re-check a scan that is still being processed. */
 const PROCESSING_POLL_MS = 1_500;
+
+/** Prefill poll. Tighter than the scan poll: a person is looking at the form it fills. */
+const PREFILL_POLL_MS = 800;
 
 export function useProducts(q?: string): UseQueryResult<ProductPage> {
   return useQuery({
@@ -86,6 +91,35 @@ export function useFindings(scanId: string | undefined): UseQueryResult<Findings
     queryKey: queryKeys.findings(scanId ?? ''),
     queryFn: () => api.getFindings(scanId as string),
     enabled: Boolean(scanId),
+  });
+}
+
+/**
+ * Ask for a label photograph to be read (FR-03). Paired with `usePrefill` below.
+ *
+ * A failure here is not surfaced: the caller starts this and carries on rendering a form that
+ * already works. See `features/scan-context/use-prefill.ts`, which owns that decision.
+ */
+export function usePrefillRequest(): UseMutationResult<PrefillResult, Error, PrefillRequestBody> {
+  return useMutation({ mutationFn: (body: PrefillRequestBody) => api.requestPrefill(body) });
+}
+
+/**
+ * Collect a prefill, polling while it is still being read.
+ *
+ * Faster than the scan poll — 800 ms rather than 1500 — because someone is watching a form and
+ * waiting to not have to type in it. The read itself is seconds, so the polling window is short.
+ *
+ * `retry: false`: a 404 means the prefill expired or never existed, and retrying a 404 delays the
+ * moment the form gives up and lets the user get on with typing.
+ */
+export function usePrefill(prefillId: string | undefined): UseQueryResult<PrefillResult> {
+  return useQuery({
+    queryKey: queryKeys.prefill(prefillId ?? ''),
+    queryFn: () => api.getPrefill(prefillId as string),
+    enabled: Boolean(prefillId),
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.status === 'reading' ? PREFILL_POLL_MS : false),
   });
 }
 

@@ -140,8 +140,8 @@ def enqueuer() -> Callable[[str], str | None]:
 Enqueuer = Annotated[Callable[[str], str | None], Depends(enqueuer)]
 
 
-def prefill_enqueuer() -> Callable[[str, str, str], str | None]:
-    """The function that hands a label photograph to the worker to be read (FR-03).
+def prefill_enqueuer() -> Callable[[str, str, list[str]], str | None]:
+    """The function that hands a pack's photographs to the worker to be read (FR-03).
 
     Separate from ``enqueuer`` because it takes different arguments and has different failure
     semantics — it swallows a broker failure rather than raising, see ``services/queue.py``. A
@@ -152,7 +152,9 @@ def prefill_enqueuer() -> Callable[[str, str, str], str | None]:
     return enqueue_prefill
 
 
-PrefillEnqueuer = Annotated[Callable[[str, str, str], str | None], Depends(prefill_enqueuer)]
+PrefillEnqueuer = Annotated[
+    Callable[[str, str, list[str]], str | None], Depends(prefill_enqueuer)
+]
 
 
 def storage() -> Any:

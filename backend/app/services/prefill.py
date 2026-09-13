@@ -1,8 +1,8 @@
 """Reading a label to prefill the product context form — the impure half of FR-03's prefill.
 
 ``extraction.prefill`` maps declarations to suggestions and is pure. This module is what gets the
-declarations: decode a photograph, recognise it, extract, and hand the result somewhere the API
-can read it back.
+declarations: decode a scan's photographs, recognise them, merge the words, extract, and hand the
+result somewhere the API can read it back.
 
 **Why this is not the scan pipeline.** The pipeline exists to produce verdicts, and a verdict
 needs the marker, the homography and millimetres. Prefill produces *form values*, so it needs
@@ -13,10 +13,10 @@ none of that:
   CLAUDE.md §3.3 is not weakened by this — it is respected by not producing the quantity that
   would violate it. The scan itself still carries its marker and is still measured by the
   pipeline, off the full-resolution original.
-* **No scan row, no findings, no evidence.** The image is a thumbnail the user has not yet decided
-  to turn into a scan. It is deleted as soon as it has been read, and nothing derived from it
-  reaches a report. The evidence chain starts where it always did: at ``POST /v1/scans``, with the
-  client's declared SHA-256 over the full-resolution bytes.
+* **No scan row, no findings, no evidence.** The images are thumbnails of photographs the user has
+  not yet decided to turn into a scan. They are deleted as soon as they have been read, and nothing
+  derived from them reaches a report. The evidence chain starts where it always did: at
+  ``POST /v1/scans``, with the client's declared SHA-256 over the full-resolution bytes.
 
 **It runs in the worker**, not in the API, for the same reason processing does: the API process
 does not load OCR models and must not start doing so on a request path.
@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from typing import Any, Literal, Protocol
 
@@ -42,11 +43,15 @@ import numpy.typing as npt
 
 from app.config import settings
 from app.services.extraction import extract
+from app.services.extraction.plausibility import screen
 from app.services.extraction.prefill import Suggestion, suggest
-from app.services.llm.provider import LLMProvider
+from app.services.extraction.product_name import read_product_name
+from app.services.extraction.regex_layer import extract_with_patterns
+from app.services.extraction.text import build_text
+from app.services.llm.provider import LLMProvider, LLMResult, Tier
 from app.services.rules.loader import RulePack
 from app.services.rules.types import Profile
-from app.services.vision.ocr import OCREngine
+from app.services.vision.ocr import OCREngine, Word
 from app.services.vision.orientation import read as read_oriented
 
 logger = logging.getLogger(__name__)
@@ -67,14 +72,14 @@ class UnreadableImageError(ValueError):
 
 @dataclass(frozen=True)
 class LabelReading:
-    """What one photograph proposes for the product context form."""
+    """What a scan's photographs, read together, propose for the product context form."""
 
     suggestions: tuple[Suggestion, ...]
 
     word_count: int
-    """How many words were recognised. Zero with no suggestions means the photograph was read and
-    had nothing usable in it — a blur, a back panel, a hand over the label — which is a different
-    thing from the read never happening, and the client says so differently."""
+    """How many words were recognised across every photograph. Zero with no suggestions means they
+    were read and had nothing usable on them — blurred, or a hand over the label — which is a
+    different thing from the read never happening, and the client says so differently."""
 
     reduced: bool
     """True when extraction ran without the model, so only the pattern layer contributed.
@@ -102,17 +107,83 @@ def _decode_image(payload: bytes) -> npt.NDArray[np.uint8]:
     return np.ascontiguousarray(decoded)
 
 
+class _WatchedProvider:
+    """A provider that remembers whether any of its calls failed.
+
+    Exists because ``reduced`` used to be computed as ``llm is None``, and that is the wrong
+    question. The extraction layer turns a failed model call into an empty list and never raises
+    (``extraction.llm_layer``), so a provider that was *present* but refused — a 429 from a
+    rate-limited free tier, a timeout, a malformed body — produced a record reading "full read, not
+    reduced, no suggestions". That is indistinguishable from "read everything and found nothing",
+    and it is exactly what an inspector saw: three photographs of a Dabur carton, 91 words read, an
+    empty form, and nothing to say the model had never answered.
+
+    Reproduced against the live provider: three extraction-sized calls in parallel returned one 200
+    and two ``429 We have to rate limit you``. The same photographs read with the model answering
+    produced name, net quantity and unit.
+
+    Structural, not a subclass: it satisfies ``LLMProvider`` by shape, which is all ``extract``
+    asks for, so no adapter has to know it is being watched.
+    """
+
+    def __init__(self, inner: LLMProvider) -> None:
+        self._inner = inner
+        self.failed = False
+
+    def complete(
+        self,
+        *,
+        prompt: str,
+        schema: dict[str, Any] | None,
+        temperature: float,
+        max_tokens: int,
+        tier: Tier,
+    ) -> LLMResult:
+        result = self._inner.complete(
+            prompt=prompt,
+            schema=schema,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            tier=tier,
+        )
+        # `parsed is None` counts as a failure for the same reason `llm_layer` treats it as one: a
+        # schema was asked for, and a response that does not parse contributed nothing.
+        if not result.ok or (schema is not None and result.parsed is None):
+            self.failed = True
+        return result
+
+
 def read_label(
-    image: bytes,
+    images: Sequence[bytes],
     *,
     ocr: OCREngine,
     pack: RulePack,
     llm: LLMProvider | None,
 ) -> LabelReading:
-    """Read a label photograph and propose product-context values for it.
+    """Read a scan's photographs and propose product-context values from them.
+
+    **Every photograph, merged into one read.** The declarations are not all on one panel: the net
+    quantity and the commodity name are usually on the front, and the importer, the country of
+    origin and the consumer-care line are usually on the back. Reading only the first photograph
+    means proposing nothing for the fields that are hardest to type, which is most of them — so all
+    of them are read and their words are merged before extraction runs once over the lot.
+
+    That is what the pipeline already does with a scan's images, and for the same reason: a
+    declaration is a declaration wherever on the pack it is printed.
+
+    **Merging is safe here in a way it is not in the pipeline.** Word polygons from two photographs
+    are in two different coordinate spaces, which is why ``pipeline`` keeps a per-asset
+    ``ocr_pages`` alongside its merged text. Prefill discards geometry entirely — a suggestion
+    carries a value and the text it was read from, never a box — so there is nothing here for the
+    mismatch to corrupt.
+
+    **An unreadable photograph does not fail the read.** With several images, one that will not
+    decode is skipped and the rest are read; a caller gets ``UnreadableImageError`` only when
+    *nothing* could be decoded. One bad frame out of three should cost its own words, not the
+    other two photographs'.
 
     Args:
-        image: encoded image bytes — whatever the phone sent, typically a downscaled JPEG.
+        images: encoded image bytes, in capture order — typically downscaled JPEGs.
         ocr: the recognition engine.
         pack: the active rule pack. Supplies the unit table extraction normalises against;
             no threshold is read and no rule is evaluated here.
@@ -123,27 +194,68 @@ def read_label(
         The suggestions, and enough context for the client to explain an empty result.
 
     Raises:
-        UnreadableImageError: the bytes could not be decoded as an image.
+        UnreadableImageError: not one of ``images`` could be decoded.
     """
-    words = list(
-        read_oriented(
-            _decode_image(image),
-            ocr,
-            min_words=settings.OCR_MIN_WORDS,
-            min_confidence=settings.OCR_MIN_CONFIDENCE,
-            sideways_share=settings.OCR_SIDEWAYS_SHARE,
+    words: list[Word] = []
+    decoded = 0
+
+    for index, image in enumerate(images):
+        try:
+            page = _decode_image(image)
+        except UnreadableImageError as exc:
+            logger.warning("prefill skipping photograph %d: %s", index, exc)
+            continue
+
+        decoded += 1
+        words.extend(
+            read_oriented(
+                page,
+                ocr,
+                min_words=settings.OCR_MIN_WORDS,
+                min_confidence=settings.OCR_MIN_CONFIDENCE,
+                sideways_share=settings.OCR_SIDEWAYS_SHARE,
+            )
         )
-    )
+
+    if decoded == 0:
+        raise UnreadableImageError("none of the uploaded photographs could be decoded")
 
     # An empty Profile, and it is never read: `extract` deletes its profile argument on the first
     # line precisely so the model cannot be told what it is expected to find (see its docstring).
     # Prefill has no profile to give it in any case — building one is the whole point.
-    extractions = extract(words, Profile(), llm=llm, pack=pack)
+    #
+    # Once, over the merged words, rather than once per photograph: a single pass is one LLM call
+    # instead of N, and it lets a value printed on one panel be read in the context of the others.
+    watched = _WatchedProvider(llm) if llm is not None else None
+    extractions = extract(words, Profile(), llm=watched, pack=pack)
+
+    # The pattern layer's readings as well as the merged ones. `extract` lets the model's answer
+    # replace a pattern's, which is right for verdicts and cost prefill a real importer line: a
+    # pattern-matched "Country of Origin Nepal" at 0.95 became the model's 0.70, below the bar
+    # `is_imported` needs. `extraction.prefill._imported` says on what terms these are believed.
+    text, spans = build_text(words)
+    patterns = screen(extract_with_patterns(text, spans, pack))
+    suggestions = suggest(extractions, pattern_readings=patterns)
+
+    # No common name on the label — typical of a back panel — so ask the model for the product's
+    # name directly. Not when the model already failed on this read: a provider that refused a
+    # second ago will refuse again, and the wait is someone's.
+    if (
+        watched is not None
+        and not watched.failed
+        and not any(item.field == "name" for item in suggestions)
+    ):
+        named = read_product_name(text, llm=watched)
+        if named is not None:
+            suggestions = suggest(extractions, pattern_readings=patterns, product_name=named)
 
     return LabelReading(
-        suggestions=tuple(suggest(extractions)),
+        suggestions=tuple(suggestions),
         word_count=len(words),
-        reduced=llm is None,
+        # Reduced when there was no model, *or* when there was one and it did not answer. The
+        # docstring above has always promised "a provider that fails behaves as None"; this is
+        # the line that makes the record say so.
+        reduced=watched is None or watched.failed,
     )
 
 

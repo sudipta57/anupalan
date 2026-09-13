@@ -24,10 +24,12 @@ export {
   confidencePercent,
   correctionFor,
   fieldsNeedingConfirmation,
+  groupForConfirmation,
   needsConfirmation,
+  UNCLEAR_BELOW,
   verdictsAreProvisional,
 } from './confidence';
-export type { ConfidenceBand } from './confidence';
+export type { ConfidenceBand, ConfirmationGroups } from './confidence';
 
 export { CROP_PADDING_RATIO, MAX_CROP_SCALE, boxInViewport, cropTransform } from './crop';
 export type { CropTransform, ImageSize, Viewport } from './crop';

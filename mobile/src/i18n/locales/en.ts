@@ -58,15 +58,14 @@ export const en = {
     noDevice: 'No camera found',
     noDeviceBody: 'This device reports no usable back camera, so a label cannot be photographed.',
     gates: 'Capture checks',
-    gateMarker: 'Marker',
     gateBlur: 'Sharpness',
     gateGlare: 'Glare',
     gateTilt: 'Angle',
-    gateMarkerFail: 'Get all four corners of the reference into the frame.',
     gateBlurFail: 'Hold steadier or move slightly back — the edges are too soft to measure.',
     gateGlareFail: 'Reduce glare: move the light, or tilt the pack away from it.',
     gateTiltFail: 'Hold the camera square to the pack.',
-    gateTiltUnknown: 'Angle cannot be judged until the reference is in frame.',
+    gateTiltUnknown:
+      'No scale reference in frame, so the angle was not checked. Size rules will be Not assessable.',
     shutter: 'Capture',
     shutterBlocked: 'Capture is disabled until every check passes',
     capturedCount: '{count} photo captured',
@@ -136,8 +135,10 @@ export const en = {
     title: 'Scan',
     waitingTitle: 'Working on it',
     awaitingTitle: 'Read, not yet judged',
-    awaitingBody: '{count} field was read with low confidence. No verdict is issued until you check it — a rule asked about a value nobody has confirmed answers just as confidently as one that is right.',
-    awaitingBodyPlural: '{count} fields were read with low confidence. No verdict is issued until you check them — a rule asked about a value nobody has confirmed answers just as confidently as one that is right.',
+    awaitingBody:
+      '{count} field was read with low confidence. No verdict is issued until you check it — a rule asked about a value nobody has confirmed answers just as confidently as one that is right.',
+    awaitingBodyPlural:
+      '{count} fields were read with low confidence. No verdict is issued until you check them — a rule asked about a value nobody has confirmed answers just as confidently as one that is right.',
     awaitingAction: 'Check what was read',
     waitingBody: 'This usually takes under ten seconds on a good connection.',
     queuedTitle: 'Waiting to upload',
@@ -204,13 +205,19 @@ export const en = {
     saving: 'Recomputing…',
     saveFailed: 'That correction could not be saved. Try again.',
     recomputing: 'Recomputing the verdicts…',
-    recomputedSame: 'Recomputed. No verdict changed — these rules ask whether a declaration is present, not what it says.',
+    recomputedSame:
+      'Recomputed. No verdict changed — these rules ask whether a declaration is present, not what it says.',
     recomputedOne: 'Recomputed. 1 verdict changed.',
     recomputedMany: 'Recomputed. {count} verdicts changed.',
     allDone: 'Everything is confirmed',
     allDoneBody: 'No field on this scan is waiting on you.',
     done: 'Back to the scan',
     noCrop: 'No image region was recorded for this field.',
+    unclearTitle: 'Also unclear ({count})',
+    unclearBody:
+      'Read below {percent}% confidence, so probably misread. They still need confirming before the verdicts are issued.',
+    unclearShow: 'Show them',
+    unclearHide: 'Hide them',
   },
 
   fields: {
@@ -268,7 +275,8 @@ export const en = {
 
     awaitingTitle: 'No verdicts yet',
 
-    awaitingBody: 'This scan was read but not judged: a field came back with low confidence, and no rule is applied to a value nobody has checked. Confirm what was read and the verdicts follow.',
+    awaitingBody:
+      'This scan was read but not judged: a field came back with low confidence, and no rule is applied to a value nobody has checked. Confirm what was read and the verdicts follow.',
 
     notComplete: 'This scan has no findings yet',
     notCompleteBody: 'It is still on its way through the pipeline. The scan screen shows where.',
@@ -470,6 +478,31 @@ export const en = {
     noLocationTitle: 'No location collected',
     noLocationBody:
       'This is a pre-print artwork check rather than a field inspection, so no coordinates are recorded.',
+
+    prefillGateTitle: 'Reading the label',
+    prefillGateBody:
+      'Checking every photograph for the declarations, so the details below arrive filled in rather than blank.',
+    prefillGateNote: 'This needs a network. Without one, go straight to the form.',
+    prefillGateSkip: 'Fill it in myself',
+    prefillReading: 'Reading the label…',
+    prefillReadingBody:
+      'Fill anything in yourself if you would rather not wait — nothing here waits for the network.',
+    prefillFilled: 'Filled {count} field from the label',
+    prefillFilledPlural: 'Filled {count} fields from the label',
+    prefillCheck: 'Check each one against the pack in your hand before creating the scan.',
+    prefillNothing: 'Nothing readable on the label',
+    prefillNothingBody:
+      'The photograph was read but no declaration could be made out. Fill the details in below.',
+    prefillFrom: 'Read from the label: “{text}”',
+    prefillUnsure: 'Read from the label, but unclear: “{text}”. Check this one.',
+    prefillConfirmTitle: 'Confirm what was read',
+    prefillConfirmBody:
+      'These decide which rules run, so they are yours to confirm rather than ours to assume.',
+    prefillConfirmQuantity: 'Net quantity: {value}',
+    prefillConfirmImported: 'Origin: imported',
+    prefillConfirmAction: 'Matches the pack',
+    prefillConfirmed: 'Confirmed',
+    prefillUnconfirmed: 'Confirm the values read from the label before creating the scan.',
 
     submit: 'Create scan',
     submitFailed: 'The scan could not be created. Your photographs and details are still here.',

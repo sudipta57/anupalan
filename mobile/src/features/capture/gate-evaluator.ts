@@ -16,6 +16,7 @@
  * leave a timer behind or resume mid-sequence. The same trick as the mock backend's scan status.
  */
 
+import type { FrameSource } from './frame-source';
 import type { FrameMetrics } from './gates';
 import { GATE_THRESHOLDS } from './gates';
 
@@ -133,12 +134,73 @@ export function createSimulatedGateEvaluator(): GateEvaluator {
   };
 }
 
+/** How often a frame goes to the server. `03-implementation-plan.md` §P3.3 names this interval. */
+export const GATE_POLL_MS = 500;
+
+/**
+ * The real evaluator: measure what the camera can actually see.
+ *
+ * One reading at a time. `inFlight` is not politeness — a 500 ms timer over a request that
+ * sometimes takes longer would queue frames faster than they drain, and the chips would end up
+ * reporting a scene the user left several seconds ago. Skipping a tick is the honest response to
+ * a slow link.
+ *
+ * **A failed or slow reading holds the previous metrics rather than resetting them.** The
+ * alternative is chips that flash red every time a packet drops, which trains the user to ignore
+ * them. What it must never do is the opposite — inventing a *passing* reading — so the starting
+ * value is `NO_FRAME_YET`, and the shutter stays shut until the server has actually answered once.
+ */
+export function createServerGateEvaluator(
+  source: FrameSource,
+  read: (frameBase64: string) => Promise<FrameMetrics>,
+  { intervalMs = GATE_POLL_MS }: { intervalMs?: number } = {}
+): GateEvaluator {
+  return {
+    subscribe(listener) {
+      let stopped = false;
+      let inFlight = false;
+
+      const tick = async () => {
+        if (stopped || inFlight) return;
+        inFlight = true;
+        try {
+          const frame = await source();
+          if (frame === null || stopped) return;
+
+          const metrics = await read(frame);
+          if (!stopped) listener(metrics);
+        } catch {
+          // A dropped reading, not a failed gate. The listener keeps what it had.
+        } finally {
+          inFlight = false;
+        }
+      };
+
+      void tick();
+      const timer = setInterval(() => void tick(), intervalMs);
+
+      return () => {
+        stopped = true;
+        clearInterval(timer);
+      };
+    },
+  };
+}
+
 /**
  * The evaluator the app uses.
  *
- * Stage 4 ships the simulation. When the native frame processor lands, this returns that instead
- * and the capture screen is not touched.
+ * With a frame source, the server measures the real scene. Without one — tests, and any screen
+ * that has no camera — the simulation runs, which is what keeps the gate policy exercisable
+ * without hardware.
+ *
+ * When an on-device ArUco plugin eventually lands it replaces the `read` argument and nothing
+ * above this line changes. That was the point of the seam.
  */
-export function createGateEvaluator(): GateEvaluator {
+export function createGateEvaluator(
+  source?: FrameSource,
+  read?: (frameBase64: string) => Promise<FrameMetrics>
+): GateEvaluator {
+  if (source && read) return createServerGateEvaluator(source, read);
   return createSimulatedGateEvaluator();
 }

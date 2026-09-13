@@ -64,15 +64,14 @@ export const hi: DeepPartial<Translations> = {
     permissionGrant: 'कैमरा अनुमति दें',
     noDevice: 'कोई कैमरा नहीं मिला',
     gates: 'कैप्चर जाँच',
-    gateMarker: 'मार्कर',
     gateBlur: 'स्पष्टता',
     gateGlare: 'चमक',
     gateTilt: 'कोण',
-    gateMarkerFail: 'संदर्भ के चारों कोने फ़्रेम में लाएँ।',
     gateBlurFail: 'कैमरा स्थिर रखें या थोड़ा पीछे हटें।',
     gateGlareFail: 'चमक कम करें — प्रकाश हटाएँ या पैक को झुकाएँ।',
     gateTiltFail: 'कैमरा पैक के समकोण पर रखें।',
-    gateTiltUnknown: 'जब तक संदर्भ फ़्रेम में नहीं है, कोण नहीं आँका जा सकता।',
+    gateTiltUnknown:
+      'फ़्रेम में कोई मापन संदर्भ नहीं, इसलिए कोण जाँचा नहीं गया। आकार नियम मूल्यांकन-योग्य नहीं होंगे।',
     shutter: 'कैप्चर करें',
     shutterBlocked: 'हर जाँच पूरी होने तक कैप्चर बंद है',
     retake: 'अंतिम हटाएँ',
@@ -147,8 +146,10 @@ export const hi: DeepPartial<Translations> = {
     title: 'स्कैन',
     waitingTitle: 'काम चल रहा है',
     awaitingTitle: 'पढ़ा गया, अभी आँका नहीं',
-    awaitingBody: '{count} फ़ील्ड कम भरोसे के साथ पढ़ा गया। जब तक आप जाँच नहीं लेते, कोई निर्णय जारी नहीं होगा।',
-    awaitingBodyPlural: '{count} फ़ील्ड कम भरोसे के साथ पढ़े गए। जब तक आप जाँच नहीं लेते, कोई निर्णय जारी नहीं होगा।',
+    awaitingBody:
+      '{count} फ़ील्ड कम भरोसे के साथ पढ़ा गया। जब तक आप जाँच नहीं लेते, कोई निर्णय जारी नहीं होगा।',
+    awaitingBodyPlural:
+      '{count} फ़ील्ड कम भरोसे के साथ पढ़े गए। जब तक आप जाँच नहीं लेते, कोई निर्णय जारी नहीं होगा।',
     awaitingAction: 'जो पढ़ा गया उसे जाँचें',
     stageUpload: 'छवि अपलोड हो रही है',
     stageRectify: 'ज्ञात पैमाने पर समतल किया जा रहा है',
@@ -204,7 +205,8 @@ export const hi: DeepPartial<Translations> = {
     accepted: 'पुष्टि हो गई',
     saving: 'पुनर्गणना हो रही है…',
     recomputing: 'निर्णय पुनः गणना किए जा रहे हैं…',
-    recomputedSame: 'पुनः गणना हुई। कोई निर्णय नहीं बदला — ये नियम पूछते हैं कि घोषणा मौजूद है या नहीं, यह नहीं कि उसमें क्या लिखा है।',
+    recomputedSame:
+      'पुनः गणना हुई। कोई निर्णय नहीं बदला — ये नियम पूछते हैं कि घोषणा मौजूद है या नहीं, यह नहीं कि उसमें क्या लिखा है।',
     recomputedOne: 'पुनः गणना हुई। 1 निर्णय बदला।',
     recomputedMany: 'पुनः गणना हुई। {count} निर्णय बदले।',
     allDone: 'सब पुष्ट हो गया',
@@ -217,6 +219,11 @@ export const hi: DeepPartial<Translations> = {
     saveFailed: 'वह सुधार सहेजा नहीं जा सका। फिर कोशिश करें।',
     allDoneBody: 'इस स्कैन का कोई फ़ील्ड आप पर रुका नहीं है।',
     noCrop: 'इस फ़ील्ड के लिए तस्वीर का कोई हिस्सा दर्ज नहीं है।',
+    unclearTitle: 'और भी अस्पष्ट ({count})',
+    unclearBody:
+      '{percent}% से कम भरोसे के साथ पढ़े गए, इसलिए शायद गलत पढ़े गए हैं। निर्णय जारी होने से पहले इनकी पुष्टि भी ज़रूरी है।',
+    unclearShow: 'दिखाएँ',
+    unclearHide: 'छिपाएँ',
   },
 
   fields: {
@@ -258,7 +265,8 @@ export const hi: DeepPartial<Translations> = {
     severityMinor: 'छोटा',
     noImage: 'कोई समतल किया गया चित्र नहीं',
     awaitingTitle: 'अभी कोई निर्णय नहीं',
-    awaitingBody: 'यह स्कैन पढ़ा गया है पर आँका नहीं गया: एक फ़ील्ड कम भरोसे के साथ पढ़ा गया, और बिना जाँचे मान पर कोई नियम लागू नहीं होता। जो पढ़ा गया उसकी पुष्टि करें, निर्णय उसके बाद आएँगे।',
+    awaitingBody:
+      'यह स्कैन पढ़ा गया है पर आँका नहीं गया: एक फ़ील्ड कम भरोसे के साथ पढ़ा गया, और बिना जाँचे मान पर कोई नियम लागू नहीं होता। जो पढ़ा गया उसकी पुष्टि करें, निर्णय उसके बाद आएँगे।',
     notComplete: 'इस स्कैन के निष्कर्ष अभी तैयार नहीं हैं',
     openScan: 'स्कैन खोलें',
     lockedTitle: 'यह अभिलेख बंद है',
@@ -462,6 +470,30 @@ export const hi: DeepPartial<Translations> = {
     locationRemove: 'स्थान हटाएँ',
     locationOptional: 'वैकल्पिक। इसके बिना भी स्कैन बनाया जा सकता है।',
     districtLabel: 'जिला',
+
+    prefillGateTitle: 'लेबल पढ़ा जा रहा है',
+    prefillGateBody:
+      'हर फ़ोटो में दी गई घोषणाएँ पढ़ी जा रही हैं, ताकि नीचे का फ़ॉर्म खाली नहीं, भरा हुआ मिले।',
+    prefillGateNote: 'इसके लिए नेटवर्क चाहिए। नेटवर्क न हो तो सीधे फ़ॉर्म पर जाएँ।',
+    prefillGateSkip: 'मैं स्वयं भरूँगा',
+    prefillReading: 'लेबल पढ़ा जा रहा है…',
+    prefillReadingBody:
+      'प्रतीक्षा न करनी हो तो विवरण स्वयं भर दें — यहाँ कुछ भी नेटवर्क पर निर्भर नहीं है।',
+    prefillFilled: 'लेबल से {count} फ़ील्ड भरा गया',
+    prefillFilledPlural: 'लेबल से {count} फ़ील्ड भरे गए',
+    prefillCheck: 'स्कैन बनाने से पहले हर एक को हाथ में रखे पैक से मिला लें।',
+    prefillNothing: 'लेबल पर कुछ पढ़ा नहीं जा सका',
+    prefillNothingBody: 'फ़ोटो पढ़ी गई पर कोई घोषणा स्पष्ट नहीं थी। नीचे विवरण भरें।',
+    prefillFrom: 'लेबल से पढ़ा गया: “{text}”',
+    prefillUnsure: 'लेबल से पढ़ा गया, पर स्पष्ट नहीं: “{text}”। इसे जाँच लें।',
+    prefillConfirmTitle: 'पढ़ी गई जानकारी की पुष्टि करें',
+    prefillConfirmBody:
+      'इनसे तय होता है कि कौन से नियम लागू होंगे, इसलिए पुष्टि आपकी ओर से आवश्यक है।',
+    prefillConfirmQuantity: 'शुद्ध मात्रा: {value}',
+    prefillConfirmImported: 'मूल: आयातित',
+    prefillConfirmAction: 'पैक से मेल खाता है',
+    prefillConfirmed: 'पुष्टि हो गई',
+    prefillUnconfirmed: 'स्कैन बनाने से पहले लेबल से पढ़े गए मानों की पुष्टि करें।',
 
     submit: 'स्कैन बनाएँ',
     incomplete: 'स्कैन बनाने से पहले लाल रंग में चिह्नित फ़ील्ड पूरे करें।',

@@ -42,7 +42,7 @@ These were decided at the start of frontend work and apply to every stage below.
 |---|---|
 | **Dummy data everywhere until the backend lands** | One transport seam, not fakery per screen. See §3. |
 | **Both modes, screen by screen** | Every screen gets its Mode A (enforcement) and Mode B (industry) variant as it is built. Costs roughly 40% more screen work, landing on stages 5, 8, 9, 10 and all of 12. |
-| **Simulated capture gates behind an interface** | The native ArUco frame processor is deferred; the screen is real and the plugin drops in later with no screen changes (`03-implementation-plan.md` §P3.3 sanctions this). |
+| ~~**Simulated capture gates behind an interface**~~ **Server-measured capture gates** | Closed 2026-09-13. The simulation was reporting all-green on any subject; the gates now measure a real preview frame via `POST /v1/capture/gates`. The native ArUco plugin remains the end state and still drops in behind the same interface (`03-implementation-plan.md` §P3.3). |
 | **i18n wired from the first string** | English complete, Hindi filled for the strings a Hindi-speaking inspector reads every scan, English fallback for the rest. |
 | **Testing on a physical Android device** | Stages 4, 6 and 13 cannot be validated on an emulator. |
 | **No web target** | MMKV has no web implementation. The `web` script was removed rather than left to mislead. |
@@ -290,7 +290,9 @@ landed here is the reference, its persistence, and the guard the assembly must g
 
 - `src/features/capture/gates.ts` — the four gates and their thresholds, pure. `evaluateGates` is
   a function of its metrics and nothing else.
-- `src/features/capture/gate-evaluator.ts` — the seam. A simulation today; the native ArUco frame
+- `src/features/capture/gate-evaluator.ts` — the seam. Server-measured today via
+  `createServerGateEvaluator`; the simulation remains for tests and any screen without a camera;
+  the native ArUco frame
   processor emits the same `FrameMetrics` later and **nothing above this file changes**
   (`03-implementation-plan.md` §P3.3 sanctions the ordering).
 - `src/features/capture/gate-copy.ts` — one instruction per gate, exhaustive by type.
@@ -391,6 +393,13 @@ and the queue owns that lifecycle from Stage 6.
 **Deferred, deliberately:** the OCR-prefill path. It needs extracted fields to prefill *from*, which
 is Stage 7's confirmation sheet — prefilling before there is an extraction to prefill from would be
 a mock talking to a mock. The form is already the shape that receives it.
+
+> **Closed, 2026-09-13.** The form was already the shape that receives it, and that turned out to be
+> the whole of the work. What was wrong in the three deferrals below was the assumed *source*: they
+> all read "prefill" as "prefill from the pipeline's extraction", which only exists after
+> processing, which is why each one deferred to the next stage. The read that fills this form
+> happens **before** submit, over its own endpoint, on one downscaled photograph — so nothing here
+> waits on Stage 7 or on an edit path. See `docs/decisions.md`, 2026-09-13.
 
 **Done when:** net quantity value and unit, the imported flag and surface type are present on
 every completed scan — all three change which rules apply.
@@ -556,6 +565,11 @@ This is the demo.
 extraction to prefill *from*, which now exists — but prefilling a form that is filled in *before*
 processing would mean re-opening a submitted scan's context, which is Stage 8's edit path, not this one.
 
+> **Closed, 2026-09-13**, and not by an edit path: the form is filled *before* it is submitted, from
+> its own read of the photograph. The confirmation idea built here is what it reuses — a
+> machine-supplied value is shown with the text it was read from and affirmed by a person before it
+> can carry a verdict — but applied to the profile rather than to an extraction.
+
 **Done when:** the deliberately blurred MRP fixture triggers the sheet, the correction is
 recorded with `source=human`, and the verdict recomputes.
 **Verified:** lint 0 · tsc clean · 308 tests pass (52 new) · prettier clean · `expo export --platform
@@ -666,6 +680,11 @@ sheet. Both need the device.
 again. Re-opening a submitted scan's context is an edit path, and Mode A's editing rules only became
 concrete in this stage — a prefill built before them would have had to be rebuilt around
 `editingLocked`. It belongs with Stage 10's history, where re-opening a past scan is the point.
+
+> **Closed, 2026-09-13.** `editingLocked` never came into it: the prefill fills a form for a scan
+> that does not exist yet, so there is nothing locked to edit. The three deferrals were all reasoning
+> about a *post-processing* prefill, which remains unbuilt and is now optional — the field a user
+> would have gone back to correct is filled before they submit.
 
 **Done when:** every FAIL and BORDERLINE has a bounding box that highlights on tap, and the
 citation text is visible without leaving the screen.

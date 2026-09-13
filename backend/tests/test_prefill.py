@@ -28,6 +28,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
+from app.schemas.prefill import MAX_PREFILL_IMAGES
 from app.services.extraction.prefill import NEVER_SUGGESTED, SUGGESTED_FIELDS, suggest
 from app.services.llm.adapters.stub import StubLLMProvider
 from app.services.prefill import (
@@ -41,6 +42,7 @@ from app.services.rules.loader import active_pack
 from app.services.rules.types import Extraction
 from app.services.storage import StorageError, build_prefill_key
 from app.services.vision.adapters.stub import StubOCREngine
+from app.services.vision.ocr import Word
 from tests.conftest import make_org, make_user
 
 SECRET = "test-secret-not-a-real-one-0123456789"  # noqa: S105 — a test fixture
@@ -80,6 +82,7 @@ def test_a_manufacturer_name_is_not_a_product_name() -> None:
 
 
 def test_an_importer_declaration_suggests_imported() -> None:
+    """At pattern confidence — see the low-confidence cases below for why that matters."""
     read = suggest([extraction("importer_name", "Acme Imports")])
     proposed = {item.field: item.value for item in read}
 
@@ -91,6 +94,47 @@ def test_a_country_of_origin_that_is_not_india_suggests_imported() -> None:
     proposed = {item.field: item.value for item in read}
 
     assert proposed["is_imported"] == "true"
+
+
+def test_a_country_of_origin_the_extractor_does_not_believe_suggests_nothing() -> None:
+    """Found on a real pack, on a real phone.
+
+    OCR read a Dabur label's origin line as ``DABURNDIAID`` — "DABUR INDIA", mangled — and since
+    that string contains no word "India", an Indian product was proposed as imported. The
+    inference is *negative*, so a misread does not fail to match a country: it matches the wrong
+    answer. Below FR-06's threshold the extractor does not believe its own reading, and a string it
+    cannot read is not grounds for switching a set of rules on.
+    """
+    unreadable = extraction("country_of_origin", "DABURNDIAID", confidence=0.70)
+
+    assert suggest([unreadable]) == []
+
+
+def test_an_importer_line_the_extractor_does_not_believe_suggests_nothing() -> None:
+    """The second half of the same lesson, and the one that cost a second look.
+
+    On the same real pack the model returned ``importer_name = "DABUR INDALID"`` at 0.70 — the
+    *manufacturer's* own name, mangled by OCR and then filed as an importer. An earlier version
+    exempted this field on the reasoning that the *presence* of an importer line is what carries
+    the meaning. At 0.70 the presence is itself the model's guess about what a garbled string was,
+    and a wrong ``is_imported=true`` is a Rule 6 FAIL against a compliant domestic pack — the
+    expensive direction to be wrong in (CLAUDE.md §3.4).
+    """
+    assert suggest([extraction("importer_name", "DABUR INDALID", confidence=0.70)]) == []
+
+
+def test_a_pattern_matched_importer_line_is_believed() -> None:
+    """The bar is confidence, not the field. A deterministic match on "Imported by ..." carries
+    0.95 and is exactly the evidence this inference wants."""
+    read = suggest([extraction("importer_name", "Acme Imports", confidence=0.95)])
+
+    assert {item.field: item.value for item in read}["is_imported"] == "true"
+
+
+def test_an_invented_country_of_origin_suggests_nothing() -> None:
+    """Also from that pack: ``country_of_origin = "Nepal"`` at 0.70, for a label that says no such
+    thing anywhere. A value the extractor does not believe cannot switch a rule set on."""
+    assert suggest([extraction("country_of_origin", "Nepal", confidence=0.70)]) == []
 
 
 def test_country_of_origin_india_suggests_nothing() -> None:
@@ -192,7 +236,7 @@ def encoded_image() -> bytes:
 def test_reading_a_label_proposes_the_quantity_without_a_model(ocr, pack) -> None:  # type: ignore[no-untyped-def]
     """The pattern layer alone carries net quantity (FR-24), so the most tedious field on the
     form fills itself even with the LLM unreachable."""
-    reading = read_label(encoded_image(), ocr=ocr, pack=pack, llm=None)
+    reading = read_label([encoded_image()], ocr=ocr, pack=pack, llm=None)
 
     proposed = {item.field: item.value for item in reading.suggestions}
     assert proposed["net_qty_value"] == "250"
@@ -204,25 +248,77 @@ def test_reading_a_label_proposes_the_quantity_without_a_model(ocr, pack) -> Non
 def test_reading_never_produces_a_measurement(ocr, pack) -> None:  # type: ignore[no-untyped-def]
     """CLAUDE.md §3.3: millimetres come from the marker homography and nowhere else. Prefill runs
     on a downscaled photograph with no marker, so it must propose no physical dimension at all."""
-    reading = read_label(encoded_image(), ocr=ocr, pack=pack, llm=None)
+    reading = read_label([encoded_image()], ocr=ocr, pack=pack, llm=None)
 
     assert all(item.field != "pdp_area_cm2" for item in reading.suggestions)
 
 
 def test_bytes_that_are_not_an_image_are_refused(ocr, pack) -> None:  # type: ignore[no-untyped-def]
     with pytest.raises(UnreadableImageError):
-        read_label(b"not an image", ocr=ocr, pack=pack, llm=None)
+        read_label([b"not an image"], ocr=ocr, pack=pack, llm=None)
 
 
 def test_a_photograph_with_no_text_reads_empty_rather_than_failing(pack) -> None:  # type: ignore[no-untyped-def]
     """A back panel or a thumb over the label. Nothing to propose is a normal outcome, and the
     client distinguishes it from a failure by the word count."""
     reading = read_label(
-        encoded_image(), ocr=StubOCREngine.from_words([]), pack=pack, llm=None
+        [encoded_image()], ocr=StubOCREngine.from_words([]), pack=pack, llm=None
     )
 
     assert reading.suggestions == ()
     assert reading.word_count == 0
+
+
+def test_every_photograph_is_read_not_just_the_first(pack) -> None:  # type: ignore[no-untyped-def]
+    """**Why this exists.** A pack's mandatory declarations are spread over its panels: the net
+    quantity and the commodity name on the front, the importer, the country of origin and the
+    consumer-care line on the back. Reading only the first photograph proposes nothing for the
+    fields that are hardest to type, which is most of them.
+
+    Here the front carries the quantity and the back carries the importer line. Only a read that
+    merges both can propose both.
+    """
+    front = StubOCREngine.from_fixture("roasted_chana_250g").detect_and_recognise(
+        np.zeros((4, 4), dtype=np.uint8)
+    )
+    back = [
+        Word(text="Imported", confidence=0.95, polygon=((0, 0), (60, 0), (60, 12), (0, 12))),
+        Word(text="by", confidence=0.95, polygon=((62, 0), (78, 0), (78, 12), (62, 12))),
+        Word(text="Acme", confidence=0.95, polygon=((80, 0), (120, 0), (120, 12), (80, 12))),
+        Word(text="Imports", confidence=0.95, polygon=((122, 0), (180, 0), (180, 12), (122, 12))),
+    ]
+
+    class TwoPages:
+        """One page per call, in order — a stand-in for two real photographs."""
+
+        def __init__(self) -> None:
+            self._pages = [list(front), back]
+
+        def detect_and_recognise(self, image):  # type: ignore[no-untyped-def]
+            return self._pages.pop(0) if self._pages else []
+
+    reading = read_label(
+        [encoded_image(), encoded_image()], ocr=TwoPages(), pack=pack, llm=None
+    )
+
+    proposed = {item.field for item in reading.suggestions}
+    # The front's contribution and the back's, from one merged read.
+    assert "net_qty_value" in proposed
+    assert reading.word_count > len(front)
+
+
+def test_one_unreadable_photograph_does_not_cost_the_others(ocr, pack) -> None:  # type: ignore[no-untyped-def]
+    """A bad frame out of three should cost its own words, not the whole read."""
+    reading = read_label(
+        [b"not an image", encoded_image()], ocr=ocr, pack=pack, llm=None
+    )
+
+    assert {item.field for item in reading.suggestions} >= {"net_qty_value", "net_qty_unit"}
+
+
+def test_a_read_fails_only_when_nothing_could_be_decoded(ocr, pack) -> None:  # type: ignore[no-untyped-def]
+    with pytest.raises(UnreadableImageError):
+        read_label([b"not an image", b"nor this"], ocr=ocr, pack=pack, llm=None)
 
 
 # --------------------------------------------------------------------------- the store
@@ -287,7 +383,7 @@ def object_store() -> FakeObjectStore:
 
 
 @pytest.fixture
-def queued() -> list[tuple[str, str, str]]:
+def queued() -> list[tuple[str, str, list[str]]]:
     return []
 
 
@@ -303,7 +399,7 @@ def api(db_session, prefill_store, object_store, queued, monkeypatch) -> Iterato
 
     app.dependency_overrides[db] = lambda: db_session
     app.dependency_overrides[prefill_enqueuer] = lambda: (
-        lambda prefill_id, org_id, key: queued.append((prefill_id, org_id, key)) or "task-1"
+        lambda prefill_id, org_id, keys: queued.append((prefill_id, org_id, keys)) or "task-1"
     )
     try:
         with TestClient(app, raise_server_exceptions=False) as client:
@@ -331,11 +427,17 @@ def inspector(db_session, api):  # type: ignore[no-untyped-def]
     return {"org": org, "auth": {"Authorization": f"Bearer {token}"}}
 
 
-def body(**overrides: object) -> dict:  # type: ignore[type-arg]
-    payload = {
+def image(**overrides: object) -> dict:  # type: ignore[type-arg]
+    entry = {
         "image_base64": base64.b64encode(encoded_image()).decode("ascii"),
         "content_type": "image/png",
     }
+    entry.update(overrides)
+    return entry
+
+
+def body(count: int = 1, **overrides: object) -> dict:  # type: ignore[type-arg]
+    payload: dict = {"images": [image() for _ in range(count)]}
     payload.update(overrides)
     return payload
 
@@ -418,9 +520,77 @@ def test_an_oversized_image_is_refused_before_it_is_stored(  # type: ignore[no-u
     assert object_store.objects == {}
 
 
+def test_all_the_photographs_are_stored_and_queued(  # type: ignore[no-untyped-def]
+    api, inspector, queued, object_store
+) -> None:
+    """Three photographs in, three scratch objects and one task naming all three."""
+    created = api.post("/v1/prefill", json=body(count=3), headers=inspector["auth"])
+
+    assert created.status_code == 202, created.text
+    assert len(object_store.objects) == 3
+
+    [(prefill_id, _org, keys)] = queued
+    assert len(keys) == 3
+    # Ordered, and all under the one prefill id — the worker reads them in capture order.
+    assert keys == sorted(keys)
+    assert all(prefill_id in key for key in keys)
+
+
+def test_the_photograph_ceiling_is_on_the_request_not_one_image(  # type: ignore[no-untyped-def]
+    api, inspector, monkeypatch, object_store
+) -> None:
+    """What costs time is the total the worker must recognise, so that is what is capped."""
+    one = len(encoded_image())
+    monkeypatch.setattr(settings, "PREFILL_MAX_BYTES", one + 1)
+
+    refused = api.post("/v1/prefill", json=body(count=3), headers=inspector["auth"])
+
+    assert refused.status_code == 413
+
+
+def test_three_photographs_are_accepted(api, inspector, queued, object_store) -> None:  # type: ignore[no-untyped-def]
+    """The ceiling itself is a working request, not the first refusal."""
+    created = api.post(
+        "/v1/prefill", json=body(count=MAX_PREFILL_IMAGES), headers=inspector["auth"]
+    )
+
+    assert created.status_code == 202, created.text
+    assert len(object_store.objects) == MAX_PREFILL_IMAGES
+
+
+def test_more_photographs_than_the_ceiling_are_refused(api, inspector, object_store) -> None:  # type: ignore[no-untyped-def]
+    """Three faces is what a pack has worth reading, and the read is a wait somebody is watching:
+    a fourth photograph is another angle on a face already covered and still costs an OCR pass.
+
+    A user never meets this — the client sends the first three and drops the rest — so this is the
+    contract holding its own line rather than a refusal anyone experiences.
+    """
+    refused = api.post(
+        "/v1/prefill", json=body(count=MAX_PREFILL_IMAGES + 1), headers=inspector["auth"]
+    )
+
+    assert refused.status_code == 422
+    # Refused by the schema, before a single scratch object was written.
+    assert object_store.objects == {}
+
+
+def test_the_ceiling_is_three(api, inspector) -> None:  # type: ignore[no-untyped-def]
+    """Pinned, because the client mirrors this number to decide what to drop. The two moving
+    apart means either a 422 on the capture path or photographs quietly never sent."""
+    assert MAX_PREFILL_IMAGES == 3
+
+
+def test_no_photographs_at_all_is_refused(api, inspector) -> None:  # type: ignore[no-untyped-def]
+    refused = api.post("/v1/prefill", json={"images": []}, headers=inspector["auth"])
+
+    assert refused.status_code == 422
+
+
 def test_bytes_that_are_not_base64_are_refused(api, inspector) -> None:  # type: ignore[no-untyped-def]
     refused = api.post(
-        "/v1/prefill", json=body(image_base64="not base64!!"), headers=inspector["auth"]
+        "/v1/prefill",
+        json={"images": [image(image_base64="not base64!!")]},
+        headers=inspector["auth"],
     )
 
     assert refused.status_code == 422
@@ -458,7 +628,7 @@ def test_the_task_deletes_the_photograph_whatever_happened(
     monkeypatch.setattr(task_module, "get_engine", lambda: StubOCREngine.from_words([]))
     monkeypatch.setattr(task_module, "get_provider", lambda: None)
 
-    result = task_module.read_label_task.run("pf1", "org-a", key)
+    result = task_module.read_label_task.run("pf1", "org-a", [key])
 
     assert result["status"] == "failed"
     assert key in object_store.deleted
@@ -479,7 +649,7 @@ def test_the_task_records_what_it_read(prefill_store, object_store, pack, monkey
     )
     monkeypatch.setattr(task_module, "get_provider", lambda: None)
 
-    result = task_module.read_label_task.run("pf2", "org-a", key)
+    result = task_module.read_label_task.run("pf2", "org-a", [key])
 
     assert result["status"] == "ready"
     record = prefill_store.get("org-a", "pf2")
@@ -491,6 +661,6 @@ def test_the_task_records_what_it_read(prefill_store, object_store, pack, monkey
 def test_the_llm_path_proposes_a_name_the_patterns_cannot(ocr, pack) -> None:  # type: ignore[no-untyped-def]
     """No pattern extracts a common name, so the product name is the field the model earns its
     place for. It arrives at 0.70 — below FR-06's threshold, so the client asks."""
-    reading = read_label(encoded_image(), ocr=ocr, pack=pack, llm=StubLLMProvider())
+    reading = read_label([encoded_image()], ocr=ocr, pack=pack, llm=StubLLMProvider())
 
     assert reading.reduced is False

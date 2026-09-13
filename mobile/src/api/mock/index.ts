@@ -54,6 +54,7 @@ import {
   fromFindingsResult,
   fromListingCheck,
   fromOtpRequest,
+  fromPrefill,
   fromProductPage,
   fromReport,
   fromScan,
@@ -63,6 +64,7 @@ import {
   fromTokens,
 } from './to-wire';
 import { toMarkerType, toProfile, type WireMarkerType, type WireProfile } from '../adapters';
+import type { PrefillResult } from '@/features/scan-context/prefill';
 import { BIS_APPLICABILITY, SAHAYAK_ANSWERS, SAHAYAK_ANSWERS_HI } from './fixtures/sahayak';
 import { buildListingCheck, buildViolatingCheck } from './fixtures/listings';
 import {
@@ -502,10 +504,66 @@ function guardScenario(): void {
   }
 }
 
+/**
+ * What a prefill read off the hero fixture's label (FR-03).
+ *
+ * The suggestions are the ones the real pipeline produces from that pack's OCR dump, read across
+ * *every* photograph the scan carries: the pattern layer finds the net quantity at 0.95 on the
+ * front panel, and the model proposes the commodity's common name at 0.70 — below FR-06's
+ * threshold, which is why the form marks that one "read, but unclear". The category is **not**
+ * here: the client derives it from the name, because the server has no copy of the vocabulary
+ * (`features/scan-context/prefill.ts`).
+ *
+ * `pf_unreadable` is the other real outcome: the photograph was read and had nothing on it. The
+ * form must be exactly as usable then as it was before this feature existed.
+ */
+function prefillFor(prefillId: string): PrefillResult {
+  if (prefillId === 'pf_unreadable') {
+    return {
+      prefillId,
+      status: 'ready',
+      suggestions: [],
+      wordCount: 4,
+      reduced: false,
+    };
+  }
+
+  return {
+    prefillId,
+    status: 'ready',
+    suggestions: [
+      {
+        field: 'name',
+        value: 'Whole Wheat Atta',
+        confidence: 0.7,
+        fromFieldCode: 'common_name',
+        sourceText: 'Whole Wheat Atta',
+      },
+      {
+        field: 'net_qty_value',
+        value: '1',
+        confidence: 0.95,
+        fromFieldCode: 'net_quantity',
+        sourceText: 'Net Wt. 1 kg',
+      },
+      {
+        field: 'net_qty_unit',
+        value: 'kg',
+        confidence: 0.95,
+        fromFieldCode: 'net_quantity',
+        sourceText: 'Net Wt. 1 kg',
+      },
+    ],
+    wordCount: 96,
+    reduced: false,
+  };
+}
+
 function route(spec: RequestSpec): unknown {
   const { method, path, query = {}, body } = spec;
   const scanMatch = /^\/scans\/([^/]+)(\/[a-z-]+)?$/.exec(path);
   const reportMatch = /^\/reports\/([^/]+)$/.exec(path);
+  const prefillMatch = /^\/prefill\/([^/]+)$/.exec(path);
 
   if (method === 'POST' && path === '/auth/otp/request') {
     const { phone } = body as OtpRequestBody;
@@ -575,6 +633,22 @@ function route(spec: RequestSpec): unknown {
     if (query.from) items = items.filter((s) => s.capturedAt >= String(query.from));
     if (query.to) items = items.filter((s) => s.capturedAt <= `${String(query.to)}T23:59:59.999Z`);
     return page(items, query.cursor as string | undefined);
+  }
+
+  if (method === 'POST' && path === '/prefill') {
+    // The read is queued, not done. The id encodes which answer to give back so the mock needs no
+    // state — the same trick the OTP request id uses above.
+    return {
+      prefillId: getScenario() === 'prefill-unreadable' ? 'pf_unreadable' : 'pf_hero',
+      status: 'reading' as const,
+      suggestions: [],
+      wordCount: 0,
+      reduced: false,
+    };
+  }
+
+  if (method === 'GET' && prefillMatch) {
+    return prefillFor(prefillMatch[1]);
   }
 
   if (method === 'POST' && path === '/scans') {
@@ -740,6 +814,7 @@ function wireFor(spec: RequestSpec, value: unknown): unknown {
   if (method === 'POST' && path === '/auth/refresh') return fromTokens(value as AuthTokens);
   if (method === 'GET' && path === '/products') return fromProductPage(value as Page<Product>);
   if (method === 'GET' && path === '/scans') return fromScanPage(value as Page<ScanListItem>);
+  if (path === '/prefill' || /^\/prefill\//.test(path)) return fromPrefill(value as PrefillResult);
   if (method === 'POST' && path === '/scans') return fromScanCreated(value as CreateScanResult);
   if (method === 'POST' && scanMatch?.[2] === '/submit') {
     return { scan_id: scanMatch[1], status: 'queued' };

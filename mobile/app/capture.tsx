@@ -32,7 +32,7 @@
  */
 
 import { router } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
 import {
   Camera,
@@ -40,6 +40,7 @@ import {
   useCameraPermission,
   usePhotoOutput,
   type CameraDevice,
+  type CameraRef,
 } from 'react-native-vision-camera';
 
 import { Banner, Button, Card, Chip, Screen, Text } from '@/components';
@@ -83,7 +84,11 @@ function LiveCapture({ device, reference }: { device: CameraDevice; reference: M
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { report } = useGates();
+  // The gate check reads the live preview through this ref — see `useGates` for why the ref is
+  // handed over rather than a frame source built here.
+  const camera = useRef<CameraRef>(null);
+
+  const { report } = useGates(camera);
 
   const capture = useCallback(async () => {
     if (!report.canCapture || busy) return;
@@ -134,7 +139,13 @@ function LiveCapture({ device, reference }: { device: CameraDevice; reference: M
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
       <View style={styles.preview}>
-        <Camera style={StyleSheet.absoluteFill} device={device} outputs={[photoOutput]} isActive />
+        <Camera
+          ref={camera}
+          style={StyleSheet.absoluteFill}
+          device={device}
+          outputs={[photoOutput]}
+          isActive
+        />
 
         {/* Alignment guide. Non-interactive so it never eats a tap meant for the preview. */}
         <View style={styles.overlay} pointerEvents="none">
@@ -170,18 +181,28 @@ function LiveCapture({ device, reference }: { device: CameraDevice; reference: M
           })}
         </View>
 
-        {/* One instruction at a time: a list of four is a wall, and only one thing can be fixed
-            first anyway. `blocking` is in gate order, so it is always the same first thing. */}
-        {report.blocking.length > 0 ? (
-          <Text variant="body" tone="muted">
-            {(() => {
-              const first = report.blocking[0];
-              const result = report.results.find((r) => r.id === first);
-              const key = instructionKeyFor(first, result?.state ?? 'unknown');
-              return key ? t(key) : '';
-            })()}
-          </Text>
-        ) : null}
+        {/* One line at a time: a list is a wall, and only one thing can be fixed first anyway.
+            `blocking` is in gate order, so it is always the same first thing.
+
+            When nothing is blocking, an unmeasurable gate still gets a word. Since the marker
+            stopped being a gate, the angle chip sits neutral whenever there is no reference in
+            frame — and a permanently grey chip with no explanation is the confusion this screen
+            was just fixed to stop causing. It is not an instruction and does not read as one. */}
+        {(() => {
+          const first =
+            report.blocking[0] ?? report.results.find((r) => r.state === 'unknown')?.id;
+          if (!first) return null;
+
+          const result = report.results.find((r) => r.id === first);
+          const key = instructionKeyFor(first, result?.state ?? 'unknown');
+          if (!key) return null;
+
+          return (
+            <Text variant="body" tone={report.blocking.length > 0 ? 'muted' : 'subtle'}>
+              {t(key)}
+            </Text>
+          );
+        })()}
 
         {error ? <Banner tone="error" title={error} /> : null}
 

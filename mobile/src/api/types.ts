@@ -109,6 +109,24 @@ export interface ConfirmFieldsBody {
   fields: { code: FieldCode; value: string }[];
 }
 
+/**
+ * A pack's photographs, to be read together for the context form (FR-03).
+ *
+ * **Not just the front panel, and at most three.** The mandatory declarations are spread across a
+ * pack's faces — net quantity and commodity name on the front, importer, country of origin and
+ * consumer-care line on the back — so a read of one photograph proposes nothing for most of the
+ * fields a user would otherwise type. A fourth proposes nothing either: every face has been
+ * covered by then. The server refuses more than `MAX_PREFILL_IMAGES`, and the client sends the
+ * first three so nobody ever meets that refusal — see `features/scan-context/use-prefill.ts`.
+ *
+ * Each `imageBase64` is a **downscaled** JPEG: prefill reads words and never measures, so
+ * thumbnails are enough and the server caps the request total. The full-resolution originals go up
+ * the usual way, to presigned URLs, with their hashes declared.
+ */
+export interface PrefillRequestBody {
+  images: { imageBase64: string; contentType: 'image/jpeg' | 'image/png' | 'image/webp' }[];
+}
+
 export interface CreateReportBody {
   formats: ReportFormat[];
 }
@@ -125,6 +143,17 @@ export interface SahayakAskBody {
   question: string;
   scanId?: string;
   lang: 'en' | 'hi';
+}
+
+/**
+ * One preview frame for a capture-gate check.
+ *
+ * A downscaled JPEG, base64 in the body. Nothing about it is evidence — it is never stored, and
+ * the scan is still measured off the full-resolution original — which is why it does not go
+ * through the presigned-upload path the photographs use.
+ */
+export interface CaptureGatesBody {
+  frameBase64: string;
 }
 
 export interface BisApplicabilityBody {

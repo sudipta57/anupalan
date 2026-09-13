@@ -1,8 +1,14 @@
 /**
- * The four capture gates (FR-01).
+ * The capture gates (FR-01).
  *
  * *Accept: the shutter is disabled while any gate fails; each failing gate shows a specific
- * instruction; all four green enables capture.*
+ * instruction; all green enables capture.*
+ *
+ * **The marker stopped being a gate on 2026-09-13**, and `unknown` stopped blocking with it. The
+ * assertions below moved with that decision rather than around it — the reasoning is in
+ * `gates.ts`, and the short version is that the detector only knows ArUco, so the app's other two
+ * scale references left the shutter permanently locked. Nothing about *measurement* changed: a
+ * marker-less scan still lands as `no_marker` and its metric rules still return NOT_ASSESSABLE.
  *
  * The camera half of this feature cannot be exercised anywhere but a physical device, so the gate
  * **policy** is deliberately pure and everything that can be pinned here, is. What cannot be tested
@@ -48,12 +54,12 @@ describe('the thresholds', () => {
 });
 
 describe('evaluateGates', () => {
-  it('enables capture only when all four pass', () => {
+  it('enables capture only when every gate passes', () => {
     const report = evaluateGates(GOOD);
 
     expect(report.canCapture).toBe(true);
     expect(report.blocking).toEqual([]);
-    expect(report.results.map((r) => r.state)).toEqual(['pass', 'pass', 'pass', 'pass']);
+    expect(report.results.map((r) => r.state)).toEqual(GATE_IDS.map(() => 'pass'));
   });
 
   it('disables capture before any frame has arrived', () => {
@@ -66,10 +72,20 @@ describe('evaluateGates', () => {
     expect(evaluateGates(GOOD).results.map((r) => r.id)).toEqual([...GATE_IDS]);
   });
 
-  describe('marker', () => {
-    it('needs all four corners — three is not nearly enough for a homography', () => {
-      expect(blockedBy({ ...GOOD, markerCornersInFrame: 3 })).toContain('marker');
-      expect(blockedBy({ ...GOOD, markerCornersInFrame: 4 })).not.toContain('marker');
+  describe('the marker', () => {
+    it('is not a gate: a frame with no marker can still be captured', () => {
+      // The change, stated as the behaviour the user asked for. A pack photographed without the
+      // printed tag is a photograph worth taking — presence and wording rules need no millimetre.
+      const report = evaluateGates({ ...GOOD, markerCornersInFrame: 0, tiltDegrees: null });
+
+      expect(report.canCapture).toBe(true);
+      expect(report.results.map((r) => r.id)).not.toContain('marker');
+    });
+
+    it('still defines what "found" means for the metrics that carry it', () => {
+      // The threshold outlives the gate: `markerCornersInFrame` is still reported against it, and
+      // the pipeline still needs four correspondences before it will claim a homography.
+      expect(GATE_THRESHOLDS.markerCornersRequired).toBe(4);
     });
   });
 
@@ -103,14 +119,22 @@ describe('evaluateGates', () => {
       expect(tilt?.state).not.toBe('fail');
     });
 
-    it('still blocks capture when unknown', () => {
-      expect(evaluateGates({ ...GOOD, tiltDegrees: null }).canCapture).toBe(false);
+    it('no longer blocks capture when unknown', () => {
+      // The other half of removing the marker gate. If an unmeasurable angle still held the
+      // shutter shut, the marker would remain a gate under a different name — with no chip saying
+      // so and no instruction that could be acted on.
+      expect(evaluateGates({ ...GOOD, tiltDegrees: null }).canCapture).toBe(true);
+    });
+
+    it('still blocks capture when it is measured and bad', () => {
+      // Loosening `unknown` must not loosen `fail`. A pack photographed at 60° is a measurement
+      // that will read short, and that is knowable from the frame.
+      expect(evaluateGates({ ...GOOD, tiltDegrees: 60 }).canCapture).toBe(false);
     });
   });
 
-  it('blocks on one bad gate even when the other three are perfect', () => {
+  it('blocks on one bad gate even when the others are perfect', () => {
     for (const spoiled of [
-      { ...GOOD, markerCornersInFrame: 1 },
       { ...GOOD, blurVariance: 10 },
       { ...GOOD, glareFraction: 0.5 },
       { ...GOOD, tiltDegrees: 60 },
@@ -124,7 +148,9 @@ describe('evaluateGates', () => {
       markerCornersInFrame: 0,
       blurVariance: 1,
       glareFraction: 1,
-      tiltDegrees: null,
+      // Measured and bad, not unknown: an unknown tilt does not block, so it could not appear in
+      // this list at all.
+      tiltDegrees: 80,
     });
 
     expect(report.blocking).toEqual([...GATE_IDS]);
@@ -147,13 +173,15 @@ describe('instructions', () => {
     expect(new Set(keys).size).toBe(GATE_IDS.length);
   });
 
-  it('tells the user about the marker when tilt is unknown, not about the angle', () => {
+  it('explains an unmeasurable angle differently from a bad one', () => {
+    // "The angle was not checked" and "hold the camera square" are different things to tell a
+    // user, and the first is not an instruction at all now that it does not block.
     expect(instructionKeyFor('tilt', 'unknown')).not.toBe(instructionKeyFor('tilt', 'fail'));
   });
 });
 
 describe('the simulation', () => {
-  it.each(GATE_SIMULATIONS.filter((mode) => mode !== 'converging'))(
+  it.each(GATE_SIMULATIONS.filter((mode) => mode !== 'converging' && mode !== 'no-marker'))(
     '%s blocks capture for as long as it is selected',
     (mode) => {
       for (const elapsed of [0, 1_000, 10_000]) {
@@ -170,9 +198,12 @@ describe('the simulation', () => {
     expect(blockedBy(simulatedMetrics('tilted', 0))).toEqual(['tilt']);
   });
 
-  it('blocks both marker and tilt when there is no marker, because tilt needs one', () => {
-    expect(blockedBy(simulatedMetrics('no-marker', 0))).toEqual(['marker', 'tilt']);
+  it('no longer blocks anything when the marker is absent', () => {
+    // `no-marker` still reports what it always did — the simulation was not changed — but the
+    // policy reading it was. It is kept in the dev panel because it is still the state that makes
+    // every metric rule NOT_ASSESSABLE downstream, which is worth being able to demonstrate.
     expect(simulatedMetrics('no-marker', 0).tiltDegrees).toBeNull();
+    expect(blockedBy(simulatedMetrics('no-marker', 0))).toEqual([]);
   });
 
   it('converges: blocked at the start, capturable once settled', () => {

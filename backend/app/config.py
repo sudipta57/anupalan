@@ -285,6 +285,14 @@ class Settings(BaseSettings):
     mid-form by a phone call, short enough that nothing accumulates."""
 
     PREFILL_MAX_BYTES: int = 4 * 1024 * 1024
+
+    CAPTURE_FRAME_MAX_BYTES: int = 512 * 1024
+    """Ceiling on one capture-gate preview frame.
+
+    Far below ``PREFILL_MAX_BYTES`` on purpose. A gate frame arrives about twice a second while the
+    capture screen is open, it is never stored, and it only has to be big enough for ArUco to find
+    a marker — a 640x480 JPEG is comfortably inside this. The ceiling is what stops the endpoint
+    being used to push full-resolution photographs through the API process."""
     """Ceiling on the decoded image, enforced before anything is stored or enqueued.
 
     The app sends a downscaled JPEG — a few hundred kilobytes — because prefill reads words and

@@ -9,7 +9,9 @@
   "paths": {
     "/health": {
       "get": {
-        "tags": ["meta"],
+        "tags": [
+          "meta"
+        ],
         "summary": "Liveness and dependency check",
         "description": "Report process health plus the state of each dependency and the active rule pack.\n\n``rulepack`` is read from the loaded pack's ``meta`` (never hardcoded), so this endpoint\ndoubles as proof that the pack on disk parsed and is the version you expect.",
         "operationId": "health_health_get",
@@ -29,7 +31,9 @@
     },
     "/v1/auth/otp/request": {
       "post": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Request a one-time code",
         "description": "Send a code to a phone number.\n\nAnswers identically whether or not the number is registered (see the module docstring), so a\ncaller learns nothing from this endpoint except that their request was accepted.",
         "operationId": "request_otp_v1_auth_otp_request_post",
@@ -69,7 +73,9 @@
     },
     "/v1/auth/otp/verify": {
       "post": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Exchange a code for tokens",
         "description": "Verify a code and start a session.\n\nThe code is consumed whether or not it turns out to belong to a registered number, so a\ncaller cannot use a valid-but-unregistered code twice to probe for a race.",
         "operationId": "verify_otp_v1_auth_otp_verify_post",
@@ -109,9 +115,11 @@
     },
     "/v1/auth/refresh": {
       "post": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Rotate a refresh token",
-        "description": "Exchange a refresh token for a new pair.\n\nRotation: the presented token is retired and a new one issued in the same family. Presenting a\nretired token revokes the whole family \u2014 see the module docstring for why that is the right\nresponse to an ambiguous signal.",
+        "description": "Exchange a refresh token for a new pair.\n\nRotation: the presented token is retired and a new one issued in the same family. Presenting a\nretired token revokes the whole family — see the module docstring for why that is the right\nresponse to an ambiguous signal.",
         "operationId": "refresh_session_v1_auth_refresh_post",
         "requestBody": {
           "content": {
@@ -149,9 +157,11 @@
     },
     "/v1/auth/me": {
       "get": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "The current session",
-        "description": "Who the bearer token says you are.\n\nUseful to the app on cold start, and useful in testing as the smallest endpoint that proves\nthe whole token path works. It returns no new tokens \u2014 the ones in the response are the empty\nstrings, because the caller already holds the only one that matters.",
+        "description": "Who the bearer token says you are.\n\nUseful to the app on cold start, and useful in testing as the smallest endpoint that proves\nthe whole token path works. It returns no new tokens — the ones in the response are the empty\nstrings, because the caller already holds the only one that matters.",
         "operationId": "me_v1_auth_me_get",
         "parameters": [
           {
@@ -197,9 +207,11 @@
     },
     "/v1/scans": {
       "post": {
-        "tags": ["scans"],
+        "tags": [
+          "scans"
+        ],
         "summary": "Create a scan and get upload URLs",
-        "description": "Create a scan and issue one presigned upload URL per asset (FR-20).\n\nThe API never sees the image. It records what the client says it is about to upload \u2014 content\ntype, size and SHA-256 \u2014 signs a URL for each, and leaves. The size and type are enforced\n*here*, when the capability is issued, rather than after the bytes have arrived.",
+        "description": "Create a scan and issue one presigned upload URL per asset (FR-20).\n\nThe API never sees the image. It records what the client says it is about to upload — content\ntype, size and SHA-256 — signs a URL for each, and leaves. The size and type are enforced\n*here*, when the capability is issued, rather than after the bytes have arrived.",
         "operationId": "create_scan_v1_scans_post",
         "parameters": [
           {
@@ -269,7 +281,9 @@
         }
       },
       "get": {
-        "tags": ["scans"],
+        "tags": [
+          "scans"
+        ],
         "summary": "List and filter past scans",
         "description": "A page of this org's scans, newest first (FR-09).\n\n*Accept: filtering 200 seeded scans by ``verdict=FAIL`` returns only scans with at least one\nFAIL, within 500 ms.*\n\nThe shape that makes the second half of that true: **filter, page, then aggregate**. The verdict\nfilter is an ``IN`` against a grouped sub-select rather than a count computed per row, the page\nis a keyset slice of at most a hundred scans, and only those scans' findings are counted. Adding\nscans to an org lengthens the table, not the work.",
         "operationId": "list_scans_v1_scans_get",
@@ -281,17 +295,22 @@
             "schema": {
               "anyOf": [
                 {
-                  "enum": ["PASS", "FAIL", "BORDERLINE", "NOT_ASSESSABLE"],
+                  "enum": [
+                    "PASS",
+                    "FAIL",
+                    "BORDERLINE",
+                    "NOT_ASSESSABLE"
+                  ],
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Scans having at least one finding with this verdict, in their current evaluation. **Exactly one verdict, never a set.** Widening this to mean 'has a problem' by including BORDERLINE alongside FAIL would collapse the two (CLAUDE.md \u00a73.4) and would not look like a bug: the list would be longer and every scan in it would genuinely have something on it. What it destroys is the distinction the product exists for \u2014 an inspector asking for failures would be shown a compliant pack whose measurement merely sat inside the uncertainty band.",
+              "description": "Scans having at least one finding with this verdict, in their current evaluation. **Exactly one verdict, never a set.** Widening this to mean 'has a problem' by including BORDERLINE alongside FAIL would collapse the two (CLAUDE.md §3.4) and would not look like a bug: the list would be longer and every scan in it would genuinely have something on it. What it destroys is the distinction the product exists for — an inspector asking for failures would be shown a compliant pack whose measurement merely sat inside the uncertainty band.",
               "title": "Verdict"
             },
-            "description": "Scans having at least one finding with this verdict, in their current evaluation. **Exactly one verdict, never a set.** Widening this to mean 'has a problem' by including BORDERLINE alongside FAIL would collapse the two (CLAUDE.md \u00a73.4) and would not look like a bug: the list would be longer and every scan in it would genuinely have something on it. What it destroys is the distinction the product exists for \u2014 an inspector asking for failures would be shown a compliant pack whose measurement merely sat inside the uncertainty band."
+            "description": "Scans having at least one finding with this verdict, in their current evaluation. **Exactly one verdict, never a set.** Widening this to mean 'has a problem' by including BORDERLINE alongside FAIL would collapse the two (CLAUDE.md §3.4) and would not look like a bug: the list would be longer and every scan in it would genuinely have something on it. What it destroys is the distinction the product exists for — an inspector asking for failures would be shown a compliant pack whose measurement merely sat inside the uncertainty band."
           },
           {
             "name": "product_id",
@@ -465,9 +484,11 @@
     },
     "/v1/scans/{scan_id}/submit": {
       "post": {
-        "tags": ["scans"],
+        "tags": [
+          "scans"
+        ],
         "summary": "Queue a scan for processing",
-        "description": "Enqueue processing and return immediately (FR-20: 202 inside 300 ms).\n\nThis handler does not open an image, call OCR, or touch object storage. It flips a status and\nputs a message on a queue \u2014 which is the only way the latency budget is achievable, and the\nreason the pipeline is a Celery task rather than a background coroutine.\n\nIdempotent without needing a key: a scan already queued or further along is returned as it\nstands rather than enqueued twice.",
+        "description": "Enqueue processing and return immediately (FR-20: 202 inside 300 ms).\n\nThis handler does not open an image, call OCR, or touch object storage. It flips a status and\nputs a message on a queue — which is the only way the latency budget is achievable, and the\nreason the pipeline is a Celery task rather than a background coroutine.\n\nIdempotent without needing a key: a scan already queued or further along is returned as it\nstands rather than enqueued twice.",
         "operationId": "submit_scan_v1_scans__scan_id__submit_post",
         "parameters": [
           {
@@ -523,9 +544,11 @@
     },
     "/v1/scans/{scan_id}": {
       "get": {
-        "tags": ["scans"],
+        "tags": [
+          "scans"
+        ],
         "summary": "Fetch a scan and its assets",
-        "description": "A scan, its status and its assets with time-limited read URLs.\n\nBuckets are private (architecture \u00a710), so a presigned GET is the only read path. The URLs are\nminted per request and expire; nothing here hands out a durable link to evidence.",
+        "description": "A scan, its status and its assets with time-limited read URLs.\n\nBuckets are private (architecture §10), so a presigned GET is the only read path. The URLs are\nminted per request and expire; nothing here hands out a durable link to evidence.",
         "operationId": "get_scan_v1_scans__scan_id__get",
         "parameters": [
           {
@@ -581,9 +604,11 @@
     },
     "/v1/scans/{scan_id}/findings": {
       "get": {
-        "tags": ["scans"],
+        "tags": [
+          "scans"
+        ],
         "summary": "The verdicts that stand for a scan",
-        "description": "The current findings \u2014 the highest evaluation revision's (FR-05).\n\nAlways carries ``rulepack_version`` (CLAUDE.md \u00a73.6) and the summary block, including the\ncount of rules that did not apply.",
+        "description": "The current findings — the highest evaluation revision's (FR-05).\n\nAlways carries ``rulepack_version`` (CLAUDE.md §3.6) and the summary block, including the\ncount of rules that did not apply.\n\n**An empty findings list is a real answer, not an error.** A scan in ``needs_confirmation``\nhas been read and deliberately not judged: its extractions, measurements and OCR are all here,\nand there are no verdicts because ``evaluate()`` was never run over a value nobody has checked.\nThe response still carries the pack version the confirmation will be judged under, so a client\ncan say *which* rules are waiting rather than only that something is. The 409 below is\ntherefore about a scan that has not been *processed* — no evaluation row at all — which is a\ndifferent statement and the one it was always meant to make.",
         "operationId": "get_findings_v1_scans__scan_id__findings_get",
         "parameters": [
           {
@@ -639,9 +664,11 @@
     },
     "/v1/scans/{scan_id}/confirm-fields": {
       "post": {
-        "tags": ["scans"],
+        "tags": [
+          "scans"
+        ],
         "summary": "Correct extracted fields and recompute the verdict",
-        "description": "Record human corrections and re-evaluate (FR-06).\n\nThe recompute runs against **the pack the scan was originally evaluated under and the original\n``as_of``** \u2014 not the active pack, and not today's date. A report regenerated next year must\nreproduce the verdict issued under the rules in force at scan time (CLAUDE.md \u00a73.6), and a\ncorrection is not a reason to re-judge a label against rules that did not exist when it was\nphotographed.\n\nNothing is mutated. The superseded extraction keeps its row, the previous findings keep\ntheirs, and the result is a new evaluation revision.",
+        "description": "Record human corrections and re-evaluate (FR-06).\n\nThe recompute runs against **the pack the scan was originally evaluated under and the original\n``as_of``** — not the active pack, and not today's date. A report regenerated next year must\nreproduce the verdict issued under the rules in force at scan time (CLAUDE.md §3.6), and a\ncorrection is not a reason to re-judge a label against rules that did not exist when it was\nphotographed.\n\nNothing is mutated. The superseded extraction keeps its row, the previous findings keep\ntheirs, and the result is a new evaluation revision.",
         "operationId": "confirm_fields_v1_scans__scan_id__confirm_fields_post",
         "parameters": [
           {
@@ -707,7 +734,9 @@
     },
     "/v1/admin/audit/verify": {
       "get": {
-        "tags": ["admin"],
+        "tags": [
+          "admin"
+        ],
         "summary": "Verify this org's audit chain",
         "description": "Walk the chain and report the first link that does not hold.\n\nOrg-scoped like everything else: an admin verifies their own authority's record, not anyone\nelse's. Each org has its own chain, starting from a genesis hash, so one tenant's activity\nneither reveals nor depends on another's.",
         "operationId": "verify_audit_chain_v1_admin_audit_verify_get",
@@ -755,9 +784,11 @@
     },
     "/v1/admin/audit": {
       "get": {
-        "tags": ["admin"],
+        "tags": [
+          "admin"
+        ],
         "summary": "Read this org's audit entries",
-        "description": "Entries in chain order, oldest first \u2014 the only order that means anything for a linked\nlist, and the order verification walks.",
+        "description": "Entries in chain order, oldest first — the only order that means anything for a linked\nlist, and the order verification walks.",
         "operationId": "list_audit_entries_v1_admin_audit_get",
         "parameters": [
           {
@@ -826,7 +857,9 @@
     },
     "/v1/dashboard/violations": {
       "get": {
-        "tags": ["dashboard"],
+        "tags": [
+          "dashboard"
+        ],
         "summary": "Verdict counts grouped by one dimension",
         "description": "Violations for this org, grouped and counted by the database.\n\nThe window is on ``captured_at``, the date the photograph was taken, because that is the date\nthe inspection happened. FR-04 lets a scan sit in an offline queue for days, so filtering on\nwhen the row arrived would move inspections into months in which they did not occur.",
         "operationId": "violations_v1_dashboard_violations_get",
@@ -936,9 +969,11 @@
     },
     "/v1/sahayak/ask": {
       "post": {
-        "tags": ["sahayak"],
+        "tags": [
+          "sahayak"
+        ],
         "summary": "Ask Sahayak a BIS certification question",
-        "description": "Retrieve, generate with mandatory citation, post-validate, and record.\n\nThe question is passed to retrieval **as asked**. A ``scan_id`` links the query to a scan of\nthis org \u2014 it is not folded into the question text, because rewriting what the user asked\nbefore searching makes the answer depend on a rewrite nobody can see.",
+        "description": "Retrieve, generate with mandatory citation, post-validate, and record.\n\nThe question is passed to retrieval **as asked**, and that has not changed: rewriting what the\nuser asked before searching makes the answer depend on a rewrite nobody can see. A ``scan_id``\nis still not folded into the question text.\n\nWhat a ``scan_id`` now does add is **grounding for the generation**: the scan's frozen profile\nis rendered into the prompt so an answer about \"this product\" knows what the product is,\ninstead of the model inferring it from whatever the question happened to spell out. The two\nstages are deliberately separate — retrieval stays reproducible from the question alone, and\nthe product can steer the wording of an answer without steering which sources it may cite.\n\nIt grants the product no authority. ``services/bis/answer`` requires every claim to name a\nretrieved passage, so a certification requirement can still only come from published material;\nthe lookup at ``/bis/applicability`` remains the only thing that decides applicability.",
         "operationId": "ask_v1_sahayak_ask_post",
         "parameters": [
           {
@@ -994,7 +1029,9 @@
     },
     "/v1/bis/applicability": {
       "post": {
-        "tags": ["sahayak"],
+        "tags": [
+          "sahayak"
+        ],
         "summary": "Does a BIS Quality Control Order cover this product?",
         "description": "Look the product up against the published QCO and CRS lists (FR-29).\n\nA table lookup, deterministic and reproducible. No model is called and no retrieval happens:\nthe answer is whatever the reviewed list in ``bis/`` says, stamped with the list's version and\nthe row that decided it, so it can be checked against the published source.",
         "operationId": "applicability_v1_bis_applicability_post",
@@ -1052,9 +1089,11 @@
     },
     "/v1/scans/{scan_id}/applicability": {
       "post": {
-        "tags": ["sahayak"],
+        "tags": [
+          "sahayak"
+        ],
         "summary": "BIS applicability for a scanned product",
-        "description": "The same lookup, against the profile the scan was **frozen** with (FR-29).\n\nThis is the join between the two problem statements: the profile that decided which Legal\nMetrology declarations applied also decides the certification route. Read from the scan's own\nfrozen copy rather than from ``products``, for the reason ``models/scan.py`` gives \u2014 a product\nedited next month must not change an answer already given about a package photographed today.",
+        "description": "The same lookup, against the profile the scan was **frozen** with (FR-29).\n\nThis is the join between the two problem statements: the profile that decided which Legal\nMetrology declarations applied also decides the certification route. Read from the scan's own\nfrozen copy rather than from ``products``, for the reason ``models/scan.py`` gives — a product\nedited next month must not change an answer already given about a package photographed today.",
         "operationId": "applicability_for_scan_v1_scans__scan_id__applicability_post",
         "parameters": [
           {
@@ -1110,9 +1149,11 @@
     },
     "/v1/products/listings/check": {
       "post": {
-        "tags": ["products"],
+        "tags": [
+          "products"
+        ],
         "summary": "Check a CSV of marketplace listings (Mode B)",
-        "description": "Run presence and format rules over every listing in the CSV (FR-10).\n\nGated on ``PRODUCT_READ`` rather than ``PRODUCT_WRITE``: the check persists nothing, creates\nnothing, and reads only text the caller supplied in the request body. Requiring the write\npermission would lock the flagship Mode B feature away from the analyst role that exists to\nrun it, for a call that leaves no trace.\n\n``as_of`` is today. Unlike a scan \u2014 which is judged at its capture date, because FR-04 lets a\nphotograph sit in an offline queue for days \u2014 a pasted listing has no capture date. It is a\nlive listing being checked now, so now is the honest date to judge it at.",
+        "description": "Run presence and format rules over every listing in the CSV (FR-10).\n\nGated on ``PRODUCT_READ`` rather than ``PRODUCT_WRITE``: the check persists nothing, creates\nnothing, and reads only text the caller supplied in the request body. Requiring the write\npermission would lock the flagship Mode B feature away from the analyst role that exists to\nrun it, for a call that leaves no trace.\n\n``as_of`` is today. Unlike a scan — which is judged at its capture date, because FR-04 lets a\nphotograph sit in an offline queue for days — a pasted listing has no capture date. It is a\nlive listing being checked now, so now is the honest date to judge it at.",
         "operationId": "check_listings_v1_products_listings_check_post",
         "parameters": [
           {
@@ -1168,7 +1209,9 @@
     },
     "/v1/products": {
       "get": {
-        "tags": ["products"],
+        "tags": [
+          "products"
+        ],
         "summary": "List and search the product catalogue",
         "description": "This org's products, alphabetically (FR-03, FR-09).\n\nAlphabetical rather than newest-first because the caller is a person looking for a product they\nalready have in mind, in a picker. Recency is the right order for a history of events and the\nwrong one for a catalogue.",
         "operationId": "list_products_v1_products_get",
@@ -1280,7 +1323,9 @@
     },
     "/v1/scans/{scan_id}/report": {
       "post": {
-        "tags": ["reports"],
+        "tags": [
+          "reports"
+        ],
         "summary": "Generate a report for a scan",
         "description": "Render this scan's current findings and store them (FR-27, FR-08).\n\nRefuses a scan that has never been evaluated. There is nothing to report on, and a document\nstating no findings would read as a clean result rather than as an absent one.",
         "operationId": "create_report_v1_scans__scan_id__report_post",
@@ -1348,9 +1393,11 @@
     },
     "/v1/reports/{report_id}": {
       "get": {
-        "tags": ["reports"],
+        "tags": [
+          "reports"
+        ],
         "summary": "Fetch a generated report",
-        "description": "One report, with fresh read URLs.\n\nThe links are minted per request and expire, so this is also how a client re-shares a report it\ngenerated yesterday \u2014 nothing hands out a durable link to evidence.",
+        "description": "One report, with fresh read URLs.\n\nThe links are minted per request and expire, so this is also how a client re-shares a report it\ngenerated yesterday — nothing hands out a durable link to evidence.",
         "operationId": "get_report_v1_reports__report_id__get",
         "parameters": [
           {
@@ -1403,6 +1450,125 @@
           }
         }
       }
+    },
+    "/v1/prefill": {
+      "post": {
+        "tags": [
+          "prefill"
+        ],
+        "summary": "Read a pack's photographs to prefill the product context form",
+        "description": "Accept a pack's photographs and queue them to be read (FR-03).\n\nReturns immediately with an id to poll. The read happens in the worker, which is where the OCR\nmodels live — the API process does not load them and must not start doing so on a request\npath.\n\nPermissioned as ``SCAN_CREATE``: prefill is part of creating a scan, and anyone who may not\ncreate one has no use for a form to be filled.",
+        "operationId": "create_prefill_v1_prefill_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrefillCreateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrefillAcceptedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/prefill/{prefill_id}": {
+      "get": {
+        "tags": [
+          "prefill"
+        ],
+        "summary": "Collect what a pack's photographs suggest for the context form",
+        "description": "Return one prefill, or 404 once it has expired.\n\n``no-store`` because the answer changes from ``reading`` to ``ready`` within seconds and a\ncached ``reading`` is a form that never fills.",
+        "operationId": "get_prefill_v1_prefill__prefill_id__get",
+        "parameters": [
+          {
+            "name": "prefill_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Prefill Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrefillOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1430,7 +1596,7 @@
               }
             ],
             "title": "Confidence",
-            "description": "How well the cited sources matched the question \u2014 a retrieval signal, not a probability that the answer is correct. Null when no reranker ran."
+            "description": "How well the cited sources matched the question — a retrieval signal, not a probability that the answer is correct. Null when no reranker ran."
           },
           "as_of": {
             "anyOf": [
@@ -1475,7 +1641,10 @@
           }
         },
         "type": "object",
-        "required": ["answer", "disclaimer"],
+        "required": [
+          "answer",
+          "disclaimer"
+        ],
         "title": "AnswerOut"
       },
       "ApplicabilityIn": {
@@ -1486,7 +1655,9 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "required": ["profile"],
+        "required": [
+          "profile"
+        ],
         "title": "ApplicabilityIn",
         "description": "A product profile to look up."
       },
@@ -1494,12 +1665,21 @@
         "properties": {
           "qco_applicable": {
             "type": "string",
-            "enum": ["yes", "no", "unclear"],
+            "enum": [
+              "yes",
+              "no",
+              "unclear"
+            ],
             "title": "Qco Applicable"
           },
           "scheme": {
             "type": "string",
-            "enum": ["ISI", "CRS", "FMCS", "none"],
+            "enum": [
+              "ISI",
+              "CRS",
+              "FMCS",
+              "none"
+            ],
             "title": "Scheme"
           },
           "candidate_is_numbers": {
@@ -1537,7 +1717,11 @@
           },
           "matched_on": {
             "type": "string",
-            "enum": ["category_code", "keyword", "none"],
+            "enum": [
+              "category_code",
+              "keyword",
+              "none"
+            ],
             "title": "Matched On",
             "default": "none"
           },
@@ -1594,7 +1778,12 @@
           }
         },
         "type": "object",
-        "required": ["qco_applicable", "scheme", "lists_version", "disclaimer"],
+        "required": [
+          "qco_applicable",
+          "scheme",
+          "lists_version",
+          "disclaimer"
+        ],
         "title": "ApplicabilityOut",
         "description": "FR-29's shape, plus the provenance that makes it checkable."
       },
@@ -1621,14 +1810,19 @@
           },
           "lang": {
             "type": "string",
-            "enum": ["en", "hi"],
+            "enum": [
+              "en",
+              "hi"
+            ],
             "title": "Lang",
             "default": "en"
           }
         },
         "additionalProperties": false,
         "type": "object",
-        "required": ["question"],
+        "required": [
+          "question"
+        ],
         "title": "AskIn",
         "description": "A question for Sahayak."
       },
@@ -1639,12 +1833,14 @@
             "maxLength": 100,
             "title": "Content Type",
             "description": "Checked against the allow-list when the URL is signed, and part of the signature, so the uploaded bytes must match it",
-            "examples": ["image/jpeg"]
+            "examples": [
+              "image/jpeg"
+            ]
           },
           "size_bytes": {
             "type": "integer",
-            "maximum": 1073741824.0,
-            "exclusiveMinimum": 0.0,
+            "maximum": 1073741824,
+            "exclusiveMinimum": 0,
             "title": "Size Bytes",
             "description": "Enforced at presign time, not after the upload"
           },
@@ -1658,14 +1854,22 @@
           },
           "kind": {
             "type": "string",
-            "enum": ["raw", "rectified", "annotated"],
+            "enum": [
+              "raw",
+              "rectified",
+              "annotated"
+            ],
             "title": "Kind",
             "default": "raw"
           }
         },
         "additionalProperties": false,
         "type": "object",
-        "required": ["content_type", "size_bytes", "sha256"],
+        "required": [
+          "content_type",
+          "size_bytes",
+          "sha256"
+        ],
         "title": "AssetIn",
         "description": "One image the client is about to upload."
       },
@@ -1678,7 +1882,11 @@
           },
           "kind": {
             "type": "string",
-            "enum": ["raw", "rectified", "annotated"],
+            "enum": [
+              "raw",
+              "rectified",
+              "annotated"
+            ],
             "title": "Kind"
           },
           "sha256": {
@@ -1743,7 +1951,11 @@
           }
         },
         "type": "object",
-        "required": ["asset_id", "kind", "sha256"],
+        "required": [
+          "asset_id",
+          "kind",
+          "sha256"
+        ],
         "title": "AssetOut",
         "description": "One stored asset."
       },
@@ -1795,7 +2007,15 @@
           }
         },
         "type": "object",
-        "required": ["id", "action", "entity", "entity_id", "created_at", "prev_hash", "hash"],
+        "required": [
+          "id",
+          "action",
+          "entity",
+          "entity_id",
+          "created_at",
+          "prev_hash",
+          "hash"
+        ],
         "title": "AuditEntryOut",
         "description": "One recorded action."
       },
@@ -1832,7 +2052,12 @@
           }
         },
         "type": "object",
-        "required": ["x", "y", "width", "height"],
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
         "title": "BBoxOut",
         "description": "Evidence rectangle on the rectified image, in pixels (FR-05: tappable)."
       },
@@ -1851,12 +2076,12 @@
           "borderline": {
             "type": "integer",
             "title": "Borderline",
-            "description": "BORDERLINE \u2014 within the measurement's uncertainty band, never a failure"
+            "description": "BORDERLINE — within the measurement's uncertainty band, never a failure"
           },
           "not_assessable": {
             "type": "integer",
             "title": "Not Assessable",
-            "description": "NOT_ASSESSABLE \u2014 could not be checked, e.g. no marker, so no millimetres"
+            "description": "NOT_ASSESSABLE — could not be checked, e.g. no marker, so no millimetres"
           },
           "total": {
             "type": "integer",
@@ -1878,13 +2103,21 @@
               }
             ],
             "title": "Key",
-            "description": "The group's value. **null** means the dimension was not recorded on those scans \u2014 an unknown district, or a scan with no product to take a brand from \u2014 and never that the group is empty."
+            "description": "The group's value. **null** means the dimension was not recorded on those scans — an unknown district, or a scan with no product to take a brand from — and never that the group is empty."
           }
         },
         "type": "object",
-        "required": ["pass", "fail", "borderline", "not_assessable", "total", "scans", "key"],
+        "required": [
+          "pass",
+          "fail",
+          "borderline",
+          "not_assessable",
+          "total",
+          "scans",
+          "key"
+        ],
         "title": "BucketOut",
-        "description": "One row of the dashboard table: a group and its counts, flat.\n\nFlat rather than ``{key, counts:{...}}`` because a bucket *is* a table row, and every consumer\n\u2014 a chart, a CSV export, a sorted list \u2014 wants the columns at one level."
+        "description": "One row of the dashboard table: a group and its counts, flat.\n\nFlat rather than ``{key, counts:{...}}`` because a bucket *is* a table row, and every consumer\n— a chart, a CSV export, a sorted list — wants the columns at one level."
       },
       "BulkListingIn": {
         "properties": {
@@ -1892,7 +2125,7 @@
             "type": "string",
             "minLength": 1,
             "title": "Csv",
-            "description": "CSV text. Needs a header with a listing text column \u2014 one of `listing_text`, `text`, `description`, `listing` \u2014 plus optional `listing_id`/`sku`, `url`, and any profile columns (`is_imported`, `category_code`, `net_qty_value`, ...)."
+            "description": "CSV text. Needs a header with a listing text column — one of `listing_text`, `text`, `description`, `listing` — plus optional `listing_id`/`sku`, `url`, and any profile columns (`is_imported`, `category_code`, `net_qty_value`, ...)."
           },
           "profile": {
             "anyOf": [
@@ -1908,7 +2141,9 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "required": ["csv"],
+        "required": [
+          "csv"
+        ],
         "title": "BulkListingIn",
         "description": "A pasted CSV of marketplace listings (FR-10).\n\nA single text field rather than a multipart upload: \"paste or upload\" are the same payload\nonce the client has read the file, and one content type is one thing to get right in the\ngenerated mobile client."
       },
@@ -1917,7 +2152,7 @@
           "rulepack_version": {
             "type": "string",
             "title": "Rulepack Version",
-            "description": "Every verdict here was issued under this pack (CLAUDE.md \u00a73.6)"
+            "description": "Every verdict here was issued under this pack (CLAUDE.md §3.6)"
           },
           "as_of": {
             "type": "string",
@@ -1946,7 +2181,11 @@
           }
         },
         "type": "object",
-        "required": ["rulepack_version", "as_of", "summary"],
+        "required": [
+          "rulepack_version",
+          "as_of",
+          "summary"
+        ],
         "title": "BulkListingOut",
         "description": "The whole upload."
       },
@@ -1958,7 +2197,10 @@
           },
           "reason": {
             "type": "string",
-            "enum": ["broken_link", "hash_mismatch"],
+            "enum": [
+              "broken_link",
+              "hash_mismatch"
+            ],
             "title": "Reason",
             "description": "broken_link: a row was deleted or inserted. hash_mismatch: a row's contents were edited."
           },
@@ -1972,7 +2214,12 @@
           }
         },
         "type": "object",
-        "required": ["entry_id", "reason", "expected", "found"],
+        "required": [
+          "entry_id",
+          "reason",
+          "expected",
+          "found"
+        ],
         "title": "ChainBreakOut",
         "description": "One place the chain stopped verifying."
       },
@@ -2010,7 +2257,11 @@
           }
         },
         "type": "object",
-        "required": ["org_id", "entries_checked", "ok"],
+        "required": [
+          "org_id",
+          "entries_checked",
+          "ok"
+        ],
         "title": "ChainVerificationOut",
         "description": "The result of walking this org's chain."
       },
@@ -2042,7 +2293,7 @@
               }
             ],
             "title": "Section",
-            "description": "Where in the document \u2014 a clause, not a page number"
+            "description": "Where in the document — a clause, not a page number"
           },
           "published_at": {
             "anyOf": [
@@ -2058,7 +2309,12 @@
           }
         },
         "type": "object",
-        "required": ["chunk_id", "document_id", "title", "url"],
+        "required": [
+          "chunk_id",
+          "document_id",
+          "title",
+          "url"
+        ],
         "title": "CitationOut",
         "description": "One source behind the answer."
       },
@@ -2076,7 +2332,9 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "required": ["fields"],
+        "required": [
+          "fields"
+        ],
         "title": "ConfirmFieldsIn",
         "description": "Confirm or correct low-confidence fields and recompute the verdict."
       },
@@ -2095,12 +2353,12 @@
           "borderline": {
             "type": "integer",
             "title": "Borderline",
-            "description": "BORDERLINE \u2014 within the measurement's uncertainty band, never a failure"
+            "description": "BORDERLINE — within the measurement's uncertainty band, never a failure"
           },
           "not_assessable": {
             "type": "integer",
             "title": "Not Assessable",
-            "description": "NOT_ASSESSABLE \u2014 could not be checked, e.g. no marker, so no millimetres"
+            "description": "NOT_ASSESSABLE — could not be checked, e.g. no marker, so no millimetres"
           },
           "total": {
             "type": "integer",
@@ -2114,7 +2372,14 @@
           }
         },
         "type": "object",
-        "required": ["pass", "fail", "borderline", "not_assessable", "total", "scans"],
+        "required": [
+          "pass",
+          "fail",
+          "borderline",
+          "not_assessable",
+          "total",
+          "scans"
+        ],
         "title": "CountsOut",
         "description": "The four verdicts for one group, with its row and scan counts.\n\n``pass`` is a Python keyword, so the field is ``passed`` and the wire name is set by an alias.\nThe wire name is the contract ``mobile/`` generates against and matches the summary block of\n``GET /v1/scans/{id}/findings``; renaming it to dodge the keyword would leave one system with\ntwo spellings of the same four verdicts."
       },
@@ -2148,15 +2413,19 @@
           },
           "source": {
             "type": "string",
-            "enum": ["regex", "llm", "human"],
+            "enum": [
+              "regex",
+              "llm",
+              "human"
+            ],
             "title": "Source"
           },
           "confidence": {
             "type": "number",
-            "maximum": 1.0,
-            "minimum": 0.0,
+            "maximum": 1,
+            "minimum": 0,
             "title": "Confidence",
-            "description": "The extractor's own confidence. The client confirms anything below its threshold before treating a verdict as settled, so this must be the real number \u2014 a default of 1.0 on an uncertain read disables FR-06 silently."
+            "description": "The extractor's own confidence. The client confirms anything below its threshold before treating a verdict as settled, so this must be the real number — a default of 1.0 on an uncertain read disables FR-06 silently."
           },
           "bbox": {
             "anyOf": [
@@ -2188,11 +2457,17 @@
               }
             ],
             "title": "Source Span",
-            "description": "Character range in the OCR text this value came from, verified to exist in that text before the value was accepted (CLAUDE.md \u00a78)."
+            "description": "Character range in the OCR text this value came from, verified to exist in that text before the value was accepted (CLAUDE.md §8)."
           }
         },
         "type": "object",
-        "required": ["extraction_id", "field_code", "value_raw", "source", "confidence"],
+        "required": [
+          "extraction_id",
+          "field_code",
+          "value_raw",
+          "source",
+          "confidence"
+        ],
         "title": "ExtractionOut",
         "description": "One extracted declaration, as it currently stands (FR-24, FR-06).\n\nSuperseded rows are absent: a human correction writes a new row and stamps the old one, so this\nis the set the verdicts were computed from and the set the client should show."
       },
@@ -2213,7 +2488,10 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "required": ["code", "value"],
+        "required": [
+          "code",
+          "value"
+        ],
         "title": "FieldCorrectionIn",
         "description": "One human correction to an extracted declaration (FR-06)."
       },
@@ -2230,7 +2508,7 @@
               }
             ],
             "title": "Finding Id",
-            "description": "The stored row. Stable within an evaluation revision and replaced wholesale by the next one, because a recompute writes new rows rather than mutating these. **Null when the finding was computed rather than stored** \u2014 the bulk listing check (FR-10) judges text that was never a scan, so there is no evidence row to point at, and that is the same reason such a finding can never be corrected or reported on."
+            "description": "The stored row. Stable within an evaluation revision and replaced wholesale by the next one, because a recompute writes new rows rather than mutating these. **Null when the finding was computed rather than stored** — the bulk listing check (FR-10) judges text that was never a scan, so there is no evidence row to point at, and that is the same reason such a finding can never be corrected or reported on."
           },
           "rule_id": {
             "type": "string",
@@ -2238,7 +2516,12 @@
           },
           "verdict": {
             "type": "string",
-            "enum": ["PASS", "FAIL", "BORDERLINE", "NOT_ASSESSABLE"],
+            "enum": [
+              "PASS",
+              "FAIL",
+              "BORDERLINE",
+              "NOT_ASSESSABLE"
+            ],
             "title": "Verdict"
           },
           "severity": {
@@ -2319,7 +2602,12 @@
           }
         },
         "type": "object",
-        "required": ["rule_id", "verdict", "severity", "citation"],
+        "required": [
+          "rule_id",
+          "verdict",
+          "severity",
+          "citation"
+        ],
         "title": "FindingOut",
         "description": "One rule's verdict."
       },
@@ -2360,12 +2648,12 @@
               }
             ],
             "title": "As Of",
-            "description": "The date effective-date filtering was done against \u2014 the capture date, never the current clock."
+            "description": "The date effective-date filtering was done against — the capture date, never the current clock."
           },
           "reduced_extraction": {
             "type": "boolean",
             "title": "Reduced Extraction",
-            "description": "True when the LLM layer did not run or did not answer, so the extraction was regex-only (architecture \u00a711).",
+            "description": "True when the LLM layer did not run or did not answer, so the extraction was regex-only (architecture §11).",
             "default": false
           },
           "findings_sha256": {
@@ -2373,7 +2661,7 @@
             "maxLength": 64,
             "minLength": 64,
             "title": "Findings Sha256",
-            "description": "The digest stored with this evaluation, over the canonical findings JSON. A report embeds the same value (architecture \u00a710), so the two surfaces agree by construction rather than by two code paths happening to match."
+            "description": "The digest stored with this evaluation, over the canonical findings JSON. A report embeds the same value (architecture §10), so the two surfaces agree by construction rather than by two code paths happening to match."
           },
           "summary": {
             "$ref": "#/components/schemas/FindingsSummary"
@@ -2398,7 +2686,7 @@
             },
             "type": "array",
             "title": "Extractions",
-            "description": "Current extracted declarations. Drives FR-06's confirmation sheet and gates report generation \u2014 see this module's docstring for why it is never omitted."
+            "description": "Current extracted declarations. Drives FR-06's confirmation sheet and gates report generation — see this module's docstring for why it is never omitted."
           },
           "measurements": {
             "items": {
@@ -2409,7 +2697,13 @@
           }
         },
         "type": "object",
-        "required": ["scan_id", "rulepack_version", "revision", "findings_sha256", "summary"],
+        "required": [
+          "scan_id",
+          "rulepack_version",
+          "revision",
+          "findings_sha256",
+          "summary"
+        ],
         "title": "FindingsOut",
         "description": "The findings response."
       },
@@ -2434,13 +2728,13 @@
           "na": {
             "type": "integer",
             "title": "Na",
-            "description": "NOT_ASSESSABLE \u2014 could not be checked from this image",
+            "description": "NOT_ASSESSABLE — could not be checked from this image",
             "default": 0
           },
           "not_applicable": {
             "type": "integer",
             "title": "Not Applicable",
-            "description": "Rules that did not apply to this product \u2014 not a verdict",
+            "description": "Rules that did not apply to this product — not a verdict",
             "default": 0
           }
         },
@@ -2471,9 +2765,12 @@
           }
         },
         "type": "object",
-        "required": ["latitude", "longitude"],
+        "required": [
+          "latitude",
+          "longitude"
+        ],
         "title": "GeoOut",
-        "description": "Where a Mode A inspection happened.\n\nNested rather than three flat columns, because it is one fact: a reading with a latitude and no\naccuracy is not a usable position, and a client that had to assemble it from three nullable\nfields would have to decide what a partial one means. Null for every Mode B scan \u2014 industry\nusers are never asked for a location (architecture \u00a710)."
+        "description": "Where a Mode A inspection happened.\n\nNested rather than three flat columns, because it is one fact: a reading with a latitude and no\naccuracy is not a usable position, and a client that had to assemble it from three nullable\nfields would have to decide what a partial one means. Null for every Mode B scan — industry\nusers are never asked for a location (architecture §10)."
       },
       "HTTPValidationError": {
         "properties": {
@@ -2492,29 +2789,45 @@
         "properties": {
           "status": {
             "type": "string",
-            "enum": ["ok", "degraded"],
+            "enum": [
+              "ok",
+              "degraded"
+            ],
             "title": "Status",
             "description": "ok only when every component is ok"
           },
           "db": {
             "type": "string",
-            "enum": ["ok", "error"],
+            "enum": [
+              "ok",
+              "error"
+            ],
             "title": "Db"
           },
           "redis": {
             "type": "string",
-            "enum": ["ok", "error"],
+            "enum": [
+              "ok",
+              "error"
+            ],
             "title": "Redis"
           },
           "rulepack": {
             "type": "string",
             "title": "Rulepack",
             "description": "Active rule pack as CODE-vVERSION, read from the pack's meta block",
-            "examples": ["LM-2011-v1.0"]
+            "examples": [
+              "LM-2011-v1.0"
+            ]
           }
         },
         "type": "object",
-        "required": ["status", "db", "redis", "rulepack"],
+        "required": [
+          "status",
+          "db",
+          "redis",
+          "rulepack"
+        ],
         "title": "HealthReport",
         "description": "Response model for ``GET /health``."
       },
@@ -2523,7 +2836,7 @@
           "row_number": {
             "type": "integer",
             "title": "Row Number",
-            "description": "1-based line in the uploaded file, header included \u2014 what a spreadsheet shows"
+            "description": "1-based line in the uploaded file, header included — what a spreadsheet shows"
           },
           "listing_id": {
             "anyOf": [
@@ -2586,7 +2899,9 @@
           }
         },
         "type": "object",
-        "required": ["row_number"],
+        "required": [
+          "row_number"
+        ],
         "title": "ListingRowOut",
         "description": "One row's verdict."
       },
@@ -2645,7 +2960,7 @@
               }
             ],
             "title": "Uncertainty Mm",
-            "description": "Half-width of the uncertainty band. A reading within this of a threshold is BORDERLINE. Null means it could not be established \u2014 never read a null as zero, which would be a claim of perfect measurement."
+            "description": "Half-width of the uncertainty band. A reading within this of a threshold is BORDERLINE. Null means it could not be established — never read a null as zero, which would be a claim of perfect measurement."
           },
           "clear_space_mm": {
             "anyOf": [
@@ -2676,9 +2991,12 @@
           }
         },
         "type": "object",
-        "required": ["measurement_id", "field_code"],
+        "required": [
+          "measurement_id",
+          "field_code"
+        ],
         "title": "MeasurementOut",
-        "description": "One physical measurement behind a metric verdict (FR-23).\n\nEmpty for a scan with no marker \u2014 that is the whole of CLAUDE.md \u00a73.3 expressed as data, and it\nis what makes every metric rule NOT_ASSESSABLE rather than a guess."
+        "description": "One physical measurement behind a metric verdict (FR-23).\n\nEmpty for a scan with no marker — that is the whole of CLAUDE.md §3.3 expressed as data, and it\nis what makes every metric rule NOT_ASSESSABLE rather than a guess."
       },
       "OrgOut": {
         "properties": {
@@ -2698,7 +3016,11 @@
           }
         },
         "type": "object",
-        "required": ["id", "name", "mode"],
+        "required": [
+          "id",
+          "name",
+          "mode"
+        ],
         "title": "OrgOut",
         "description": "The org a session belongs to."
       },
@@ -2709,12 +3031,16 @@
             "maxLength": 20,
             "title": "Phone",
             "description": "E.164, including the country code",
-            "examples": ["+919812345678"]
+            "examples": [
+              "+919812345678"
+            ]
           }
         },
         "additionalProperties": false,
         "type": "object",
-        "required": ["phone"],
+        "required": [
+          "phone"
+        ],
         "title": "OtpRequestIn",
         "description": "Ask for a code."
       },
@@ -2744,9 +3070,12 @@
           }
         },
         "type": "object",
-        "required": ["request_id", "expires_at"],
+        "required": [
+          "request_id",
+          "expires_at"
+        ],
         "title": "OtpRequestOut",
-        "description": "The handle for the code that was just sent.\n\nDeliberately identical whether or not the number belongs to a user. A response that differed\nwould let anyone test whether a phone number has an account here \u2014 which, for an enforcement\ndeployment, means testing whether someone is an inspector."
+        "description": "The handle for the code that was just sent.\n\nDeliberately identical whether or not the number belongs to a user. A response that differed\nwould let anyone test whether a phone number has an account here — which, for an enforcement\ndeployment, means testing whether someone is an inspector."
       },
       "OtpVerifyIn": {
         "properties": {
@@ -2763,9 +3092,125 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "required": ["request_id", "code"],
+        "required": [
+          "request_id",
+          "code"
+        ],
         "title": "OtpVerifyIn",
         "description": "Exchange a code for tokens."
+      },
+      "PrefillAcceptedOut": {
+        "properties": {
+          "prefill_id": {
+            "type": "string",
+            "title": "Prefill Id"
+          },
+          "status": {
+            "type": "string",
+            "const": "reading",
+            "title": "Status",
+            "default": "reading"
+          }
+        },
+        "type": "object",
+        "required": [
+          "prefill_id"
+        ],
+        "title": "PrefillAcceptedOut",
+        "description": "The read has been queued. Poll ``GET /v1/prefill/{prefill_id}``."
+      },
+      "PrefillCreateIn": {
+        "properties": {
+          "images": {
+            "items": {
+              "$ref": "#/components/schemas/PrefillImageIn"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Images",
+            "description": "In capture order, at most MAX_PREFILL_IMAGES. A client holding more sends the first three rather than the whole capture — later photographs are usually another angle on a face already read, and each one costs an OCR pass on a wait somebody is watching."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "images"
+        ],
+        "title": "PrefillCreateIn",
+        "description": "The photographs of one pack, to be read together for the context form.\n\n**Not just the front panel.** A pack's mandatory declarations are spread across its faces: the\nnet quantity and the commodity name are usually on the front, the importer, the country of\norigin and the consumer-care line usually on the back. Reading one photograph proposes nothing\nfor most of the fields a user would otherwise type, so the client sends the photographs it has\nand the worker merges their words before extracting once.\n\n**Up to three of them.** See ``MAX_PREFILL_IMAGES`` for why three and not the scan's asset\nlimit."
+      },
+      "PrefillImageIn": {
+        "properties": {
+          "image_base64": {
+            "type": "string",
+            "maxLength": 8388608,
+            "minLength": 1,
+            "title": "Image Base64",
+            "description": "The photograph, base64-encoded, downscaled by the client. The decoded size is checked against PREFILL_MAX_BYTES across the whole request; this per-image length cap is the cheap first refusal so a very large body is rejected before it is decoded."
+          },
+          "content_type": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ],
+            "title": "Content Type",
+            "description": "Media type of the encoded bytes. Decides the scratch object's extension only — recognition reads the bytes, not this.",
+            "default": "image/jpeg"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "image_base64"
+        ],
+        "title": "PrefillImageIn",
+        "description": "One photograph to read."
+      },
+      "PrefillOut": {
+        "properties": {
+          "prefill_id": {
+            "type": "string",
+            "title": "Prefill Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "reading",
+              "ready",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionOut"
+            },
+            "type": "array",
+            "title": "Suggestions"
+          },
+          "word_count": {
+            "type": "integer",
+            "title": "Word Count",
+            "description": "Words recognised across every photograph. Zero with no suggestions means they were read and had nothing usable on them, which is a different thing from the read failing.",
+            "default": 0
+          },
+          "reduced": {
+            "type": "boolean",
+            "title": "Reduced",
+            "description": "True when extraction ran pattern-only. No pattern reads a common name, so a reduced read will not propose a product name.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "prefill_id",
+          "status"
+        ],
+        "title": "PrefillOut",
+        "description": "The state of one prefill."
       },
       "ProductOut": {
         "properties": {
@@ -2866,7 +3311,12 @@
           }
         },
         "type": "object",
-        "required": ["product_id", "org_id", "name", "created_at"],
+        "required": [
+          "product_id",
+          "org_id",
+          "name",
+          "created_at"
+        ],
         "title": "ProductOut",
         "description": "One catalogue entry.\n\nFlat rather than a nested profile, and the flatness is the honest shape. A scan's ``profile`` is\na complete set of answers because FR-03 makes the operator supply the missing ones; a catalogue\nrow is whatever has been recorded about a product so far. Nesting it would imply the two are\ninterchangeable and would need this endpoint to invent the fields a catalogue does not hold."
       },
@@ -2889,7 +3339,7 @@
               }
             ],
             "title": "Next Cursor",
-            "description": "Opaque \u2014 see routers/pagination.py. Null on the last page."
+            "description": "Opaque — see routers/pagination.py. Null on the last page."
           }
         },
         "type": "object",
@@ -2910,13 +3360,19 @@
           },
           "qty_basis": {
             "type": "string",
-            "enum": ["weight_or_volume", "length_area_or_number"],
+            "enum": [
+              "weight_or_volume",
+              "length_area_or_number"
+            ],
             "title": "Qty Basis",
             "default": "weight_or_volume"
           },
           "channel": {
             "type": "string",
-            "enum": ["retail", "ecommerce"],
+            "enum": [
+              "retail",
+              "ecommerce"
+            ],
             "title": "Channel",
             "default": "retail"
           },
@@ -2924,33 +3380,33 @@
             "anyOf": [
               {
                 "type": "number",
-                "minimum": 0.0
+                "minimum": 0
               },
               {
                 "type": "null"
               }
             ],
             "title": "Net Qty In G Or Ml",
-            "description": "Net quantity normalised to g or ml \u2014 the Table-I key"
+            "description": "Net quantity normalised to g or ml — the Table-I key"
           },
           "pdp_area_cm2": {
             "anyOf": [
               {
                 "type": "number",
-                "minimum": 0.0
+                "minimum": 0
               },
               {
                 "type": "null"
               }
             ],
             "title": "Pdp Area Cm2",
-            "description": "Principal display panel area \u2014 the Table-II key"
+            "description": "Principal display panel area — the Table-II key"
           },
           "net_qty_value": {
             "anyOf": [
               {
                 "type": "number",
-                "minimum": 0.0
+                "minimum": 0
               },
               {
                 "type": "null"
@@ -3010,7 +3466,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "ProfileIn",
-        "description": "The product context that decides which rules apply (FR-03).\n\nMirrors ``services.rules.types.Profile``. Field names are part of the rule pack's contract \u2014\npacks address them as ``profile.is_imported``, ``profile.net_qty_in_g_or_ml`` \u2014 so renaming\none here breaks a pack, not just a client."
+        "description": "The product context that decides which rules apply (FR-03).\n\nMirrors ``services.rules.types.Profile``. Field names are part of the rule pack's contract —\npacks address them as ``profile.is_imported``, ``profile.net_qty_in_g_or_ml`` — so renaming\none here breaks a pack, not just a client."
       },
       "ProfileOut": {
         "properties": {
@@ -3126,7 +3582,9 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "required": ["refresh"],
+        "required": [
+          "refresh"
+        ],
         "title": "RefreshIn",
         "description": "Present a refresh token for rotation."
       },
@@ -3135,7 +3593,11 @@
           "formats": {
             "items": {
               "type": "string",
-              "enum": ["pdf", "docx", "json"]
+              "enum": [
+                "pdf",
+                "docx",
+                "json"
+              ]
             },
             "type": "array",
             "maxItems": 3,
@@ -3153,13 +3615,17 @@
         "properties": {
           "format": {
             "type": "string",
-            "enum": ["pdf", "docx", "json"],
+            "enum": [
+              "pdf",
+              "docx",
+              "json"
+            ],
             "title": "Format"
           },
           "url": {
             "type": "string",
             "title": "Url",
-            "description": "Time-limited read URL. Buckets are private (architecture \u00a710), so this is the only read path and it expires \u2014 fetch the bytes, do not store the link."
+            "description": "Time-limited read URL. Buckets are private (architecture §10), so this is the only read path and it expires — fetch the bytes, do not store the link."
           },
           "size_bytes": {
             "type": "integer",
@@ -3171,7 +3637,12 @@
           }
         },
         "type": "object",
-        "required": ["format", "url", "size_bytes", "media_type"],
+        "required": [
+          "format",
+          "url",
+          "size_bytes",
+          "media_type"
+        ],
         "title": "ReportFileOut",
         "description": "One rendered document."
       },
@@ -3195,9 +3666,13 @@
           },
           "status": {
             "type": "string",
-            "enum": ["pending", "ready", "failed"],
+            "enum": [
+              "pending",
+              "ready",
+              "failed"
+            ],
             "title": "Status",
-            "description": "``ready`` as soon as it exists. ``pending`` is reserved for the asynchronous form \u2014 see this module's docstring \u2014 so a polling client is correct either way."
+            "description": "``ready`` as soon as it exists. ``pending`` is reserved for the asynchronous form — see this module's docstring — so a polling client is correct either way."
           },
           "rulepack_version": {
             "type": "string",
@@ -3206,7 +3681,11 @@
           "formats": {
             "items": {
               "type": "string",
-              "enum": ["pdf", "docx", "json"]
+              "enum": [
+                "pdf",
+                "docx",
+                "json"
+              ]
             },
             "type": "array",
             "title": "Formats",
@@ -3229,7 +3708,7 @@
               }
             ],
             "title": "Image Sha256",
-            "description": "SHA-256 of the raw image as received. Null when the scan has no raw asset \u2014 which the client shows as an unverifiable image rather than as a verified one."
+            "description": "SHA-256 of the raw image as received. Null when the scan has no raw asset — which the client shows as an unverifiable image rather than as a verified one."
           },
           "findings_sha256": {
             "type": "string",
@@ -3285,14 +3764,18 @@
           },
           "marker_type": {
             "type": "string",
-            "enum": ["aruco_4x4_50", "id1_card", "user_declared"],
+            "enum": [
+              "aruco_4x4_50",
+              "id1_card",
+              "user_declared"
+            ],
             "title": "Marker Type",
             "description": "FR-02: the scale reference in frame"
           },
           "marker_mm": {
             "type": "number",
-            "maximum": 1000.0,
-            "exclusiveMinimum": 0.0,
+            "maximum": 1000,
+            "exclusiveMinimum": 0,
             "title": "Marker Mm",
             "description": "Declared physical size of the marker. Per-scan, never a constant: a 40 mm tag and an ID-1 card are both valid and are different numbers."
           },
@@ -3334,8 +3817,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 90.0,
-                "minimum": -90.0
+                "maximum": 90,
+                "minimum": -90
               },
               {
                 "type": "null"
@@ -3347,8 +3830,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 180.0,
-                "minimum": -180.0
+                "maximum": 180,
+                "minimum": -180
               },
               {
                 "type": "null"
@@ -3360,7 +3843,7 @@
             "anyOf": [
               {
                 "type": "number",
-                "minimum": 0.0
+                "minimum": 0
               },
               {
                 "type": "null"
@@ -3379,7 +3862,7 @@
               }
             ],
             "title": "District",
-            "description": "Revenue district the inspection happened in \u2014 FR-30's Mode A dashboard axis. Recorded from the client, never derived from the coordinates above: resolving a point to a district would be a guess made by a boundary file of unknown vintage, and Mode B sends no coordinates at all, so half the rows could not be resolved even in principle. Null is the correct value for every Mode B scan."
+            "description": "Revenue district the inspection happened in — FR-30's Mode A dashboard axis. Recorded from the client, never derived from the coordinates above: resolving a point to a district would be a guess made by a boundary file of unknown vintage, and Mode B sends no coordinates at all, so half the rows could not be resolved even in principle. Null is the correct value for every Mode B scan."
           },
           "device_meta": {
             "additionalProperties": {
@@ -3391,7 +3874,12 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "required": ["profile", "marker_type", "marker_mm", "assets"],
+        "required": [
+          "profile",
+          "marker_type",
+          "marker_mm",
+          "assets"
+        ],
         "title": "ScanCreateIn",
         "description": "Create a scan and ask for upload URLs."
       },
@@ -3404,7 +3892,15 @@
           },
           "status": {
             "type": "string",
-            "enum": ["created", "queued", "processing", "complete", "failed", "no_marker"],
+            "enum": [
+              "created",
+              "queued",
+              "processing",
+              "needs_confirmation",
+              "complete",
+              "failed",
+              "no_marker"
+            ],
             "title": "Status"
           },
           "uploads": {
@@ -3416,9 +3912,13 @@
           }
         },
         "type": "object",
-        "required": ["scan_id", "status", "uploads"],
+        "required": [
+          "scan_id",
+          "status",
+          "uploads"
+        ],
         "title": "ScanCreatedOut",
-        "description": "What ``POST /v1/scans`` returns.\n\nReplayed verbatim for a retried ``Idempotency-Key``, presigned URLs included \u2014 a retry must\nget back what it got the first time rather than a fresh set of credentials."
+        "description": "What ``POST /v1/scans`` returns.\n\nReplayed verbatim for a retried ``Idempotency-Key``, presigned URLs included — a retry must\nget back what it got the first time rather than a fresh set of credentials."
       },
       "ScanListItemOut": {
         "properties": {
@@ -3450,11 +3950,19 @@
               }
             ],
             "title": "Product Name",
-            "description": "The catalogue product's name if the scan is linked to one, otherwise the name declared on the scan's own profile. Null when neither exists \u2014 which the client shows as an unnamed scan rather than inventing a label for it."
+            "description": "The catalogue product's name if the scan is linked to one, otherwise the name declared on the scan's own profile. Null when neither exists — which the client shows as an unnamed scan rather than inventing a label for it."
           },
           "status": {
             "type": "string",
-            "enum": ["created", "queued", "processing", "complete", "failed", "no_marker"],
+            "enum": [
+              "created",
+              "queued",
+              "processing",
+              "needs_confirmation",
+              "complete",
+              "failed",
+              "no_marker"
+            ],
             "title": "Status"
           },
           "captured_at": {
@@ -3483,14 +3991,18 @@
               }
             ],
             "title": "Thumbnail Url",
-            "description": "Time-limited read URL for the annotated image, falling back to the rectified and then the raw one. Null when the scan has no image yet or object storage is unreachable \u2014 a list of scans is still readable without its pictures."
+            "description": "Time-limited read URL for the annotated image, falling back to the rectified and then the raw one. Null when the scan has no image yet or object storage is unreachable — a list of scans is still readable without its pictures."
           },
           "summary": {
             "$ref": "#/components/schemas/VerdictCountsOut"
           }
         },
         "type": "object",
-        "required": ["scan_id", "status", "captured_at"],
+        "required": [
+          "scan_id",
+          "status",
+          "captured_at"
+        ],
         "title": "ScanListItemOut",
         "description": "One row of the history list (FR-09).\n\nCompact on purpose: the list renders hundreds of these, so it carries counts rather than\nfindings and one thumbnail rather than every asset."
       },
@@ -3522,7 +4034,15 @@
           },
           "status": {
             "type": "string",
-            "enum": ["created", "queued", "processing", "complete", "failed", "no_marker"],
+            "enum": [
+              "created",
+              "queued",
+              "processing",
+              "needs_confirmation",
+              "complete",
+              "failed",
+              "no_marker"
+            ],
             "title": "Status"
           },
           "captured_at": {
@@ -3532,7 +4052,11 @@
           },
           "marker_type": {
             "type": "string",
-            "enum": ["aruco_4x4_50", "id1_card", "user_declared"],
+            "enum": [
+              "aruco_4x4_50",
+              "id1_card",
+              "user_declared"
+            ],
             "title": "Marker Type"
           },
           "marker_mm": {
@@ -3627,7 +4151,7 @@
               }
             ],
             "title": "Next Cursor",
-            "description": "Opaque. Pass it back as ``cursor`` for the next page; null means this was the last one. Do not parse it \u2014 see routers/pagination.py."
+            "description": "Opaque. Pass it back as ``cursor`` for the next page; null means this was the last one. Do not parse it — see routers/pagination.py."
           }
         },
         "type": "object",
@@ -3643,7 +4167,15 @@
           },
           "status": {
             "type": "string",
-            "enum": ["created", "queued", "processing", "complete", "failed", "no_marker"],
+            "enum": [
+              "created",
+              "queued",
+              "processing",
+              "needs_confirmation",
+              "complete",
+              "failed",
+              "no_marker"
+            ],
             "title": "Status"
           },
           "task_id": {
@@ -3659,7 +4191,10 @@
           }
         },
         "type": "object",
-        "required": ["scan_id", "status"],
+        "required": [
+          "scan_id",
+          "status"
+        ],
         "title": "ScanSubmittedOut",
         "description": "The 202 from ``POST /v1/scans/{id}/submit``.\n\nDeliberately thin. The endpoint enqueues and returns inside 300 ms (FR-20) and does not touch\nan image, so there is nothing more it could truthfully say."
       },
@@ -3691,7 +4226,13 @@
           }
         },
         "type": "object",
-        "required": ["access", "refresh", "expires_at", "user", "org"],
+        "required": [
+          "access",
+          "refresh",
+          "expires_at",
+          "user",
+          "org"
+        ],
         "title": "SessionOut",
         "description": "Everything the app needs after a successful sign-in."
       },
@@ -3707,9 +4248,53 @@
           }
         },
         "type": "object",
-        "required": ["title", "url"],
+        "required": [
+          "title",
+          "url"
+        ],
         "title": "SourceOut",
         "description": "An official page to read. Offered on a refusal, where there is no citation but there is\nstill somewhere useful to send the reader."
+      },
+      "SuggestionOut": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "title": "Field",
+            "description": "A profile field name: name, net_qty_value, net_qty_unit or is_imported. Never surface, pack_type, pdp_area_cm2, channel or category_code — see services/extraction/prefill.NEVER_SUGGESTED for why each is excluded."
+          },
+          "value": {
+            "type": "string",
+            "title": "Value",
+            "description": "Always a string, including for is_imported ('true')."
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Confidence",
+            "description": "Inherited unchanged from the declaration this was read from. Below FR-06's 0.75 the machine does not believe its own reading, and the client says so."
+          },
+          "from_field_code": {
+            "type": "string",
+            "title": "From Field Code",
+            "description": "The declaration the value was read from."
+          },
+          "source_text": {
+            "type": "string",
+            "title": "Source Text",
+            "description": "What was recognised, verbatim."
+          }
+        },
+        "type": "object",
+        "required": [
+          "field",
+          "value",
+          "confidence",
+          "from_field_code",
+          "source_text"
+        ],
+        "title": "SuggestionOut",
+        "description": "One proposed product-context value, with the reading it came from.\n\n``source_text`` and ``from_field_code`` are not decoration. A filled form field that cannot\nsay where its value came from asks the user to trust it; one that can says \"this is what I\nread on the pack, check it\", which is the only version of this feature that is safe to ship\n(CLAUDE.md §3.1)."
       },
       "TokenPairOut": {
         "properties": {
@@ -3733,9 +4318,13 @@
           }
         },
         "type": "object",
-        "required": ["access", "refresh", "expires_at"],
+        "required": [
+          "access",
+          "refresh",
+          "expires_at"
+        ],
         "title": "TokenPairOut",
-        "description": "A new access token and the refresh token that will replace it.\n\nThe refresh token is rotated on every use, so the value here is always new \u2014 a client that\nkeeps the old one will invalidate its whole family the next time it tries to use it."
+        "description": "A new access token and the refresh token that will replace it.\n\nThe refresh token is rotated on every use, so the value here is always new — a client that\nkeeps the old one will invalidate its whole family the next time it tries to use it."
       },
       "UploadOut": {
         "properties": {
@@ -3769,7 +4358,14 @@
           }
         },
         "type": "object",
-        "required": ["asset_id", "key", "url", "headers", "max_bytes", "expires_in"],
+        "required": [
+          "asset_id",
+          "key",
+          "url",
+          "headers",
+          "max_bytes",
+          "expires_in"
+        ],
         "title": "UploadOut",
         "description": "A capability to upload exactly one object."
       },
@@ -3813,7 +4409,11 @@
           }
         },
         "type": "object",
-        "required": ["id", "role", "phone"],
+        "required": [
+          "id",
+          "role",
+          "phone"
+        ],
         "title": "UserOut",
         "description": "The signed-in user."
       },
@@ -3850,7 +4450,11 @@
           }
         },
         "type": "object",
-        "required": ["loc", "msg", "type"],
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
         "title": "ValidationError"
       },
       "VerdictCountsOut": {
@@ -3883,9 +4487,15 @@
       },
       "ViolationDimension": {
         "type": "string",
-        "enum": ["rule", "category", "district", "brand", "month"],
+        "enum": [
+          "rule",
+          "category",
+          "district",
+          "brand",
+          "month"
+        ],
         "title": "ViolationDimension",
-        "description": "The axes FR-30 names. Anything not in here is not a dimension.\n\n``MONTH`` is \"over time\"; ``DISTRICT`` is Mode A's axis and ``BRAND`` is Mode B's. Both of\nthose read a column that is recorded rather than derived \u2014 see migration 0003 for why a\ndistrict resolved from coordinates would have been worse than no district at all."
+        "description": "The axes FR-30 names. Anything not in here is not a dimension.\n\n``MONTH`` is \"over time\"; ``DISTRICT`` is Mode A's axis and ``BRAND`` is Mode B's. Both of\nthose read a column that is recorded rather than derived — see migration 0003 for why a\ndistrict resolved from coordinates would have been worse than no district at all."
       },
       "ViolationsOut": {
         "properties": {
@@ -3922,7 +4532,7 @@
             },
             "type": "array",
             "title": "Rulepack Versions",
-            "description": "Every rule pack version represented in the window (CLAUDE.md \u00a73.6). A percentage that cannot name the rules behind it cannot be reproduced."
+            "description": "Every rule pack version represented in the window (CLAUDE.md §3.6). A percentage that cannot name the rules behind it cannot be reproduced."
           },
           "totals": {
             "$ref": "#/components/schemas/CountsOut"
@@ -3936,7 +4546,10 @@
           }
         },
         "type": "object",
-        "required": ["group_by", "totals"],
+        "required": [
+          "group_by",
+          "totals"
+        ],
         "title": "ViolationsOut",
         "description": "The aggregate response."
       }

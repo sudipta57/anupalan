@@ -74,7 +74,15 @@ export function Button({
     >
       <View style={styles.inner}>
         {loading ? <ActivityIndicator size="small" color={spinnerColor} /> : null}
-        <Text variant="bodyStrong" tone={variant === 'danger' ? 'onBrand' : labelTone}>
+        <Text
+          variant="bodyStrong"
+          tone={variant === 'danger' ? 'onBrand' : labelTone}
+          // A row that cannot shrink clips its overflow with no ellipsis and no warning — the
+          // label simply ends mid-word, which is how "Yes, that matches the pack" shipped as
+          // "Yes, that matches the". Every Hindi label is longer than its English counterpart, so
+          // this is a whole-locale bug rather than one screen's.
+          style={styles.label}
+        >
           {label}
         </Text>
       </View>
@@ -92,6 +100,7 @@ const styles = StyleSheet.create({
   },
   lg: { minHeight: 56, paddingHorizontal: spacing.xl },
   inner: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  label: { flexShrink: 1, textAlign: 'center' },
   pressed: { opacity: 0.78 },
   disabled: { opacity: 0.45 },
 });

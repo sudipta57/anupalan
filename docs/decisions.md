@@ -1420,3 +1420,300 @@ but it is now the binding constraint on answer quality, and it is a `bis/` data 
 under CLAUDE.md §7.
 
 **PR:** n/a · **Requirement:** FR-07, FR-28, FR-29, CLAUDE.md §3.1, §3.5, §3.6
+
+---
+
+## 2026-09-13 — The context form fills itself from the label, and a person still confirms it
+
+**Decision:** after capture, the app sends one downscaled photograph to `POST /v1/prefill`, the
+worker reads it with the same OCR and extraction the pipeline uses, and the context form fills
+itself from the declarations that came back. The three fields that decide which rules run are
+gated behind a single explicit confirmation before a scan can be created.
+
+**Why:** FR-03 has always said "three fields are pre-filled from OCR and confirmed by the user",
+and `05-frontend-plan.md` deferred it three times — at Stages 5, 7 and 8 — each time on the same
+reasoning: there was no extraction to prefill *from* until processing had run, and prefilling a
+form that is filled in *before* processing would mean re-opening a submitted scan. That reasoning
+was right about the post-processing path and it answered the wrong question. The complaint is not
+"the form is hard to correct afterwards", it is "I photographed the pack and now I am typing what
+the pack says". So the read happens **before** submit, on its own cheap path, and the form the user
+was going to fill is already filled when they look at it.
+
+**What keeps it inside §3.1.** The model fills a form; it does not decide anything.
+
+- `is_imported` is proposed in one direction only. An importer declaration on the label suggests
+  *imported*; the absence of one suggests **nothing**. `is_imported=false` switches the importer
+  rules off, and a pack with no importer line is exactly the pack in breach of Rule 6 — inferring
+  "domestic" from silence would launder that omission into a profile field that hides it.
+- `surface` is never proposed, in either half of the system. It selects a Rule 9 threshold column
+  and cannot be read from a label's words. Nor are pack type, panel area, channel or category code
+  — `NEVER_SUGGESTED` lists each with its reason and a test asserts the list.
+- Net quantity and the imported flag, where they were machine-filled, hold submission until the
+  user affirms them once. Editing the field counts as affirming it: someone who retyped the
+  quantity has looked at the pack.
+- Every filled field shows the text that was read and the declaration it came from, so a value can
+  be checked against the pack rather than trusted.
+
+**No new LLM call site.** Prefill calls `extraction.extract`, which is the existing
+`extraction.llm_layer` site at the budget tier with its existing prompt and schema. CLAUDE.md §9's
+table still lists three.
+
+**No millimetre is produced.** Prefill reads words; it does not rectify, detect a marker or measure,
+which is why it can run on a 1600 px thumbnail. §3.3 is respected by not producing the quantity
+that would violate it — the scan itself is still measured by the pipeline off the full-resolution
+original.
+
+**Alternative rejected — move the context form after processing**, so it prefills from the
+pipeline's own extraction and no second OCR pass exists. It is the better end state and it is a
+much larger change: `create_scan` would take a partial profile, the pipeline would evaluate twice,
+the confirm-fields sheet would grow profile fields, and a capture with no network could no longer
+be completed at all. That last one is FR-04, so it is not a trade that can be made quietly. The
+cost of the path taken is one extra OCR pass per scan on a thumbnail; recorded here so the
+reuse-the-pipeline's-OCR optimisation is a known follow-on rather than a rediscovery.
+
+**Alternative rejected — presign a scratch upload like every other image.** Three round trips
+while a person waits at a form, plus a bucket lifecycle rule, for an object that is read once and
+deleted. Architecture §10's "the API never sees the bytes" is about **evidence**, and this
+photograph is not evidence: the scan's own images still go up presigned with their declared
+SHA-256, which is the chain a report cites. The prefill copy arrives base64 in the request body,
+capped, EXIF-stripped, and deleted by the worker as soon as it has been read.
+
+**Degradation, by design:** no network, prefill disabled, broker down, Redis down, unreadable
+photograph, nothing recognisable on the label — every one of them ends as a form that behaves
+exactly as it did before this existed. The capture path cannot be failed by this feature, which is
+the only way it could be allowed onto that path at all.
+
+**PR:** n/a · **Requirement:** FR-03, FR-04, FR-06, FR-24, CLAUDE.md §3.1, §3.2, §3.3, §3.7, §9
+
+---
+
+## 2026-09-13 — The context form waits for the read instead of filling in around the user
+
+**Decision:** the product context screen does not render its form until the label read has settled.
+While it runs, `PrefillGate` shows a spinner, what is happening, and a way straight to the blank
+form. The form then mounts **once**, with the suggestions seeding its defaults.
+
+**Supersedes** the "runs beside the form, never in front of it" part of the entry above. Everything
+else in that entry — the one-way imported flag, surface never proposed, the confirmation gate, no
+new LLM call site, no millimetre — is unchanged.
+
+**Why:** the first version rendered the form immediately and filled it a few seconds later. Run on
+a phone, that is worse than it sounds. The screen rearranges itself under someone who has already
+started typing; the fields they were mid-way through answering are suddenly answered; and the whole
+proposition of the feature — *stop typing what the pack already says* — is undermined by a form
+that opens asking them to type. Waiting is the honest version of the same promise: the form arrives
+finished.
+
+**The wait is the thing that needed designing, not the spinner.** Three things end it — an answer,
+a failure, and `TIMEOUT_MS` — and the gate offers **"fill it in myself"** on the first tap. That
+escape hatch is load-bearing, not a courtesy: without it this change would put a network call on
+the capture path, which is exactly what FR-04 forbids. With it, a user with no signal taps once and
+is where they were before the feature existed, and a user who knows the pack is unreadable does not
+have to watch a timer to prove it.
+
+**A structural gain, not only a UX one.** Because the form now mounts with the answer in hand, the
+suggestions seed `defaultValues` instead of being written in by an effect afterwards. The "never
+overwrite what the user typed" rule stops being a `getValues()` check that has to be right and
+becomes true by construction — there is no window in which a field is first empty and then filled.
+The apply-effect and its `applied` ref are gone.
+
+**Skipping is final, deliberately.** A read that lands after the user has chosen to type is
+discarded rather than applied. A form that fills itself under someone who just said they would do
+it themselves is the original bug wearing a different hat.
+
+**PR:** n/a · **Requirement:** FR-03, FR-04 · **Supersedes:** part of the 2026-09-13 entry above
+
+---
+
+## 2026-09-13 — Prefill reads every photograph, not the front panel
+
+**Decision:** `POST /v1/prefill` takes `images: [...]` — every photograph the capture holds, in
+capture order — and the worker merges their recognised words before extracting once.
+
+**Why:** the first version read `assets[0]` on the reasoning that it is "the one framed at the
+front panel, where the declarations are". Half true, and the wrong half. Rule 6's mandatory
+declarations are spread deliberately across a pack's faces: net quantity and the commodity name go
+on the principal display panel, while the manufacturer, the importer, the country of origin, the
+consumer-care line and the month of packing are almost always on the back or a side. So reading one
+photograph proposes nothing for most of the fields the form exists to stop people typing — and the
+photograph most likely to carry them is the one that was being ignored.
+
+**One extraction over merged words, not one per photograph.** It is a single LLM call rather than
+N, and it lets a declaration be read in the context of the others. It also matches what the
+pipeline already does with a scan's images, for the same stated reason: a declaration is a
+declaration wherever on the pack it is printed.
+
+**Merging is safe here in a way it is not in the pipeline.** Word polygons from two photographs are
+in two different coordinate spaces — which is exactly why `pipeline` keeps a per-asset `ocr_pages`
+beside its merged text. Prefill discards geometry entirely; a suggestion carries a value and the
+text it was read from, never a box. There is nothing here for the mismatch to corrupt.
+
+**One bad photograph does not cost the others.** A frame that will not decode is skipped and the
+rest are read; the read fails only when *nothing* could be decoded. Same on the client: a capture
+whose file has gone is dropped from the batch rather than abandoning the request.
+
+**What it costs, and what was done about it.** Three photographs is not three times the network but
+it is three times the OCR, and someone is now watching that wait. So the byte ceiling became a
+ceiling on the *request* rather than on one image, the photograph count is capped to match
+`POST /v1/scans`' asset limit, and the client's give-up timeout scales with the count — 20 s, plus
+15 s per extra photograph, capped at 90 s — instead of being a flat 30 s that three photographs
+would blow through while the read was still working.
+
+**PR:** n/a · **Requirement:** FR-03, FR-24 · **Amends:** the two 2026-09-13 entries above
+· **Amended by:** the entry below, which replaces the count ceiling with three
+
+---
+
+## 2026-09-13 — A read takes three photographs, and the client drops the rest
+
+**Decision:** `POST /v1/prefill` accepts one to **three** images. A client holding more sends the
+first three in capture order and silently drops the rest.
+
+**Why three.** The entry above set the ceiling at ten by matching `POST /v1/scans`' asset limit,
+which was the wrong thing to match. That limit is about how much *evidence* a scan may carry, and
+more evidence is strictly better — a report cites what it was given. Prefill's ceiling is a budget
+on a person's *patience*: they are watching a spinner that will not become a form until the read
+settles, and every extra photograph is another OCR pass on that wait. More is worse. Two limits
+that point in opposite directions should not share a number.
+
+Three is what the pack itself justifies. Rule 6's mandatory declarations live on the principal
+display panel (net quantity, commodity name) and on the back or a side (importer, country of
+origin, consumer-care line). Three photographs cover those faces; the fourth is nearly always
+another angle on a face already read, so it proposes no new declaration and still costs ~15 s.
+
+**The client drops, the server refuses.** Both halves carry the number, and that is deliberate
+rather than duplication. The server's `max_length` is the contract holding its own line — it is the
+only thing that makes the shape true regardless of who is calling. The client's slice is what
+ensures nobody meets it: a 422 on the capture path would take prefill down for a user who did
+nothing wrong except photograph carefully, and the capture path is the one that must never break
+(FR-04). A test on each side pins the number so the two cannot drift apart into exactly that 422.
+
+**Dropping is silent.** No banner, no "two photographs were ignored". A capture of five is somebody
+being thorough, and telling them their care was discarded reads as a fault in a flow that is about
+to hand them a filled form. The gate does show how many are being read rather than how many were
+taken, which is the honest version of the same fact and costs nothing to look at.
+
+**What did not change:** the scan still uploads every photograph it captured. This ceiling is on
+what gets *read for the form*, never on what becomes evidence — the two paths were already
+separate, and this is the first thing that makes the separation visible.
+
+**PR:** n/a · **Requirement:** FR-03, FR-04 · **Amends:** the entry above
+
+---
+
+## 2026-09-13 — The capture gates measure a real frame instead of a timer
+
+**Decision:** `POST /v1/capture/gates` measures a preview frame server-side, and the capture screen
+polls it every 500 ms through the existing `GateEvaluator` seam. The simulation stays for tests and
+any screen with no camera.
+
+**Why:** the chips were a pure function of elapsed time. They went green 2.4 seconds after the
+screen opened, pointed at anything — a desk, a cable, a wall — and the shutter went with them. That
+is not a missing feature, it is an affirmative false statement to the user, and it let marker-less
+photographs into the queue; "no rectified image" on the findings screen was the downstream symptom.
+`03-implementation-plan.md` §P3.3 sanctions this exact interim.
+
+**Why not the native ArUco plugin, which is the end state:** vision-camera 5.2.3 is Nitro-based and
+has removed the `VisionCameraProxy.initFrameProcessorPlugin` API that every existing ArUco example
+targets; `mobile/android` is prebuild output that `expo prebuild --clean` discards, so native code
+has to be packaged as a config plugin before it survives; and OpenCV for Android is a new dependency
+with an EAS-build feedback loop measured in tens of minutes. None of that is impossible, and none of
+it was worth doing before the chips told the truth.
+
+**What did not change:** the thresholds. `features/capture/gates.ts` still owns the FR-01 policy and
+is still pure — the endpoint returns measurements and no verdict, so there is exactly one definition
+of when the shutter opens. `tilt_degrees` stays three-valued: null when there is no marker plane to
+measure against, never 0.
+
+**Alternative considered — computing blur and glare on-device** in a worklet over the frame's Y
+plane, leaving only marker and tilt to the server. It is the better end state and `FramePlane.
+getPixelBuffer()` makes it reachable, but it doubles the number of code paths producing
+`FrameMetrics` and none of the worklet half can be tested anywhere but a physical device. Correctness
+first; the latency win can come after the gates are honest.
+
+**Known limitation, recorded rather than hidden:** the snapshot is of the preview, not the sensor,
+so `blur_variance` reads lower than the photograph's would. The gate errs toward calling a frame
+soft, which is the safe direction, but the 120 threshold wants re-checking on a device.
+
+**PR:** n/a · **Requirement:** FR-01, `03-implementation-plan.md` §P3.3, CLAUDE.md §3.2, §3.3
+
+---
+
+## 2026-09-13 — The marker is no longer a capture gate
+
+**Decision:** the shutter gates on sharpness, glare and angle. The marker chip is gone, and an angle
+that cannot be measured — which is every frame without a marker — no longer blocks capture.
+
+**Why:** `detect_marker` only knows ArUco DICT_4X4_50, but the app offers three scale references
+(printed tag, ID-1 card, hand-measured dimension). With a real marker gate, two of those three were
+choices that led to a shutter which never unlocked, and nothing on screen explained why. The
+simulation had hidden this completely by going green regardless.
+
+The second half follows from the first: tilt is the angle to the *marker's* plane, so without a
+marker it is `unknown`. Leaving `unknown` blocking would have kept the marker gate in place under
+the angle's name — with no chip naming it and no instruction that could be acted on.
+
+**What did not change — and this is the part worth being precise about.** CLAUDE.md §3.3 is
+untouched. It governs *measurement*, not capture: a scan with no marker still gets no homography,
+still lands as `no_marker`, and every metric rule still returns NOT_ASSESSABLE. What moved is only
+when the app refuses to take a picture. The pipeline is still the thing that decides a millimetre is
+unknowable, and it still says so out loud. `unknown` also stays a distinct state rather than
+collapsing into `pass`, for the same reason §3.4 keeps BORDERLINE: "we could not check this" and
+"this is fine" are different things to show a user.
+
+The capture screen now shows the unmeasured-angle note whenever nothing is blocking, and it names
+the consequence — *"No scale reference in frame, so the angle was not checked. Size rules will be
+Not assessable."* A user who wants millimetres learns that before the photograph, not after.
+
+**Tests:** eight assertions in `capture-gates.test.ts` encoded the old policy and were rewritten to
+the new one rather than deleted — the marker case now pins that a marker-less frame *is* capturable,
+and a new case pins that a measured-and-bad angle still blocks, so loosening `unknown` did not
+loosen `fail`.
+
+**Reversible:** restoring the gate is adding `'marker'` back to `GATE_IDS` and its result row. The
+better fix, if the marker is wanted again, is detectors for the other two references — then the gate
+means something whichever one the user picked.
+
+**PR:** n/a · **Requirement:** FR-01, FR-02, CLAUDE.md §3.3, §3.4
+
+---
+
+## 2026-09-13 — Prefill asks the model for a product name, and trusts the pattern's origin line
+
+**Decision:** two changes to prefill, neither touching extraction for verdicts.
+
+1. When extraction proposes no name, prefill asks the model one more question: what the product is
+   called. `extraction.product_name` is a **fourth LLM call site** (CLAUDE.md §9, updated). The
+   model answers in parts, each with a span. Every part must be found in the OCR text or the whole
+   answer is dropped, and the form receives the label's own characters at those spans, not the
+   model's spelling. Company-looking answers (Ltd, Pvt, Industries) are refused. It is asked only
+   after a successful extraction call and only when no name came out of it.
+2. `is_imported` may be proposed from the **pattern layer's** reading, which `extract` had replaced
+   with the model's. An "Imported by" match is believed as before. A "Country of origin" match must
+   name a country in `extraction.countries`, must not be India, and must not be contradicted by the
+   model reading India.
+
+**Context:** a real prefill of a Dabur fruit drink's back panel read 182 words and filled only the
+net quantity. The panel has no common-name line, so the model found one on some runs and not
+others. The carton says "Country of Origin Nepal" and "Imported & Marketed by DABUR INDIA LTD". The
+pattern read the origin at 0.95, the model re-read it at 0.70, the model's answer won the merge,
+and 0.70 is below the bar `is_imported` needs. An earlier docstring had called that "Nepal" a
+hallucination. It was not, and the docstring now says so.
+
+**Rejected:** loosening the extraction prompt so the model finds `common_name` more readily. That
+call feeds the Rule 6 common-name rule, and a label that omits its common name would move from FAIL
+to PASS. Also rejected: proposing imported whenever an origin reading is "not India". That is a
+negative test any OCR misread passes (`DABURNDIAID`), which is why a positive country match is
+required. A missing or mangled country proposes nothing, which is the safe direction.
+
+**Not changed:** pack type stays manual and in `NEVER_SUGGESTED`. It is not printed on labels, and
+reading it reliably would need an image model.
+
+**Cost:** one extra budget-tier request on prefills whose label shows no common name, about 2–9 s on
+the current provider. The name question is still skipped when the model's extraction wrongly files
+slogan text as `common_name` ("CITY CLEAN" on one run of the same pack), because a common name read
+off the label outranks the model's answer.
+
+**Tests:** `tests/test_prefill_name_and_origin.py` (26).
+
+**PR:** n/a · **Requirement:** FR-03, CLAUDE.md §3.1, §3.4, §8, §9

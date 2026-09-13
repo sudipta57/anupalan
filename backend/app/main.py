@@ -22,6 +22,7 @@ from app.config import settings
 from app.health import HealthReport, check_health
 from app.routers import admin as admin_router
 from app.routers import auth as auth_router
+from app.routers import capture as capture_router
 from app.routers import dashboard as dashboard_router
 from app.routers import prefill as prefill_router
 from app.routers import products as products_router
@@ -238,6 +239,7 @@ app.include_router(sahayak_router.router)
 app.include_router(products_router.router)
 app.include_router(reports_router.router)
 app.include_router(prefill_router.router)
+app.include_router(capture_router.router)
 
 
 __all__ = ["app", "error_response"]

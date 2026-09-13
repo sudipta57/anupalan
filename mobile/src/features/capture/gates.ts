@@ -7,29 +7,44 @@
  *
  * | Gate | Passes when | Why |
  * |---|---|---|
- * | marker | all four corners inside the frame | The homography needs four correspondences; three corners give no scale. |
  * | blur | variance of Laplacian ≥ 120 | Glyph height is measured off edges. A soft edge measures wide. |
  * | glare | fewer than 2% of pixels at ≥ 250 luminance | Blown highlights erase the glyph outline entirely. |
- * | tilt | ≤ 25° between the marker plane normal and the camera axis | Planar homography under-measures with angle. |
+ * | tilt | ≤ 25° between the marker plane normal and the camera axis, or unmeasurable | Planar homography under-measures with angle. |
  *
- * **Tilt is three-valued, not two.** It is the angle to the *marker's* plane, so with no marker in
- * frame there is no plane and no angle — the honest answer is "unknown", and the instruction is
- * "find the marker", not "hold flatter". Reporting it as a failure would send the user to fix the
- * wrong thing. The same instinct as CLAUDE.md §3.3: a number that cannot be derived is not
- * estimated, and it is not silently turned into a failure either.
+ * **The marker is no longer a gate** (2026-09-13). It was, and removing it is a deliberate
+ * loosening of what the shutter demands, not a simplification:
+ *
+ * - the detector only knows ArUco DICT_4X4_50, so the two other scale references the app
+ *   offers — an ID-1 card and a hand-measured pack dimension — could never satisfy it, and
+ *   choosing either left the user with a shutter that never unlocked;
+ * - a photograph with no marker is still a *useful* photograph. Presence and wording rules do not
+ *   need a millimetre, and they are most of the pack.
+ *
+ * **Nothing about measurement changed, and this does not touch CLAUDE.md §3.3.** A scan with no
+ * marker still gets no homography, still lands as `no_marker`, and every metric rule still returns
+ * NOT_ASSESSABLE. What moved is only *when the app refuses to take the picture*: the pipeline
+ * remains the thing that decides a millimetre is unknowable, and it still says so out loud.
+ *
+ * **Tilt is three-valued, not two, and `unknown` no longer blocks.** It is the angle to the
+ * *marker's* plane, so with no marker in frame there is no plane and no angle. Once the marker is
+ * not required, an unmeasurable angle cannot be allowed to hold the shutter shut — that would be
+ * the marker gate again, wearing the angle's name. It still renders as its own neutral state
+ * rather than as a pass, because "we could not check this" and "this is fine" are different things
+ * to show a user, even when they permit the same next action.
  *
  * This module is pure. `evaluateGates` is a function of its metrics and nothing else, so the whole
  * gate policy is testable without a camera — which matters, because the camera half of this
  * feature cannot be exercised anywhere but a physical device.
  */
 
-export const GATE_IDS = ['marker', 'blur', 'glare', 'tilt'] as const;
+export const GATE_IDS = ['blur', 'glare', 'tilt'] as const;
 
 export type GateId = (typeof GATE_IDS)[number];
 
 /**
- * `unknown` means the gate could not be evaluated from this frame, not that it failed. It blocks
- * capture exactly as a failure does — what differs is what the user is told to do about it.
+ * `unknown` means the gate could not be evaluated from this frame, not that it failed, and not
+ * that it passed. It does not block capture — see the note on tilt above — but it renders as its
+ * own neutral state so "we could not check this" never reads as a clean bill of health.
  */
 export type GateState = 'pass' | 'fail' | 'unknown';
 
@@ -41,7 +56,13 @@ export type GateState = 'pass' | 'fail' | 'unknown';
  * ships is whichever one the reviewer did not read.
  */
 export const GATE_THRESHOLDS = {
-  /** A homography needs four point correspondences. Three corners is not "nearly enough". */
+  /**
+   * How many of the marker's corners a homography needs.
+   *
+   * No longer a gate — the shutter does not consult it — but still the definition of "the marker
+   * was found", which `FrameMetrics.markerCornersInFrame` is reported against and which the
+   * pipeline's own marker detection applies. Three corners is not "nearly enough" for either.
+   */
   markerCornersRequired: 4,
   /** Variance of the Laplacian, over the frame. */
   blurVarianceMin: 120,
@@ -87,14 +108,7 @@ function state(passed: boolean): GateState {
 }
 
 export function evaluateGates(metrics: FrameMetrics): GateReport {
-  const markerFound = metrics.markerCornersInFrame >= GATE_THRESHOLDS.markerCornersRequired;
-
   const results: GateResult[] = [
-    {
-      id: 'marker',
-      state: state(markerFound),
-      observed: metrics.markerCornersInFrame,
-    },
     {
       id: 'blur',
       state: state(metrics.blurVariance >= GATE_THRESHOLDS.blurVarianceMin),
@@ -118,12 +132,22 @@ export function evaluateGates(metrics: FrameMetrics): GateReport {
     },
   ];
 
-  const blocking = results.filter((r) => r.state !== 'pass').map((r) => r.id);
+  // `fail` blocks; `unknown` does not. A gate that could not be measured has not found anything
+  // wrong, and with the marker no longer required, treating "unmeasurable" as "refuse" would put
+  // the marker gate back under a different name.
+  const blocking = results.filter((r) => r.state === 'fail').map((r) => r.id);
 
   return { results, canCapture: blocking.length === 0, blocking };
 }
 
-/** Nothing seen yet. Every gate blocks, so the shutter starts disabled rather than enabled. */
+/**
+ * Nothing seen yet.
+ *
+ * Blur of 0 and glare of 1 are both impossible readings, deliberately: they fail their gates, so
+ * the shutter starts disabled and stays disabled until the camera has actually been measured once.
+ * Tilt being unknown is no longer enough on its own to keep it shut, which is exactly why the other
+ * two carry impossible values rather than merely bad ones.
+ */
 export const NO_FRAME_YET: FrameMetrics = {
   markerCornersInFrame: 0,
   blurVariance: 0,

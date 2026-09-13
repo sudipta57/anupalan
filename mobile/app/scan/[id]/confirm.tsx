@@ -18,8 +18,11 @@
  * - **Confirming an unchanged value still sends it.** That is what records `source=human` and stops
  *   the field being asked again; treating "no edit" as "nothing to do" would leave the scan permanently
  *   provisional.
- * - **Lowest confidence first.** The worst read is the likeliest to be wrong, so it is in front of
- *   someone who may only answer one before putting the phone away.
+ * - **Readable fields first, unreadable ones folded.** Fields at or above `UNCLEAR_BELOW` (70%) are
+ *   listed; the rest sit under a closed "Also unclear" card. A reading of "please see top panel." for
+ *   a date is one a person fixes by typing, and leading with it buried the fields a glance settles.
+ *   Folded is not filtered: the backend holds every verdict until all of them are confirmed, so they
+ *   are one tap away, and open by themselves when nothing else is left.
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
@@ -45,7 +48,8 @@ import {
   confidenceBand,
   confidencePercent,
   correctionFor,
-  fieldsNeedingConfirmation,
+  groupForConfirmation,
+  UNCLEAR_BELOW,
 } from '@/features/processing';
 import { useT, type TranslationKey } from '@/i18n';
 import { spacing } from '@/theme';
@@ -192,6 +196,8 @@ export default function ConfirmScreen() {
    * what makes the feature look broken when it is working.
    */
   const [changed, setChanged] = useState<number | null>(null);
+  /** Whether the "Also unclear" fields are showing. Closed until asked, unless they are all that is left. */
+  const [unclearOpen, setUnclearOpen] = useState(false);
 
   const confirm = useCallback(
     (extraction: Extraction, value: string) => {
@@ -246,9 +252,11 @@ export default function ConfirmScreen() {
     );
   }
 
-  const pending = findings.data ? fieldsNeedingConfirmation(findings.data) : [];
+  const { likely, unclear } = findings.data
+    ? groupForConfirmation(findings.data)
+    : { likely: [], unclear: [] };
 
-  if (pending.length === 0) {
+  if (likely.length === 0 && unclear.length === 0) {
     return (
       <Screen scroll>
         <Card>
@@ -277,7 +285,7 @@ export default function ConfirmScreen() {
       {error ? <Banner tone="error" title={error} /> : null}
       {recomputeNotice}
 
-      {pending.map((extraction) => (
+      {likely.map((extraction) => (
         <FieldRow
           key={extraction.id}
           extraction={extraction}
@@ -286,6 +294,39 @@ export default function ConfirmScreen() {
           onConfirm={(value) => confirm(extraction, value)}
         />
       ))}
+
+      {unclear.length > 0 && likely.length > 0 ? (
+        <Card>
+          <Text variant="heading">
+            {t('confirm.unclearTitle', {
+              count: String(unclear.length),
+              percent: confidencePercent(UNCLEAR_BELOW),
+            })}
+          </Text>
+          <Text variant="body" tone="muted">
+            {t('confirm.unclearBody')}
+          </Text>
+          <Button
+            label={unclearOpen ? t('confirm.unclearHide') : t('confirm.unclearShow')}
+            variant="secondary"
+            onPress={() => setUnclearOpen((open) => !open)}
+          />
+        </Card>
+      ) : null}
+
+      {/* Open by themselves once they are all that is left: a closed card over an otherwise empty
+          sheet would look like nothing to do while the scan is still waiting on these. */}
+      {unclearOpen || likely.length === 0
+        ? unclear.map((extraction) => (
+            <FieldRow
+              key={extraction.id}
+              extraction={extraction}
+              rectified={rectified}
+              busy={confirmFields.isPending}
+              onConfirm={(value) => confirm(extraction, value)}
+            />
+          ))
+        : null}
     </Screen>
   );
 }

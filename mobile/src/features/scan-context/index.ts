@@ -13,6 +13,8 @@
  * | `units.ts` | What a typed unit means, and which Rule 9 table it implies. |
  * | `categories.ts` | The coded category list — the hinge between Legal Metrology and BIS. |
  * | `profile.ts` | Form values in, `ProductProfile` out, plus the FR-03 choke point. |
+ * | `prefill.ts` | What a read label may fill in, and what it may never fill in. |
+ * | `use-prefill.ts` | The only file that talks to `expo-image-manipulator`. |
  * | `geo.ts` | Whether this org's mode collects location. Mode B never does. |
  * | `use-location.ts` | The only file that talks to `expo-location`. |
  *
@@ -33,6 +35,30 @@ export {
   toGeoPoint,
 } from './geo';
 export type { PositionLike } from './geo';
+
+export {
+  RULE_RELEVANT,
+  UNSURE_BELOW,
+  anyFilled,
+  applySuggestions,
+  suggestCategory,
+  unconfirmedRuleFields,
+} from './prefill';
+export type { AppliedPrefill, PrefillResult, PrefillStatus, Suggestion } from './prefill';
+
+export {
+  COMPRESS,
+  MAX_EDGE_PX,
+  MAX_PREFILL_IMAGES,
+  TIMEOUT_BASE_MS,
+  TIMEOUT_CEILING_MS,
+  TIMEOUT_PER_IMAGE_MS,
+  downscaleForPrefill,
+  photographsToRead,
+  timeoutFor,
+  useLabelPrefill,
+} from './use-prefill';
+export type { PrefillState } from './use-prefill';
 
 export {
   CHANNELS,

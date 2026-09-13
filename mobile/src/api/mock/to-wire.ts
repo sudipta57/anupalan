@@ -13,6 +13,8 @@
  * is the inverse of one in `../adapters`, and `__tests__/adapters.test.ts` round-trips them.
  */
 
+import type { PrefillResult } from '@/features/scan-context/prefill';
+
 import type {
   AuthTokens,
   BisApplicability,
@@ -37,6 +39,7 @@ import type {
   WireBulkListing,
   WireFindings,
   WireOtpRequest,
+  WirePrefill,
   WireProductPage,
   WireReport,
   WireScan,
@@ -381,5 +384,27 @@ export function fromApplicability(value: BisApplicability): WireApplicability {
     lists_version: 'fixture',
     as_of: value.asOf,
     disclaimer: 'Advisory only. Not a certification.',
+  };
+}
+
+/**
+ * A context prefill, as the server sends it (FR-03).
+ *
+ * The inverse of `adapters/prefill.toPrefill`, like everything else here — so mock mode exercises
+ * the same wire→domain mapping live mode does.
+ */
+export function fromPrefill(result: PrefillResult): WirePrefill {
+  return {
+    prefill_id: result.prefillId,
+    status: result.status,
+    suggestions: result.suggestions.map((item) => ({
+      field: item.field,
+      value: item.value,
+      confidence: item.confidence,
+      from_field_code: item.fromFieldCode,
+      source_text: item.sourceText,
+    })),
+    word_count: result.wordCount,
+    reduced: result.reduced,
   };
 }

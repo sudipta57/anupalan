@@ -120,7 +120,8 @@ export interface AppliedPrefill {
  */
 export function applySuggestions(
   current: ContextFormValues,
-  suggestions: readonly Suggestion[]
+  suggestions: readonly Suggestion[],
+  translate: (key: TranslationKey) => string
 ): AppliedPrefill {
   const values: Partial<ContextFormValues> = {};
   const filled: Partial<Record<keyof ContextFormValues, Suggestion>> = {};
@@ -140,6 +141,26 @@ export function applySuggestions(
     }
 
     filled[field] = suggestion;
+  }
+
+  // The category follows from the name rather than from a declaration of its own, so it is derived
+  // here — after the loop, from whichever name is now in play — rather than proposed by the server,
+  // which has no copy of the vocabulary (see the module docstring).
+  const name = values.name ?? current.name;
+  if (name && isBlank(current.categoryCode)) {
+    const code = suggestCategory(name, translate);
+    if (code) {
+      values.categoryCode = code;
+      filled.categoryCode = {
+        field: 'category_code',
+        value: code,
+        // Inherited from the name it was derived from: a category matched off an uncertain reading
+        // is no more certain than the reading.
+        confidence: filled.name?.confidence ?? 1,
+        fromFieldCode: filled.name?.fromFieldCode ?? 'common_name',
+        sourceText: name,
+      };
+    }
   }
 
   return { values, filled };
@@ -204,9 +225,16 @@ function scoreCategory(
 /**
  * Whether a keyword appears in the name as a word rather than as a fragment.
  *
- * Fragments produce nonsense: "chana" contains "chan", and matching inside words would make
- * "Basmati Rice" score for "ice". Word boundaries are checked by hand because a `RegExp` built from
- * a keyword would need escaping and this list is fixed and small.
+ * Fragments produce nonsense: "oil" sits inside "boiled", and matching it would file boiled sweets
+ * under edible oils. So the character before the keyword must not be part of a word.
+ *
+ * **A plural suffix is still the word.** Packs say "Biscuits", "Sweets", "Pulses" — requiring an
+ * exact boundary on both sides makes the keyword list miss the form the words are actually printed
+ * in, which is the only form that matters here. A trailing `s` or `es` is allowed; anything longer
+ * is a different word.
+ *
+ * Checked by hand rather than with a `RegExp` built from the keyword, which would need escaping for
+ * a list that is fixed, small and inspectable.
  */
 function matchesWord(haystack: string, keyword: string): boolean {
   let from = 0;
@@ -215,12 +243,19 @@ function matchesWord(haystack: string, keyword: string): boolean {
     if (at < 0) return false;
 
     const before = at === 0 ? ' ' : haystack[at - 1];
-    const afterAt = at + keyword.length;
-    const after = afterAt >= haystack.length ? ' ' : haystack[afterAt];
+    if (!isWordChar(before) && endsWord(haystack, at + keyword.length)) return true;
 
-    if (!isWordChar(before) && !isWordChar(after)) return true;
     from = at + 1;
   }
+}
+
+/** Whether the word ends at `at`, allowing an English plural suffix. */
+function endsWord(haystack: string, at: number): boolean {
+  const charAt = (index: number) => (index >= haystack.length ? ' ' : haystack[index]);
+
+  if (!isWordChar(charAt(at))) return true;
+  if (charAt(at) === 's' && !isWordChar(charAt(at + 1))) return true;
+  return charAt(at) === 'e' && charAt(at + 1) === 's' && !isWordChar(charAt(at + 2));
 }
 
 function isWordChar(char: string): boolean {

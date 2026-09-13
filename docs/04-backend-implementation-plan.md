@@ -353,6 +353,7 @@ CONSTRAINTS:
   - NO vendor name outside config and the adapter files — not in a comment, not in a variable
   - an open-weight adapter must work; a government deployment may be fully on-premise
   - three call sites only: extraction.llm_layer, reporting.explain, bis.answer
+    (a fourth, extraction.product_name, was added for prefill on 2026-09-13 — see decisions.md)
   - strict JSON-schema mode and temperature are parameters of the interface, because the
     extraction call site depends on both
   - failure is a first-class return, not an exception that kills a scan: LLM down means
@@ -802,3 +803,49 @@ DONE WHEN:   pytest && ruff check . && mypy app/services
 (CLAUDE.md §7). `remediation` on a finding is neither a column nor a field in the rule pack, so it
 needs a decision about which it should be. `POST /v1/products` is in TRD §5 and no client needs it
 yet.
+
+---
+
+### B25 — Context prefill: read the label so the form fills itself
+
+Added after the app was used end to end for the first time. Typing eight fields describing a pack
+you have just photographed is the worst moment in the flow, and FR-03 has always ended "...and
+confirmed by the user". Reasoning, and the two alternatives rejected, are in `docs/decisions.md`
+(2026-09-13); the wire contract is `docs/06-wiring-contract.md` §10.
+
+```
+CONTEXT:     docs/decisions.md 2026-09-13; TRD FR-03, FR-04, FR-06, FR-24; CLAUDE.md §3.1–§3.3, §9.
+TASK:        app/services/extraction/prefill.py (new, pure), app/services/prefill.py (new),
+             app/tasks/prefill.py (new), app/schemas/prefill.py (new),
+             app/routers/prefill.py (new), plus config settings, a scratch key builder in
+             services/storage.py, an enqueuer in services/queue.py and its router dependency.
+CONSTRAINTS:
+  - suggestions only. Nothing here writes a profile, produces a verdict or creates a scan. The
+    profile that reaches evaluate() is still one a human affirmed (§3.1).
+  - is_imported is proposed in ONE direction. An importer declaration suggests imported; the
+    absence of one suggests nothing. A false here switches the importer rules off, and the pack
+    with no importer line is the pack in breach of Rule 6.
+  - surface is never proposed, nor pack_type, pdp_area_cm2, channel or category_code.
+    NEVER_SUGGESTED lists each with its reason; a test asserts the list.
+  - no millimetre is produced: no marker, no rectification, no measurement (§3.3). That is what
+    makes reading a downscaled thumbnail legitimate.
+  - no new LLM call site. It calls extraction.extract, which is the existing budget-tier site
+    with its existing prompt and schema, so §9's table still lists three.
+  - confidence is inherited from the declaration, never recomputed and never raised.
+  - at most MAX_PREFILL_IMAGES (3) photographs per request, and the client drops the rest rather
+    than meeting the 422. Three faces is what a pack has worth reading; a fourth costs an OCR
+    pass on a wait somebody is watching and proposes nothing new.
+  - no migration. A prefill is Redis with a TTL, keyed org-first so a cross-org id 404s.
+  - no failure the capture path has to handle. Disabled is 503, expired is 404, a broker that is
+    down is a read that never completes — all of which the app treats as "type the form" (FR-04).
+TESTS:       tests/test_prefill.py — the three safety properties first (one-way imported flag,
+             surface never proposed, no measurement), then the endpoints and the task.
+DONE WHEN:   pytest tests/test_prefill.py && ruff check . && mypy app/services
+```
+
+**Left open, and why:** the pipeline re-reads the full-resolution images after prefill has already
+read their thumbnails, so a scan costs two OCR passes over every photograph. Reusing the stored `ocr_results` would remove the
+second; it needs the two reads to be attributable to the same asset, which the prefill path
+deliberately has no row to do. It is an optimisation, not a correctness gap — recorded so it is
+found rather than rediscovered. The `prefill/` bucket prefix also wants a short lifecycle rule in
+`infra/` as a backstop for a worker that dies between the upload and the read.

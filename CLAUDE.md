@@ -198,11 +198,12 @@ Free to decide alone: internal refactors behind a stable interface, test additio
 
 ## 9. LLM usage in this codebase
 
-Three call sites, all behind `services/llm/provider.py`. No vendor name appears anywhere outside `config.yaml` and the adapter files.
+Four call sites, all behind `services/llm/provider.py`. No vendor name appears anywhere outside `config.yaml` and the adapter files.
 
 | Call site | Purpose | Tier |
 |---|---|---|
 | `extraction.llm_layer` | Map OCR text to field codes, strict JSON schema, temperature 0 | Budget |
+| `extraction.product_name` | Prefill only: name the product when the label prints no common name. Every part must be found in the OCR text; the answer is a form suggestion, never an `Extraction` | Budget |
 | `reporting.explain` | Turn a finding into plain-language guidance | Budget |
 | `bis.answer` | Write a cited answer from retrieved chunks | Mid |
 

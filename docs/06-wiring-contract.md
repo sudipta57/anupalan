@@ -50,6 +50,7 @@ Fifteen calls: fourteen in `mobile/src/api/endpoints.ts`, plus the refresh that
 | 13 | `askSahayak` | `POST /v1/sahayak/ask` | ✅ | existed on `main` (B20) |
 | 14 | `bisApplicability` | `POST /v1/bis/applicability` | ✅ | existed on `main` (B20) |
 | 14b | `bisApplicabilityForScan` | `POST /v1/scans/{id}/applicability` | ✅ | **now called** — see §3.4 |
+| 16 | `captureGates` | `POST /v1/capture/gates` | ✅ | **new**, 2026-09-13 — see §3.5 |
 | 15 | `checkListings` | `POST /v1/listings/check` | ⚠️ | exists at **`POST /v1/products/listings/check`**, and takes `{csv}` rather than `{rows[]}` — the app adapts, see §8 |
 
 **All fifteen now have a server.** Twenty `/v1` paths are registered in total; the extras are
@@ -340,6 +341,53 @@ rejects any number in the answer that appears in no cited passage and was not in
 declared net quantity repeated back — "for a 36 g pack" — is exactly that, so the product block is
 counted as provenance for **numbers only**
 (`test_a_quantity_the_user_declared_is_not_a_fabricated_figure`).
+
+---
+
+### 3.5 The capture gates measure a real frame
+
+New endpoint, 2026-09-13: `POST /v1/capture/gates` takes a base64 preview frame and returns the
+four FR-01 signals — `marker_corners_in_frame`, `blur_variance`, `glare_fraction`, `tilt_degrees`.
+
+**Why it was needed.** The four gate chips were driven by `simulatedMetrics`, a pure function of
+elapsed time: they went green 2.4 seconds after the capture screen opened, on any subject at all.
+The shutter therefore opened over frames with no marker in them, and the failure surfaced much
+later — as "no rectified image" on the findings screen, which is where it was first noticed.
+`03-implementation-plan.md` §P3.3 sanctions this interim in as many words: *"ship the interim
+version that uploads a frame every 500 ms for server-side gate checks, and swap later."*
+
+Three properties of the contract are deliberate:
+
+- **It returns measurements, never a verdict.** No `can_capture`, no per-gate pass. The thresholds
+  stay in `features/capture/gates.ts`, which is pure and unit-tested without a camera. A verdict
+  computed server-side would be a second copy of the FR-01 policy, and the copy that ships is
+  whichever one the reviewer did not read.
+- **`tilt_degrees` is null, never 0.** Tilt is measured against the marker's plane, so with no
+  marker there is no angle. Zero degrees is "held perfectly flat" — the best possible reading — and
+  sending it for an unmeasurable frame would turn an unanswerable question into a pass.
+- **The response is field-for-field with the client's `FrameMetrics`,** so the adapter is a rename
+  with nowhere for a unit to shift in translation.
+
+**It does not break "the API never proxies image bytes"** (§`routers/scans.py`). That rule governs
+*scan assets* — evidence, which goes straight to object storage under a declared SHA-256. A gate
+frame is never stored, opens no database session, writes no audit entry, and is a downscaled
+preview rather than the photograph; the scan is still measured by the pipeline off the
+full-resolution original. `routers/prefill.py` already took the same exemption on the same grounds.
+
+**The marker is not one of the gates.** `POST /v1/capture/gates` still returns
+`marker_corners_in_frame` and the client still shows it in the dev overlay, but the shutter does not
+consult it, and `tilt_degrees: null` no longer blocks either. The detector only knows ArUco
+DICT_4X4_50, so the ID-1 card and hand-measured references the app offers could never satisfy a
+marker gate — choosing either left the user with a shutter that never unlocked. Nothing about
+measurement moved: a marker-less scan still lands as `no_marker` and every metric rule still returns
+NOT_ASSESSABLE (CLAUDE.md §3.3). The capture screen says so on the chip, so the cost is visible
+before the photograph is taken rather than after.
+
+**Known limitation.** `Camera.takeSnapshot()` returns the *preview's* contents, not the sensor's,
+so `blur_variance` is measured on a downscaled image and reads lower than the full-resolution
+photograph would. The blur gate is therefore conservative — it will call a frame soft before the
+photograph actually is. That is the safe direction, but it means the FR-01 threshold of 120 wants
+re-checking against real captures on a device before it is treated as calibrated.
 
 ---
 
@@ -747,3 +795,84 @@ Both asserted behaviour the fixture layer had invented and the real server does 
 | Mock layer | Kept, not deleted. It now mirrors the wire faithfully and 6 test files depend on it; deleting it is a separate call. |
 | `reportIssuedAt` | Still null: the server does not publish it, so Mode A's editing lock never engages. |
 | A listing `url` row | The server records a URL as provenance and never fetches it, so such rows come back with no verdicts. Correct, and the results table already shows a row with no result as neither passing nor failing. |
+
+---
+
+## 10. Context prefill, 2026-09-13
+
+An endpoint pair added after the cutover, so it is recorded here rather than in the gap register: no
+gap was closed, and nothing that existed changed shape. Both halves — the API and the app — landed
+together, so there is no contract difference to absorb. Reasoning is in `docs/decisions.md`,
+2026-09-13.
+
+### The contract
+
+```
+POST /v1/prefill                        → 202 {prefill_id, status: "reading"}
+     {images: [{image_base64,              the pack's photographs, in capture order, 1..3.
+                content_type}, ...]}       A client holding more sends the first three. Each
+                                           image_base64 is a downscaled JPEG; the decoded total
+                                           across the request is capped by PREFILL_MAX_BYTES
+                                           (4 MB), and content_type is one of
+                                           image/jpeg | image/png | image/webp
+
+GET  /v1/prefill/{prefill_id}           → 200 {prefill_id, status, suggestions[], word_count,
+                                                reduced}
+                                          status: reading | ready | failed
+                                          suggestion: {field, value, confidence, from_field_code,
+                                                       source_text}
+```
+
+`field` is a **profile** field name — `name`, `net_qty_value`, `net_qty_unit`, `is_imported` — and
+never `surface`, `pack_type`, `pdp_area_cm2`, `channel` or `category_code`. `value` is always a
+string, including for the boolean. Permission is `scan:create` on both.
+
+### Four things about it that are not obvious from the shapes
+
+- **Several photographs are read, not just the front panel — and at most three.** A pack's
+  mandatory declarations are spread across its faces: net quantity and commodity name on the front,
+  importer, country of origin and consumer-care line on the back. A read of one photograph proposes
+  nothing for most of the fields the form exists to stop people typing; a read of a fourth proposes
+  nothing either, because by then every face has been covered and what is left is another angle.
+  Three is therefore the ceiling on both sides, and the **client** enforces it by sending the first
+  three — so a five-photograph capture is a drop on the phone, never a 422 on the capture path. The
+  worker merges their words and extracts once, which is also one LLM call rather than N. Merging is
+  safe here in a way it is not in the pipeline: prefill carries no bounding boxes, so the mismatched
+  coordinate spaces have nothing to corrupt.
+- **The images are in the body.** Every other image is PUT to a presigned URL so the API never
+  handles bytes; that rule is about evidence, and these photographs are not evidence. They are read
+  once and deleted, and the scan's own images still go up presigned with their declared SHA-256.
+  One request instead of three per image, and no new method on the app's `Transport` interface.
+- **A prefill has no row and no history.** It lives in Redis under `prefill:{org}:{id}` for fifteen
+  minutes. Org scoping is *in the key*, so another org's id does not resolve and the answer is 404 —
+  the same answer as an id that never existed (CLAUDE.md §3.7).
+- **`reading` is recorded before the enqueue**, so a client polling in the gap gets `reading` rather
+  than a 404 it would read as "gone".
+- **No 4xx the app has to handle**, beyond a malformed or oversized body. Prefill disabled is 503,
+  an expired id is 404, a broker that is down is a `reading` that never completes — and the app
+  treats every one of them as "the user types the form", which is what it did before this existed.
+
+### What the app does with it
+
+`features/scan-context/prefill.ts` is pure and holds the rules: fill blanks only, never overwrite a
+person, `isImported` one-way, and derive the category **client-side** from the proposed name, because
+the 26-code vocabulary is the client's and the server has no copy of it. `use-prefill.ts` is the only
+file that touches `expo-image-manipulator`. The screen gates submission on one confirmation of the
+rule-relevant fields it filled.
+
+**The screen waits for the read** behind a loading state and mounts the form once, with the
+suggestions seeding its defaults (`docs/decisions.md`, 2026-09-13, second entry). So the client is
+polling `GET /v1/prefill/{id}` with a person watching a spinner: the 800 ms poll interval and the
+`reading`-before-enqueue guarantee both matter more than they would have otherwise. The wait is
+bounded by an answer, a failure, or a client-side timeout that scales with the photograph count
+(`timeoutFor`: 20 s, plus 15 s per extra photograph, capped at 90 s), and the gate offers a way
+straight to the blank form on the first tap — which is what keeps a network call off the capture
+path.
+
+### Still open
+
+| Item | Note |
+|---|---|
+| A second OCR pass per scan | Prefill reads the thumbnails, then the pipeline reads the originals. Reusing the prefill's `ocr_results` would remove it, needs the asset hashes to line up, and is a real optimisation rather than a correctness issue. It costs more now that every photograph is read rather than one. |
+| Bucket lifecycle on `prefill/` | The worker deletes each scratch object; the lifecycle rule is the backstop for a worker that died between the upload and the read. Needs adding in `infra/`. |
+| Device walkthrough | The downscale-and-send path has not run on hardware. `MAX_EDGE_PX` was chosen for the small print on a retail pack and wants checking against a real one. |

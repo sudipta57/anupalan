@@ -38,7 +38,7 @@ def enqueue_scan(scan_id: str) -> str | None:
     return str(task_id) if task_id is not None else None
 
 
-def enqueue_prefill(prefill_id: str, org_id: str, key: str) -> str | None:
+def enqueue_prefill(prefill_id: str, org_id: str, keys: list[str]) -> str | None:
     """Queue a label read for the context form (FR-03). Returns the task id, or None.
 
     Unlike ``enqueue_scan``, a failure here is **swallowed**. A submit that cannot enqueue must
@@ -49,7 +49,7 @@ def enqueue_prefill(prefill_id: str, org_id: str, key: str) -> str | None:
     from app.tasks.prefill import read_label_task
 
     try:
-        result = read_label_task.delay(prefill_id, org_id, key)
+        result = read_label_task.delay(prefill_id, org_id, keys)
     except Exception as exc:  # noqa: BLE001 — see the docstring
         logger.warning("could not queue prefill %s: %s", prefill_id, exc)
         return None

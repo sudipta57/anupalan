@@ -50,10 +50,14 @@ export {
   saveCapture,
 } from './capture-storage';
 export type { CapturedPhoto, SavablePhoto } from './capture-storage';
+export { previewFrameSource } from './frame-source';
+export type { FrameSource, SnapshotCapable } from './frame-source';
 export {
+  GATE_POLL_MS,
   GATE_SIMULATIONS,
   GATE_SIMULATION_LABELS,
   createGateEvaluator,
+  createServerGateEvaluator,
   getGateSimulation,
   setGateSimulation,
   simulatedMetrics,

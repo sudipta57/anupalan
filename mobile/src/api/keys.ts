@@ -13,6 +13,7 @@ export const queryKeys = {
   scan: (scanId: string) => ['scan', scanId] as const,
   findings: (scanId: string) => ['scan', scanId, 'findings'] as const,
   report: (reportId: string) => ['report', reportId] as const,
+  prefill: (prefillId: string) => ['prefill', prefillId] as const,
   sahayak: (question: string) => ['sahayak', question] as const,
   listingCheck: (checkId: string) => ['listing-check', checkId] as const,
   bisApplicability: (productId: string) => ['bis-applicability', productId] as const,

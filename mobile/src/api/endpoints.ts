@@ -19,6 +19,9 @@
  */
 
 import { isMetricRule } from '@/features/bulk/metric-rules';
+import type { FrameMetrics } from '@/features/capture/gates';
+import type { PrefillResult } from '@/features/scan-context/prefill';
+
 import type {
   BisApplicability,
   FindingsResult,
@@ -68,19 +71,31 @@ import {
   type WireOtpRequest,
 } from './adapters';
 import { transport } from './transport';
+
 import type {
   BisApplicabilityBody,
   ConfirmFieldsBody,
   CreateReportBody,
   CreateScanBody,
   CreateScanResult,
+  CaptureGatesBody,
   ListingCheckBody,
   ListProductsQuery,
   ListScansQuery,
   OtpRequestBody,
   OtpVerifyBody,
+  PrefillRequestBody,
   SahayakAskBody,
 } from './types';
+/** The capture-gate response, as it comes off the wire. */
+interface WireGateMetrics {
+  marker_corners_in_frame: number;
+  blur_variance: number;
+  glare_fraction: number;
+  tilt_degrees: number | null;
+  marker_id: number | null;
+}
+
 
 /** A stable id for a response the server does not give one to. */
 function localId(prefix: string): string {
@@ -207,21 +222,26 @@ export const api = {
   },
 
   /**
-   * Ask the server to read a label photograph so the context form fills itself (FR-03).
+   * Ask the server to read a pack's photographs so the context form fills itself (FR-03).
    *
-   * Returns as soon as the read is queued; `getPrefill` collects the answer. The image is sent
-   * base64 in the body rather than PUT to a presigned URL — see `adapters/prefill.ts` for why this
-   * one image takes the short path and the scan's own photographs do not.
+   * Returns as soon as the read is queued; `getPrefill` collects the answer. The images are sent
+   * base64 in the body rather than PUT to presigned URLs — see `adapters/prefill.ts` for why these
+   * take the short path and the scan's own photographs do not.
    *
    * No idempotency key: a repeated prefill costs one OCR pass and yields the same suggestions, and
-   * a key would make a retry return a *stale* read of a photograph the user has since retaken.
+   * a key would make a retry return a *stale* read of photographs the user has since retaken.
    */
   requestPrefill: async (body: PrefillRequestBody): Promise<PrefillResult> =>
     toAcceptedPrefill(
       await transport.request<WirePrefillAccepted>({
         method: 'POST',
         path: '/prefill',
-        body: { image_base64: body.imageBase64, content_type: body.contentType },
+        body: {
+          images: body.images.map((image) => ({
+            image_base64: image.imageBase64,
+            content_type: image.contentType,
+          })),
+        },
       })
     ),
 
@@ -294,6 +314,30 @@ export const api = {
       body.question,
       localId('ans')
     ),
+
+  /**
+   * Measure one preview frame against the FR-01 capture gates.
+   *
+   * Returns metrics, never a verdict: `features/capture/gates.evaluateGates` owns the thresholds
+   * and is the only place that decides whether the shutter opens. Splitting that across the wire
+   * would put half the policy on each side and guarantee the two drift.
+   */
+  captureGates: async (body: CaptureGatesBody): Promise<FrameMetrics> => {
+    const wire = await transport.request<WireGateMetrics>({
+      method: 'POST',
+      path: '/capture/gates',
+      body: { frame_base64: body.frameBase64 },
+    });
+
+    return {
+      markerCornersInFrame: wire.marker_corners_in_frame,
+      blurVariance: wire.blur_variance,
+      glareFraction: wire.glare_fraction,
+      // Null stays null. `tiltDegrees: 0` would read as "held perfectly flat" — the best possible
+      // answer — for a frame in which there was no marker plane to measure against at all.
+      tiltDegrees: wire.tilt_degrees ?? null,
+    };
+  },
 
   /**
    * BIS applicability for a scan, from the profile the scan was **frozen** with.
