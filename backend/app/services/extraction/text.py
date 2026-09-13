@@ -76,4 +76,77 @@ def span_is_real(text: str, start: int, end: int, value: str) -> bool:
     return claimed in excerpt or excerpt in claimed
 
 
-__all__ = ["LINE_SEPARATOR", "TextSpan", "build_text", "span_is_real", "words_for_span"]
+def _folded_with_map(text: str) -> tuple[str, list[int]]:
+    """Whitespace-collapsed, casefolded text, plus the original index of each character it kept.
+
+    The map is what makes searching safe: a match is found in the folded text and reported as a
+    range in the *original*, so every span this module hands out still indexes the text that
+    ``build_text`` produced and that a report will quote years from now.
+    """
+    folded: list[str] = []
+    origin: list[int] = []
+    pending_space = False
+
+    for index, char in enumerate(text):
+        if char.isspace():
+            pending_space = True
+            continue
+        if pending_space and folded:
+            folded.append(" ")
+            origin.append(index)
+        pending_space = False
+        # casefold may expand one character into several; attribute each to its source index so
+        # the map stays one-to-one with `folded`.
+        for piece in char.casefold():
+            folded.append(piece)
+            origin.append(index)
+
+    return "".join(folded), origin
+
+
+def locate_value(text: str, value: str, *, near: int | None = None) -> tuple[int, int] | None:
+    """Find where ``value`` actually occurs in ``text``, or ``None`` if it does not occur at all.
+
+    **Why this exists.** A model is asked for the character offsets its value came from, and it is
+    reliably bad at them — it is counting characters in a tokenised string. Observed on a real
+    label: the right value, `SuperYou Pro`, offered with a span fourteen characters off. Checking
+    the model's arithmetic and discarding the value with it throws away a true declaration, which
+    is how a compliant label acquires a FAIL.
+
+    So the model's integers are treated as a *hint*, never as evidence. What is verified is the
+    claim itself: the value has to be in the OCR text. A fabricated declaration is rejected exactly
+    as before, because it is not there to find — the safeguard CLAUDE.md §8 asks for is on the
+    value, and it is stronger here than a range check, not weaker.
+
+    ``near`` disambiguates a value that occurs more than once: the occurrence closest to where the
+    model said it was. That is the one piece of the model's arithmetic worth keeping, and it only
+    ever chooses *between* real occurrences.
+
+    Matching is loose about whitespace and case, on the same terms as ``span_is_real``.
+    """
+    haystack, origin = _folded_with_map(text)
+    needle = " ".join(value.split()).casefold()
+    if not needle or not haystack:
+        return None
+
+    found: list[int] = []
+    at = haystack.find(needle)
+    while at != -1:
+        found.append(at)
+        at = haystack.find(needle, at + 1)
+
+    if not found:
+        return None
+
+    best = found[0] if near is None else min(found, key=lambda p: abs(origin[p] - near))
+    return origin[best], origin[best + len(needle) - 1] + 1
+
+
+__all__ = [
+    "LINE_SEPARATOR",
+    "TextSpan",
+    "build_text",
+    "locate_value",
+    "span_is_real",
+    "words_for_span",
+]

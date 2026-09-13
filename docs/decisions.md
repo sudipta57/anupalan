@@ -1228,3 +1228,49 @@ points. That is left for review rather than edited, per CLAUDE.md §6. Sahayak s
 question — `bis_documents` is empty, there is no corpus source in `bis/` beyond the applicability
 table, and nothing calls `ingest()`.
 **PR:** n/a · **Requirement:** FR-22, FR-28, FR-29, CLAUDE.md §9
+
+## 2026-09-13 — The model's reading outranks the pattern's, and every photograph is read
+
+**Context:** Two things surfaced on the same device scan. First, a scan may carry up to ten assets and
+`pipeline.py` read `record.assets[0]` — so a two-photograph capture of a sachet OCR'd the front panel
+(17 words of branding) and never opened the back, where the manufacturer, address, MRP and dates were
+printed. Extraction then reported them absent and the presence rules FAILed, correctly, on text that
+was photographed but never read. Second, on the panel that *was* read, the regex layer matched `mrp`
+to `"02"` and `best_before` to `"Date:"` — a fragment and a caption — and because Rule 6(1) checks
+only that a field is present, both became PASS. A confident wrong PASS on a legal report is worse
+than the FAIL it replaced.
+
+**Decision:** Every raw asset is decoded, hash-verified and OCR'd; their words merge into one text for
+extraction, because a declaration is a declaration wherever it is printed. The marker selects which
+photograph is the *metric* one and it need not be the first — that one alone is rectified, measured,
+and used for evidence boxes. And the LLM layer is now asked about every field rather than only the
+ones no pattern matched, with its reading winning where the two disagree.
+
+**Why the order reversed.** A pattern matches a shape, not a meaning, and cannot tell that it matched
+the wrong thing: the text genuinely did match. What bounds the model is not its position in the order
+but the evidence rule — `extract_with_llm` refuses any value absent from the OCR text — so an override
+is always a different reading of text that is really there, and the pattern's value is what stands
+when the model's is refused. The deterministic layer remains the floor, not the ceiling.
+
+**Costs accepted deliberately.** Extraction is no longer reproducible run to run; two evaluations of
+one image minutes apart already produced different `findings_sha256`. `evaluate()` is still pure and
+still the only thing that issues a verdict, so §3.1 holds, but §3.6's "regenerate the same verdict"
+now depends on the stored extractions rather than on re-running the pipeline. And an overridden field
+carries 0.70 against the pattern's 0.95, below FR-06's 0.75, so it reaches a verdict only after a
+human confirms it — more fields now route through confirmation, which is the intended trade.
+
+**Coordinate spaces, which is where this could have gone wrong quietly.** Measurement is passed only
+the metric photograph's words: glyph heights come from connected components on the rectified image,
+and polygons from a second, unrectified photograph would have measured the right glyph in the wrong
+place and produced a confident wrong millimetre — exactly what §3.3 exists to prevent. Evidence boxes
+from non-metric photographs are dropped and their values kept, because a box from an unrectified
+photograph is a real rectangle in a different space and there is no homography to bring it across.
+`ocr_results` now holds one row per photograph, stamped with its `asset_id` — the grain the model's
+docstring already specified, and the column already existed, so no migration.
+
+**Alternative rejected:** letting the model override only where a pattern's value fails its own field
+format check. It would have killed `"02"` and `"Date:"` while keeping determinism everywhere else,
+but it makes correctness depend on having written a good enough validator per field — the same
+brittleness that produced the bad matches — and it was not what was asked for.
+
+**PR:** n/a · **Requirement:** FR-24, architecture §5 S6, CLAUDE.md §3.1, §3.3, §6

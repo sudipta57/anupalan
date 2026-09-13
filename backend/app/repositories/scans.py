@@ -311,28 +311,42 @@ class ScanStoreAdapter:
         )
 
     def _save_words(self, outcome: ScanOutcome, org_id: UUID, scan_id: UUID) -> None:
-        if not outcome.words:
-            return
+        """One ``ocr_results`` row per photograph — the grain the table is documented at.
 
-        confidences = [word.confidence for word in outcome.words]
-        OCRResultRepository(self.session, org_id).add(
-            OCRResult(
-                scan_id=scan_id,
-                org_id=org_id,
-                engine=outcome.words[0].metadata.get("engine", "unknown"),
-                version=outcome.words[0].metadata.get("version", "unknown"),
-                raw_json=[
-                    {
-                        "text": word.text,
-                        "polygon": [list(point) for point in word.polygon],
-                        "confidence": word.confidence,
-                        "language": word.language,
-                    }
-                    for word in outcome.words
-                ],
-                mean_conf=sum(confidences) / len(confidences),
+        A scan may carry several photographs, and their polygons are in as many coordinate
+        spaces. Merging them into one row would store numbers that cannot be mapped back to any
+        image. ``ocr_pages`` keeps them apart and stamps each row with the asset it was read
+        from; ``words`` stays the merged view that extraction reads.
+        """
+        pages = outcome.ocr_pages
+        if not pages and outcome.words:
+            # A pipeline that filled only the merged view still gets its text stored.
+            pages = [("", outcome.words)]
+
+        repository = OCRResultRepository(self.session, org_id)
+        for asset_id, words in pages:
+            if not words:
+                continue
+            confidences = [word.confidence for word in words]
+            repository.add(
+                OCRResult(
+                    scan_id=scan_id,
+                    org_id=org_id,
+                    asset_id=UUID(asset_id) if asset_id else None,
+                    engine=words[0].metadata.get("engine", "unknown"),
+                    version=words[0].metadata.get("version", "unknown"),
+                    raw_json=[
+                        {
+                            "text": word.text,
+                            "polygon": [list(point) for point in word.polygon],
+                            "confidence": word.confidence,
+                            "language": word.language,
+                        }
+                        for word in words
+                    ],
+                    mean_conf=sum(confidences) / len(confidences),
+                )
             )
-        )
 
     def _save_extractions(self, outcome: ScanOutcome, org_id: UUID, scan_id: UUID) -> None:
         rows = [

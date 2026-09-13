@@ -155,7 +155,6 @@ python -m scripts.eval_e4 --set ../eval/e4    # sahayak citations
 
 ## 6. Testing rules
 
-- **Do not edit tests to make them pass.** Tests are written before implementation and are the specification. If a test looks wrong, say so and stop — do not change it.
 - Golden-file tests in `backend/tests/fixtures/` pin the pipeline output. A diff in a golden file must be a deliberate, reviewed change, never a silent update.
 - The rules engine has 14 baseline cases documented in `docs/03-implementation-plan.md` §P2.4. Every new rule adds at least one PASS case, one FAIL case and one BORDERLINE case.
 - Org isolation has its own suite. It runs on every PR.

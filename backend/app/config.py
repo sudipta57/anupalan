@@ -225,6 +225,24 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: float = 30.0
     LLM_MAX_RETRIES: int = 2
 
+    LLM_EXTRA_BODY: str = ""
+    """Extra JSON merged into every chat-completions request body. Empty by default.
+
+    An escape hatch for server-specific knobs, so the adapter stays provider-agnostic (§9). The
+    case it exists for: a hybrid reasoning model such as Qwen3 arrives with thinking *on* at one
+    host and *off* at another, and with it on, a 150-token extraction turns into thousands of
+    tokens of deliberation and a timeout. Turning it off is one field in the request body — but
+    which field, and whether it is honoured at all, is a property of the server, not of this code.
+
+    So the knob lives in configuration, where a vendor detail is allowed to appear, rather than as
+    a branch in the adapter that would have to grow a case per host. Example::
+
+        LLM_EXTRA_BODY={"chat_template_kwargs": {"enable_thinking": false}}
+
+    Keys the adapter computes itself — model, messages, temperature, max_tokens, response_format —
+    always win, so this can add to a request but never quietly rewrite the prompt contract.
+    """
+
     # ------------------------------------------------------------------ ocr
     OCR_ENGINE: str = "paddle"
     """Which OCREngine implementation to use: ``paddle`` in production, ``stub`` in tests.

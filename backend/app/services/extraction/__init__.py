@@ -89,14 +89,32 @@ def extract(
     found = extract_with_patterns(text, spans, pack)
 
     if llm is not None:
-        already = {item.field_code for item in found}
-        wanted = [code for code in FIELD_CODES if code not in already]
-        # Regex results are never overwritten: the model is only offered what is still missing.
-        found.extend(
-            extract_with_llm(
-                text, spans, llm=llm, field_codes=FIELD_CODES, wanted=wanted
-            )
+        # The model is asked about **every** field, not only the ones no pattern matched, and its
+        # answer wins where both layers produced one.
+        #
+        # Why the order was reversed. A pattern matches a shape, not a meaning, and OCR from a real
+        # pack is not clean: on a live scan the regex layer returned `mrp = "02"` and
+        # `best_before = "Date:"` — a fragment and a caption — and because a presence rule only
+        # asks whether a field was found, both became PASS. A confident wrong PASS on a legal
+        # report is worse than the FAIL it replaced, and no pattern can tell the difference,
+        # because the text genuinely matched.
+        #
+        # What keeps this safe is not the layer's precedence but what every value must survive:
+        # `extract_with_llm` accepts nothing whose text is absent from the OCR output, so an
+        # override is always a *different reading of text that is really there*. A model answer
+        # that cannot be found is dropped, and the pattern's value stands — the fallback is still
+        # the deterministic layer.
+        #
+        # The cost is real and deliberate: extraction is no longer reproducible run to run, and
+        # LLM values carry 0.70, below FR-06's threshold, so they reach a verdict only after a
+        # human confirms them. Recorded in docs/decisions.md.
+        overrides = extract_with_llm(
+            text, spans, llm=llm, field_codes=FIELD_CODES, wanted=list(FIELD_CODES)
         )
+
+        by_code = {item.field_code: item for item in found}
+        by_code.update({item.field_code: item for item in overrides})
+        found = list(by_code.values())
 
     return sorted(found, key=lambda item: item.field_code)
 

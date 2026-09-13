@@ -11,6 +11,13 @@
  * `ProfileIn` and `ScanCreateIn` set `extra="forbid"`, so a wrong spelling is never a dropped field.
  * It is a rejected request. These tests therefore assert on the body handed to the transport rather
  * than on any translator's return value, and they fail if a key is camelCase or unexpected.
+ *
+ * The same bug then reappeared one line below, in `marker_type`, and the first version of this file
+ * missed it for an instructive reason: it used `id1_card`, the single marker type spelled identically
+ * on both sides. `aruco_40mm` and `user_dimension` are `aruco_4x4_50` and `user_declared` on the
+ * wire, so passing the field through raw worked on the value a test reaches for first and 422'd on
+ * the other two. A *value* mapped through a lookup table needs every entry exercised, not one
+ * representative — so the marker test below is parameterised over all three.
  */
 
 import { api } from '@/api/endpoints';
@@ -129,6 +136,20 @@ describe('POST /scans', () => {
       sha256: 'a'.repeat(64),
       kind: 'raw',
     });
+  });
+
+  // Every entry of `MARKER_OUT`, because the two that differ are exactly the two a single-value test
+  // would not have caught. `ScanCreateIn.marker_type` is a `Literal` of the wire spellings, so an
+  // app-side name here is a 422 before any handler runs — and FR-02 makes the field required, which
+  // means a mistranslation is not a degraded scan, it is no scan at all.
+  it.each([
+    ['aruco_40mm', 'aruco_4x4_50'],
+    ['id1_card', 'id1_card'],
+    ['user_dimension', 'user_declared'],
+  ] as const)('sends marker type %s as %s', async (app, wire) => {
+    await api.createScan({ ...BODY, markerType: app }, 'idem_1');
+
+    expect(sent[0].body.marker_type).toBe(wire);
   });
 });
 

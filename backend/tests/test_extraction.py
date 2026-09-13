@@ -1,12 +1,19 @@
 """Field extraction — TRD FR-24, work package B9.
 
 Turns OCR words into the fifteen declaration field codes the rule pack evaluates. Three layers,
-in a fixed order (architecture §5 S6): deterministic regex first, an LLM only for what regex
-missed, and human confirmation for anything below the confidence threshold.
+in a fixed order (architecture §5 S6): deterministic regex first, then an LLM over the same text
+whose reading wins where the two disagree, and human confirmation for anything below the
+confidence threshold.
 
-The order is not a preference. Regex is reproducible and free; the LLM is neither, and its output
-feeds a legal verdict. Anything a pattern can extract must be extracted by the pattern, so that
-the model's influence is confined to the residue.
+The model going second is what makes it authoritative rather than supplementary. A pattern matches
+a shape, not a meaning, and cannot tell that it matched the wrong thing — on a real pack the regex
+layer read `mrp` as "02" and `best_before` as "Date:", and a presence rule turned both into PASS.
+
+What bounds the model is not its position in the order but the evidence rule below: a value absent
+from the OCR text is refused, so an override is always a different reading of text that is really
+there, and a pattern's value is what remains when the model's is refused. The price is paid twice
+over — extraction is no longer reproducible run to run, and an overridden field carries 0.70, so it
+reaches a verdict only after a human confirms it.
 
 **Every value carries a `source_span` that provably exists in the input.** This is the single
 most important property in the module, and CLAUDE.md §8 flags it as a known trap: a model asked
@@ -26,7 +33,7 @@ import json
 import numpy as np
 import pytest
 
-from app.services.extraction import FIELD_CODES, extract
+from app.services.extraction import CONFIRMATION_THRESHOLD, FIELD_CODES, extract
 from app.services.llm.adapters.stub import StubLLMProvider
 from app.services.rules.loader import active_pack
 from app.services.rules.types import Profile
@@ -222,9 +229,20 @@ def test_a_span_whose_text_does_not_contain_the_value_is_rejected(pack) -> None:
 # --------------------------------------------------------------------------- the LLM layer
 
 
-def test_the_llm_only_fills_what_regex_missed(words: list[Word], pack) -> None:  # type: ignore[no-untyped-def]
-    """Regex output is never overwritten. A deterministic extraction outranks a probabilistic one
-    for the same field, every time."""
+def test_a_value_absent_from_the_ocr_text_never_overwrites_regex(
+    words: list[Word], pack
+) -> None:  # type: ignore[no-untyped-def]
+    """The model may override a pattern, but only with text that is really on the label.
+
+    This test used to assert the opposite rule — that regex always outranked the model — and it
+    passed for a reason worth writing down, because the reason is now the whole safeguard: ``999
+    kg`` does not occur in the fixture, so the value is refused as fabricated evidence and the
+    pattern's reading survives. Nothing about layer precedence was ever being exercised here.
+
+    Under the current rule that is still exactly the behaviour required. An override has to be a
+    different reading of text that is present; an invention is discarded, and the deterministic
+    layer is what remains.
+    """
     llm = StubLLMProvider(
         responses=[
             json.dumps(
@@ -241,6 +259,49 @@ def test_the_llm_only_fills_what_regex_missed(words: list[Word], pack) -> None: 
 
     assert found["net_quantity"].source == "regex"
     assert "999" not in found["net_quantity"].value_raw
+
+
+def test_the_llm_overrides_a_pattern_when_its_value_is_in_the_text(
+    words: list[Word], pack
+) -> None:  # type: ignore[no-untyped-def]
+    """A model reading of a field a pattern already matched wins, and is marked as the model's.
+
+    The case this exists for came off a real pack: the pattern layer matched ``mrp`` to ``02`` and
+    ``best_before`` to ``Date:`` — a fragment and a caption — and a presence rule turned each into
+    a PASS, because it only asks whether the field was found. A pattern matches a shape and cannot
+    know it has matched the wrong thing.
+
+    So the override is deliberate, and the confidence that comes with it matters as much: 0.70 sits
+    below FR-06's threshold, so an overridden field reaches a verdict only after a human confirms
+    it, where the 0.95 it replaced would have gone straight through.
+    """
+    llm = StubLLMProvider(
+        responses=[
+            json.dumps(
+                {
+                    "fields": [
+                        # Really in the fixture — and a deliberately sloppy span, to show the
+                        # value is what is verified, not the model's arithmetic.
+                        {
+                            "field_code": "net_quantity",
+                            "value": "Net Qty: 250 g",
+                            "source_span": [0, 3],
+                        },
+                    ]
+                }
+            )
+        ]
+    )
+
+    found = _by_code(extract(words, PROFILE, llm=llm, pack=pack))
+
+    assert found["net_quantity"].source == "llm"
+    assert found["net_quantity"].value_raw == "Net Qty: 250 g"
+    assert found["net_quantity"].confidence < CONFIRMATION_THRESHOLD
+
+    # Fields the model said nothing about keep their pattern reading.
+    assert found["mrp"].source == "regex"
+    assert found["mrp"].value_raw == "120.00"
 
 
 def test_the_llm_is_asked_for_strict_json_at_temperature_zero(words: list[Word], pack) -> None:  # type: ignore[no-untyped-def]

@@ -35,6 +35,7 @@ class ChatCompletionsProvider:
         api_key: str | None = None,
         timeout_seconds: float | None = None,
         max_retries: int | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self.base_url = (base_url if base_url is not None else settings.LLM_BASE_URL).rstrip("/")
         self.api_key = api_key if api_key is not None else settings.LLM_API_KEY
@@ -42,6 +43,9 @@ class ChatCompletionsProvider:
             timeout_seconds if timeout_seconds is not None else settings.LLM_TIMEOUT_SECONDS
         )
         self.max_retries = max_retries if max_retries is not None else settings.LLM_MAX_RETRIES
+        self.extra_body = (
+            extra_body if extra_body is not None else _parse_extra_body(settings.LLM_EXTRA_BODY)
+        )
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -79,7 +83,10 @@ class ChatCompletionsProvider:
         if schema is not None and "json" not in prompt.lower():
             content = f"{prompt}\n\nReply with JSON only."
 
+        # Server-specific knobs first, so the keys computed below always win: this may add to a
+        # request, never quietly rewrite the prompt, the schema flag or the token budget.
         body: dict[str, Any] = {
+            **self.extra_body,
             "model": model,
             "messages": [{"role": "user", "content": content}],
             "temperature": temperature,
@@ -119,6 +126,22 @@ class ChatCompletionsProvider:
             return _to_result(response.json(), schema=schema, model=model)
 
         return LLMResult.failure(last_error, model=model)
+
+
+def _parse_extra_body(raw: str) -> dict[str, Any]:
+    """Read ``LLM_EXTRA_BODY``. Malformed configuration is ignored rather than fatal.
+
+    A typo here must not take the API and the worker down at import: the call still goes out, and
+    the failure it produces is the one the server reports, which is far easier to act on than a
+    process that will not start.
+    """
+    if not raw.strip():
+        return {}
+    try:
+        loaded = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def _to_result(

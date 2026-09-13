@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from app.services.extraction.text import TextSpan, span_is_real
+from app.services.extraction.text import TextSpan, locate_value, span_is_real
 from app.services.llm.provider import LLMProvider
 from app.services.rules.types import Extraction
 
@@ -33,7 +33,24 @@ verdict. That is the third layer of architecture §5 S6, and it is the safeguard
 a model for extraction acceptable at all.
 """
 
-MAX_TOKENS = 1200
+MAX_TOKENS = 8192
+"""The completion budget, sized for a *reasoning* model rather than for the answer.
+
+1200 was enough for the JSON and nowhere near enough for what precedes it. An open-weight
+reasoning model spends completion tokens thinking before it emits a visible character: measured on
+a real 655-token label prompt, ``reasoning_tokens`` was 6765 against 141 tokens of actual content.
+Under the old budget the model was cut off mid-reasoning and the visible content was **empty**, so
+an OpenAI-compatible server in JSON mode rejected the turn outright — `json_validate_failed` with
+an empty `failed_generation`, which reads like a schema problem and is really a truncation.
+
+That failure is silent by design: ``extract_with_llm`` returns ``[]`` on a bad result and the scan
+completes with regex-only extraction. So the symptom is not an error, it is findings that FAIL for
+fields printed plainly on the pack.
+
+The budget is a ceiling, not a spend — a non-reasoning model on the same prompt stops at a few
+hundred tokens and is billed for those. Sized for the worst case so the open-weight path is the one
+that works, per CLAUDE.md §9.
+"""
 
 _PROMPT = """\
 You are reading the text recognised from a photograph of an Indian packaged-commodity label.
@@ -46,7 +63,14 @@ Rules:
 - Never guess. If a declaration is not in the text, leave it out entirely.
 - source_span must be [start, end] character offsets into the text, and text[start:end] must
   contain the value you extracted.
-- Return only JSON.
+
+Reply with JSON in exactly this shape, and nothing else:
+{{"fields": [{{"field_code": "one of the codes above",
+              "value": "the text of the declaration",
+              "source_span": [start, end]}}]}}
+
+`fields` is always a list, and it is an empty list if the text declares none of them. Do not key
+the object by field code.
 
 TEXT:
 {text}
@@ -136,11 +160,24 @@ def extract_with_llm(
         except (TypeError, ValueError):
             continue
 
-        if not span_is_real(text, start, end, value):
-            # Fabricated evidence. The value goes with it — a lowered confidence would leave an
-            # invented declaration in the record, and FR-06 confirmation would present it to a
-            # user as something the label actually says.
-            continue
+        if span_is_real(text, start, end, value):
+            span = (start, end)
+        else:
+            # The model's offsets did not hold up. That alone does not condemn the value: a model
+            # counting characters in a tokenised string gets the arithmetic wrong on values that
+            # are plainly there — measured here, `SuperYou Pro` offered fourteen characters off.
+            # So re-derive the span ourselves, using the model's numbers only to pick between
+            # occurrences.
+            found = locate_value(text, value, near=start)
+            if found is None:
+                # Now it is fabricated evidence: the value is nowhere in the OCR text. The value
+                # goes with it — a lowered confidence would leave an invented declaration in the
+                # record, and FR-06 confirmation would present it to a user as something the label
+                # actually says.
+                continue
+            span = found
+
+        start, end = span
 
         seen.add(field_code)
         accepted.append(

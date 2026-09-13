@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Literal, Protocol
 
@@ -41,6 +41,7 @@ import numpy as np
 import numpy.typing as npt
 
 from app.services.extraction import extract, needs_confirmation
+from app.services.extraction.text import build_text, words_for_span
 from app.services.llm.provider import LLMProvider
 from app.services.rules.evaluate import evaluate
 from app.services.rules.loader import RulePack
@@ -112,6 +113,15 @@ class ScanOutcome:
     extractions: list[Extraction] = field(default_factory=list)
     measurements: list[Measurement] = field(default_factory=list)
     words: list[Word] = field(default_factory=list)
+    """Every photograph's words, merged in upload order. What extraction reads."""
+
+    ocr_pages: list[tuple[str, list[Word]]] = field(default_factory=list)
+    """``(asset_id, words)`` per photograph, so each keeps its own ``ocr_results`` row.
+
+    Merged text is right for extraction — a declaration is a declaration wherever it is printed —
+    but wrong for storage: polygons from two photographs are in two different coordinate spaces,
+    and one row holding both would be a set of coordinates that mean nothing.
+    """
     quality: Quality | None = None
     rectified_key: str | None = None
 
@@ -258,6 +268,40 @@ def _measure(
     return measurements
 
 
+def _anchor_evidence(
+    extractions: Sequence[Extraction], words: Sequence[Word], metric_asset_id: str
+) -> list[Extraction]:
+    """Drop the evidence box on any value read from a photograph that was not rectified.
+
+    A finding's bounding box is in the rectified image's coordinate space — that is what the
+    findings screen draws on and what a tap is mapped back through. A box taken from a second,
+    un-rectified photograph is a real rectangle in a different space, and drawing it would point
+    confidently at the wrong part of the label. There is no transform available to fix it: without
+    a marker on that photograph there is no homography for it.
+
+    So the value is kept and the box is dropped. The screen already says "no region was recorded
+    on the image for this rule" and lists the finding anyway, which is the honest outcome — an
+    extraction the user must check by hand rather than one pointed at the wrong words.
+    """
+    text, spans = build_text(words)
+    anchored: list[Extraction] = []
+
+    for item in extractions:
+        if item.bbox is None or item.source_span is None:
+            anchored.append(item)
+            continue
+        start, end = item.source_span
+        seen_on = {
+            word.metadata.get("asset_id") for word in words_for_span(spans, start, end)
+        }
+        # Only an evidence box wholly on the rectified photograph survives.
+        keep = seen_on == {metric_asset_id}
+        anchored.append(item if keep else replace(item, bbox=None))
+
+    del text  # built only for its span map
+    return anchored
+
+
 def process_scan(
     scan_id: str,
     *,
@@ -294,10 +338,13 @@ def process_scan(
     )
 
     try:
-        asset = record.assets[0]
-        payload = storage.get_bytes(asset.storage_key)
-        _verify_declared_hash(asset, payload)
-        image = _decode(payload)
+        pages: list[tuple[ScanAsset, npt.NDArray[np.uint8]]] = []
+        for asset in record.assets:
+            payload = storage.get_bytes(asset.storage_key)
+            _verify_declared_hash(asset, payload)
+            pages.append((asset, _decode(payload)))
+        if not pages:
+            raise IndexError("the scan has no raw assets")
     except (IndexError, ValueError, AssetIntegrityError) as exc:
         # The one genuinely fatal case: nothing to look at, or not the thing we were promised.
         outcome.status = "failed"
@@ -306,7 +353,19 @@ def process_scan(
         store.mark(scan_id, "failed")
         return outcome
 
-    corners = detect_marker(image)
+    # The marker decides which photograph is the *metric* one, and it need not be the first: a
+    # pack's declarations are spread over panels, and the panel holding the marker is rarely the
+    # panel holding the address. Every photograph is read for text; exactly one can carry a scale,
+    # because millimetres come from one homography over one plane (CLAUDE.md §3.3).
+    metric = 0
+    corners = None
+    for index, (_, candidate) in enumerate(pages):
+        found = detect_marker(candidate)
+        if found is not None:
+            corners, metric = found, index
+            break
+
+    metric_asset, image = pages[metric]
     capture_quality = quality(image, corners)
     outcome.quality = capture_quality
 
@@ -315,7 +374,7 @@ def process_scan(
         try:
             rectified = rectify(image, corners, marker_mm=record.marker_mm)
             rectified_image = rectified.image
-            key = f"{record.org_id}/{scan_id}/rectified/{record.assets[0].asset_id}.png"
+            key = f"{record.org_id}/{scan_id}/rectified/{metric_asset.asset_id}.png"
             encoded = _encode_png(rectified.image)
             storage.put_bytes(key, encoded, "image/png")
             outcome.rectified_key = key
@@ -330,11 +389,28 @@ def process_scan(
 
     # OCR reads the rectified image where there is one, because rectification also
     # de-skews — and the original otherwise, so a no-marker scan still gets its text.
-    source = rectified_image if rectified_image is not None else image
-    words = list(ocr.detect_and_recognise(source))
+    words: list[Word] = []
+    metric_words: list[Word] = []
+    for index, (asset, page) in enumerate(pages):
+        is_metric = index == metric
+        source = rectified_image if (is_metric and rectified_image is not None) else page
+        # Each word remembers which photograph it came from. Extraction reads them as one text,
+        # so without this there is no way back to the image a value was actually seen on.
+        page_words = [
+            replace(word, metadata={**word.metadata, "asset_id": asset.asset_id})
+            for word in ocr.detect_and_recognise(source)
+        ]
+        outcome.ocr_pages.append((asset.asset_id, page_words))
+        words.extend(page_words)
+        if is_metric:
+            metric_words = page_words
     outcome.words = words
 
-    extractions = extract(words, record.profile, llm=llm, pack=pack)
+    extractions = _anchor_evidence(
+        extract(words, record.profile, llm=llm, pack=pack),
+        words,
+        metric_asset.asset_id,
+    )
     if llm is not None and not any(item.source == "llm" for item in extractions):
         # Either the model had nothing to add or it failed; the pipeline cannot tell the two
         # apart from here, and both mean the report should not claim full extraction.
@@ -345,7 +421,7 @@ def process_scan(
     measurements: list[Measurement] = []
     if rectified_image is not None:
         measurements = _measure(
-            rectified_image, words, extractions, capture_quality, pack
+            rectified_image, metric_words, extractions, capture_quality, pack
         )
     outcome.measurements = measurements
 
