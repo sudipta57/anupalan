@@ -50,13 +50,14 @@ export function Chip({
     <View
       style={[
         styles.chip,
-        { backgroundColor: bg },
-        selected ? { borderColor: fg, borderWidth: 1.5 } : null,
+        // The border is always reserved, transparent when unselected, so selecting a chip never
+        // nudges its neighbours by growing its box.
+        { backgroundColor: bg, borderColor: selected ? fg : 'transparent' },
         disabled ? styles.disabled : null,
         style,
       ]}
     >
-      <Text variant="caption" style={{ color: fg }}>
+      <Text variant="caption" style={[styles.label, { color: fg }]}>
         {label}
       </Text>
     </View>
@@ -89,8 +90,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 2,
     borderRadius: radius.pill,
+    borderWidth: 1.5,
     alignSelf: 'flex-start',
   },
+  label: { fontFamily: 'IBMPlexSans_700Bold', letterSpacing: 0.4 },
   pressed: { opacity: 0.7 },
   disabled: { opacity: 0.45 },
 });

@@ -39,7 +39,7 @@ const ORDER: readonly { verdict: Verdict; key: keyof ScanListItem['summary'] }[]
 ];
 
 function ScanRowImpl({ item, dateLabel, statusLabel, onPress }: ScanRowProps) {
-  const { colors } = useTheme();
+  const { colors, elevation } = useTheme();
 
   const colourFor: Record<Verdict, string> = {
     PASS: colors.pass,
@@ -52,7 +52,12 @@ function ScanRowImpl({ item, dateLabel, statusLabel, onPress }: ScanRowProps) {
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={[styles.row, { borderColor: colors.border, backgroundColor: colors.surface }]}
+      style={({ pressed }) => [
+        styles.row,
+        { borderColor: colors.border, backgroundColor: colors.surface },
+        elevation.sm,
+        pressed ? styles.pressed : null,
+      ]}
     >
       <Text variant="bodyStrong" numberOfLines={1}>
         {item.productName}
@@ -102,6 +107,7 @@ const styles = StyleSheet.create({
   counts: { flexDirection: 'row', gap: spacing.lg },
   dot: { borderRadius: 4, height: 8, width: 8 },
   meta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  pressed: { opacity: 0.85 },
   row: {
     borderRadius: radius.md,
     borderWidth: 1,

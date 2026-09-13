@@ -58,11 +58,11 @@ export function VerdictBadge({ verdict, style }: VerdictBadgeProps) {
 
 const styles = StyleSheet.create({
   badge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: radius.sm,
-    borderLeftWidth: 3,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
     alignSelf: 'flex-start',
   },
-  label: { letterSpacing: 0.6 },
+  label: { fontFamily: 'IBMPlexSans_700Bold', letterSpacing: 0.6 },
 });

@@ -89,7 +89,7 @@ function FieldRow({
   const source = imageSourceFor(rectified?.uri);
 
   return (
-    <Card>
+    <Card elevated>
       <View style={styles.head}>
         <Text variant="heading">{t(FIELD_LABEL_KEYS[extraction.fieldCode])}</Text>
         <Chip

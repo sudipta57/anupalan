@@ -177,7 +177,7 @@ export function ScanList({ subtitleKey, emptyKey, emptyBodyKey }: ScanListProps)
             </View>
 
             {open ? (
-              <Card>
+              <Card elevated>
                 <Text variant="label" tone="muted">
                   {t('history.filterVerdict')}
                 </Text>

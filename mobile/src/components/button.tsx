@@ -38,18 +38,20 @@ export function Button({
   style,
   ...rest
 }: ButtonProps) {
-  const { colors } = useTheme();
+  const { colors, elevation } = useTheme();
   const isDisabled = disabled === true || loading;
 
+  // Only the two "committing" actions float above the page; secondary/ghost stay flat so a
+  // screen with several buttons doesn't turn into a pile of equally-important shadows.
   const fills: Record<ButtonVariant, ViewStyle> = {
-    primary: { backgroundColor: colors.brand },
+    primary: { backgroundColor: colors.brand, ...elevation.sm },
     secondary: {
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.borderStrong,
     },
     ghost: { backgroundColor: 'transparent' },
-    danger: { backgroundColor: colors.fail },
+    danger: { backgroundColor: colors.fail, ...elevation.sm },
   };
 
   const labelTone = variant === 'primary' || variant === 'danger' ? 'onBrand' : 'brand';
@@ -74,7 +76,11 @@ export function Button({
     >
       <View style={styles.inner}>
         {loading ? <ActivityIndicator size="small" color={spinnerColor} /> : null}
-        <Text variant="bodyStrong" tone={variant === 'danger' ? 'onBrand' : labelTone}>
+        <Text
+          variant="bodyStrong"
+          tone={variant === 'danger' ? 'onBrand' : labelTone}
+          style={styles.label}
+        >
           {label}
         </Text>
       </View>
@@ -86,12 +92,13 @@ const styles = StyleSheet.create({
   base: {
     minHeight: MIN_TOUCH_TARGET,
     paddingHorizontal: spacing.lg,
-    borderRadius: radius.md,
+    borderRadius: radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  label: { fontFamily: 'IBMPlexSans_700Bold' },
   lg: { minHeight: 56, paddingHorizontal: spacing.xl },
   inner: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   pressed: { opacity: 0.78 },
-  disabled: { opacity: 0.45 },
+  disabled: { opacity: 0.45, shadowOpacity: 0, elevation: 0 },
 });

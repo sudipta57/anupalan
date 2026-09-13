@@ -301,6 +301,26 @@ function StartupLine() {
   );
 }
 
+function AboutFooter() {
+  const t = useT();
+  const version = Constants.expoConfig?.version ?? '0.0.0';
+
+  return (
+    <View style={styles.about}>
+      <Text variant="caption" tone="subtle" style={styles.aboutLine}>
+        {t('settings.about')}
+      </Text>
+      <Text variant="mono" tone="subtle" style={styles.aboutLine}>
+        {t('settings.version', { version })}
+      </Text>
+      <Text variant="mono" tone="subtle" style={styles.aboutLine}>
+        API mode: {API_MODE}
+      </Text>
+      <StartupLine />
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const t = useT();
   const locale = usePreferences((s) => s.locale);
@@ -318,8 +338,6 @@ export default function SettingsScreen() {
     { value: 'light', label: t('settings.appearanceLight') },
     { value: 'dark', label: t('settings.appearanceDark') },
   ];
-
-  const version = Constants.expoConfig?.version ?? '0.0.0';
 
   return (
     <Screen scroll>
@@ -352,24 +370,14 @@ export default function SettingsScreen() {
       {__DEV__ ? <MockScenarioPanel /> : null}
       {__DEV__ ? <SampleInspectionPanel /> : null}
 
-      <View style={styles.about}>
-        <Text variant="label" tone="muted">
-          {t('settings.about')}
-        </Text>
-        <Text variant="mono" tone="subtle">
-          {t('settings.version', { version })}
-        </Text>
-        <Text variant="mono" tone="subtle">
-          API mode: {API_MODE}
-        </Text>
-        <StartupLine />
-      </View>
+      <AboutFooter />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  about: { gap: spacing.xs, paddingHorizontal: spacing.xs },
+  about: { alignItems: 'center', gap: 2, paddingTop: spacing.lg },
+  aboutLine: { textAlign: 'center' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   row: { gap: spacing.xs },
   rows: { gap: spacing.md },

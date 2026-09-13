@@ -78,7 +78,7 @@ import * as repo from '@/db/queue-repo';
 import { kick, useOpenCapture } from '@/features/queue';
 import { useT, type TranslationKey } from '@/i18n';
 import { useOrgMode } from '@/store/session';
-import { radius, spacing, useTheme } from '@/theme';
+import { spacing, useTheme } from '@/theme';
 
 /** Translated options for a `SegmentedControl`, from one of the `Option` lists in `profile.ts`. */
 function useOptions<T extends string>(
@@ -252,6 +252,7 @@ function CreatedPanel({
   photoCount: number;
 }) {
   const t = useT();
+  const { colors } = useTheme();
 
   const rows: { label: string; value: string }[] = [
     {
@@ -293,12 +294,18 @@ function CreatedPanel({
       <Card>
         <Text variant="heading">{t('context.createdRecorded')}</Text>
         <View style={styles.stack}>
-          {rows.map((row) => (
-            <View key={row.label} style={styles.summaryRow}>
+          {rows.map((row, index) => (
+            <View
+              key={row.label}
+              style={[
+                styles.summaryRow,
+                { borderTopColor: index > 0 ? colors.border : 'transparent' },
+              ]}
+            >
               <Text variant="label" tone="muted">
                 {row.label}
               </Text>
-              <Text variant="body">{row.value}</Text>
+              <Text variant="bodyStrong">{row.value}</Text>
             </View>
           ))}
         </View>
@@ -752,8 +759,11 @@ const styles = StyleSheet.create({
   row: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   stack: { gap: spacing.xs },
   summaryRow: {
-    borderRadius: radius.sm,
-    gap: spacing.xs,
-    paddingVertical: spacing.xs,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
   },
 });

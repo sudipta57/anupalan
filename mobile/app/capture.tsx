@@ -73,7 +73,7 @@ function toneFor(state: GateState): 'pass' | 'fail' | 'neutral' {
  */
 function LiveCapture({ device, reference }: { device: CameraDevice; reference: MarkerReference }) {
   const t = useT();
-  const { colors } = useTheme();
+  const { colors, elevation } = useTheme();
 
   const photoOutput = usePhotoOutput({ qualityPrioritization: 'quality' });
 
@@ -148,7 +148,13 @@ function LiveCapture({ device, reference }: { device: CameraDevice; reference: M
       </View>
 
       <View
-        style={[styles.panel, { backgroundColor: colors.surface, borderTopColor: colors.border }]}
+        style={[
+          styles.panel,
+          { backgroundColor: colors.surface, borderTopColor: colors.border },
+          // The shadow points up, into the camera preview, since this panel is anchored to the
+          // bottom of the screen rather than sitting on a page above other content.
+          { ...elevation.md, shadowOffset: { width: 0, height: -4 } },
+        ]}
       >
         <Text variant="caption" tone="subtle">
           {t('capture.usingReference', { name: t('marker.title'), mm: String(markerMm) })}
@@ -186,24 +192,27 @@ function LiveCapture({ device, reference }: { device: CameraDevice; reference: M
         {error ? <Banner tone="error" title={error} /> : null}
 
         <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('capture.shutter')}
-            accessibilityHint={report.canCapture ? undefined : t('capture.shutterBlocked')}
-            accessibilityState={{ disabled: !report.canCapture || busy, busy }}
-            disabled={!report.canCapture || busy}
-            onPress={() => void capture()}
-            style={[
-              styles.shutter,
-              {
-                backgroundColor: report.canCapture ? colors.brand : colors.surfaceAlt,
-                borderColor: report.canCapture ? colors.brand : colors.borderStrong,
-              },
-              !report.canCapture ? styles.shutterDisabled : null,
-            ]}
-          >
-            {busy ? <ActivityIndicator color={colors.onBrand} /> : null}
-          </Pressable>
+          <View style={[styles.shutterRing, { borderColor: colors.borderStrong }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('capture.shutter')}
+              accessibilityHint={report.canCapture ? undefined : t('capture.shutterBlocked')}
+              accessibilityState={{ disabled: !report.canCapture || busy, busy }}
+              disabled={!report.canCapture || busy}
+              onPress={() => void capture()}
+              style={[
+                styles.shutter,
+                elevation.sm,
+                {
+                  backgroundColor: report.canCapture ? colors.brand : colors.surfaceAlt,
+                  borderColor: report.canCapture ? colors.brand : colors.borderStrong,
+                },
+                !report.canCapture ? styles.shutterDisabled : null,
+              ]}
+            >
+              {busy ? <ActivityIndicator color={colors.onBrand} /> : null}
+            </Pressable>
+          </View>
 
           <View style={styles.captured}>
             {photos.length > 0 ? (
@@ -329,19 +338,33 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
-  panel: { borderTopWidth: 1, gap: spacing.md, padding: spacing.lg },
+  panel: {
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderTopWidth: 1,
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
   preview: { flex: 1, overflow: 'hidden' },
   root: { flex: 1 },
   shutter: {
     alignItems: 'center',
-    borderRadius: 36,
+    borderRadius: 32,
     borderWidth: 3,
-    height: 72,
+    height: 64,
     justifyContent: 'center',
     minHeight: MIN_TOUCH_TARGET,
     minWidth: MIN_TOUCH_TARGET,
-    width: 72,
+    width: 64,
   },
   shutterDisabled: { opacity: 0.5 },
+  shutterRing: {
+    alignItems: 'center',
+    borderRadius: 40,
+    borderWidth: 2,
+    height: 80,
+    justifyContent: 'center',
+    width: 80,
+  },
   thumb: { borderRadius: radius.sm, height: 48, width: 48 },
 });

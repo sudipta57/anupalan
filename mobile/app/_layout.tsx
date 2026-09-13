@@ -19,7 +19,19 @@
  * where they are — they belong to the device, and they resume on the next sign-in (FR-04).
  */
 
+// Each weight is imported from its own subpath rather than the package root: the root `index.js`
+// unconditionally `require()`s all fourteen IBM Plex weights (and all ten JetBrains Mono weights,
+// italics included) as one module, so importing even a single named export from it bundles every
+// unused weight too — well over 2 MB of typefaces nobody asked for, directly against NFR-02's
+// cold-start budget. The per-weight subpath only pulls in that one file.
+import { IBMPlexSans_400Regular } from '@expo-google-fonts/ibm-plex-sans/400Regular';
+import { IBMPlexSans_500Medium } from '@expo-google-fonts/ibm-plex-sans/500Medium';
+import { IBMPlexSans_600SemiBold } from '@expo-google-fonts/ibm-plex-sans/600SemiBold';
+import { IBMPlexSans_700Bold } from '@expo-google-fonts/ibm-plex-sans/700Bold';
+import { JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono/500Medium';
+import { useFonts } from 'expo-font';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo } from 'react';
 
@@ -31,6 +43,10 @@ import { useIsAuthenticated } from '@/store/session';
 import { useTheme } from '@/theme';
 
 export const unstable_settings = { initialRouteName: '(tabs)' };
+
+// The native splash stays up until the type-scale fonts are ready, so nothing ever renders one
+// frame in the system font and then reflows into IBM Plex Sans / JetBrains Mono a moment later.
+void SplashScreen.preventAutoHideAsync();
 
 function RootNavigator() {
   const { colors, scheme } = useTheme();
@@ -113,6 +129,24 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts({
+    IBMPlexSans_400Regular,
+    IBMPlexSans_500Medium,
+    IBMPlexSans_600SemiBold,
+    IBMPlexSans_700Bold,
+    JetBrainsMono_500Medium,
+  });
+
+  const ready = fontsLoaded || fontError != null;
+
+  useEffect(() => {
+    if (ready) void SplashScreen.hideAsync();
+  }, [ready]);
+
+  // A font load failure falls back to the platform font rather than stranding the app on the
+  // splash screen forever — a missing typeface is a cosmetic loss, not a reason to block startup.
+  if (!ready) return null;
+
   return (
     <AppProviders>
       <RootNavigator />

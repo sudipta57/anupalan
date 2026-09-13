@@ -57,7 +57,7 @@ import {
 } from '@/features/reports';
 import { useT } from '@/i18n';
 import { useOrgMode } from '@/store/session';
-import { radius, spacing, useTheme } from '@/theme';
+import { spacing } from '@/theme';
 
 /* -------------------------------------------------------------------------- */
 /*  Blocked                                                                    */
@@ -118,8 +118,8 @@ function Preview({ scan, result }: { scan: Scan; result: FindingsResult }) {
             document from one with none, and the person sending it should know which they have. */}
         {counts.map((row) => (
           <View key={row.verdict} style={styles.countRow}>
+            <Text variant="title">{row.count}</Text>
             <VerdictBadge verdict={row.verdict} />
-            <Text variant="bodyStrong">{row.count}</Text>
           </View>
         ))}
       </View>
@@ -163,7 +163,6 @@ function FileRow({
   onError: (message: string) => void;
 }) {
   const t = useT();
-  const { colors } = useTheme();
 
   const [busy, setBusy] = useState(false);
 
@@ -185,7 +184,7 @@ function FileRow({
   }, [file, name, onError, t]);
 
   return (
-    <View style={[styles.file, { borderColor: colors.border }]}>
+    <Card elevated style={styles.file}>
       <View style={styles.fileHead}>
         <Chip label={t(FORMAT_LABEL_KEYS[file.format])} tone="brand" selected />
         <Text variant="caption" tone="muted">
@@ -207,7 +206,7 @@ function FileRow({
           onPress={() => void share()}
         />
       )}
-    </View>
+    </Card>
   );
 }
 
@@ -255,11 +254,11 @@ function Generated({
         />
       ) : null}
 
-      <Card>
+      <View style={styles.files}>
         {files.map((file) => (
           <FileRow key={file.format} file={file} scan={scan} onError={setError} />
         ))}
-      </Card>
+      </View>
 
       <Button label={t('report.regenerate')} variant="secondary" onPress={onRegenerate} />
     </>
@@ -469,20 +468,11 @@ export default function ReportScreen() {
 }
 
 const styles = StyleSheet.create({
-  countRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.md,
-    justifyContent: 'space-between',
-  },
-  counts: { gap: spacing.sm },
-  file: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    gap: spacing.sm,
-    padding: spacing.md,
-  },
+  countRow: { alignItems: 'flex-start', gap: spacing.xs, minWidth: 72 },
+  counts: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg },
+  file: { gap: spacing.sm },
   fileHead: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  files: { gap: spacing.md },
   formats: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   intro: { gap: spacing.xs },
 });

@@ -20,7 +20,7 @@
 
 import { memo } from 'react';
 import { StyleSheet } from 'react-native';
-import Svg, { Rect } from 'react-native-svg';
+import Svg, { Circle, G, Rect, Text as SvgText } from 'react-native-svg';
 
 import type { Verdict } from '@/domain';
 import { boxOnCanvas, strokeWidthFor, type AnchoredFinding } from '@/features/findings';
@@ -42,10 +42,18 @@ export interface FindingsOverlayProps {
    * frame to restate a hairline.
    */
   zoom: number;
+  /**
+   * The same number a finding's row shows in the list below, so a reader can match a box on the
+   * pack to its card without guessing. Findings with no entry here draw no badge — every id in this
+   * map must also be in `findings`.
+   */
+  numbering?: ReadonlyMap<string, number>;
 }
 
 /** Base outline weight in canvas units, before the zoom is divided back out. */
 const STROKE = 2.5;
+/** Base radius of the numbered index badge, before the zoom is divided back out. */
+const BADGE_RADIUS = 9;
 
 function FindingsOverlayImpl({
   findings,
@@ -54,10 +62,12 @@ function FindingsOverlayImpl({
   height,
   fit,
   zoom,
+  numbering,
 }: FindingsOverlayProps) {
   const { colors } = useTheme();
 
   const stroke = strokeWidthFor(zoom, STROKE);
+  const badgeRadius = strokeWidthFor(zoom, BADGE_RADIUS);
 
   const colourFor: Record<Verdict, string> = {
     PASS: colors.pass,
@@ -100,6 +110,43 @@ function FindingsOverlayImpl({
           />
         );
       })}
+
+      {/* A second pass, so every badge paints above every box regardless of draw order. */}
+      {numbering
+        ? findings.map((finding) => {
+            const number = numbering.get(finding.id);
+            if (number === undefined) return null;
+
+            const box = boxOnCanvas(finding.bbox, fit);
+            const colour = colourFor[finding.verdict];
+
+            return (
+              <G key={`badge-${finding.id}`}>
+                <Circle
+                  cx={box.x}
+                  cy={box.y}
+                  r={badgeRadius}
+                  fill={colour}
+                  stroke={colors.surface}
+                  strokeWidth={badgeRadius * 0.2}
+                />
+                <SvgText
+                  x={box.x}
+                  y={box.y}
+                  fill={colors.onBrand}
+                  fontSize={badgeRadius * 1.15}
+                  fontWeight="bold"
+                  textAnchor="middle"
+                  // SVG has no vertical-centre primitive; `dy` nudges the baseline down by roughly
+                  // a third of the cap height, which centres single- and double-digit numbers alike.
+                  dy={badgeRadius * 0.35}
+                >
+                  {number}
+                </SvgText>
+              </G>
+            );
+          })
+        : null}
     </Svg>
   );
 }

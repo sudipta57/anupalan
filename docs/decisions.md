@@ -1420,3 +1420,40 @@ but it is now the binding constraint on answer quality, and it is a `bis/` data 
 under CLAUDE.md §7.
 
 **PR:** n/a · **Requirement:** FR-07, FR-28, FR-29, CLAUDE.md §3.1, §3.5, §3.6
+
+### 2026-09-13 — The app restyled against the approved Stitch designs, reversing Stage 0's platform-font and teal-brand defaults
+**Context:** the team produced 18 Stitch reference screens for a visual pass over the already-built
+app. A prior audit found the mockups' colours, radii and verdict-chip shapes were already close to
+the shipped design system, but two things carried most of the visual gap: Stitch's type is IBM Plex
+Sans and JetBrains Mono against the app's platform-font default, and its primary/CTA colour is
+near-black against the app's teal-blue brand. Both were deliberate Stage 0 choices — no webfont, to
+protect NFR-02's cold-start budget, and teal specifically to stay clear of the green PASS verdict.
+**Decision:** load IBM Plex Sans (400/500/600/700) and JetBrains Mono (500) via
+`@expo-google-fonts/*`, imported from each weight's own subpath rather than the package root — the
+root `index.js` unconditionally bundles all fourteen IBM Plex weights and all ten JetBrains Mono
+weights, italics included, which would have added over 2 MB of unused typefaces. `app/_layout.tsx`
+holds the native splash screen up with `expo-splash-screen` until `useFonts` resolves, so the first
+frame ever shown is already correctly typeset rather than flashing the system font first. The brand
+colour became near-black in light mode (`#000000`) and near-white in dark mode (`#F2F2F3`, with
+`onBrand` flipping to a dark ink), with `brandSoft` becoming a neutral grey tint in both. Verdict
+hues were also tightened to the exact Stitch values (fail `#B91C1C`, pass `#15803D`, borderline
+`#B45309`), `info` was given its own blue rather than aliasing brand, `Card`'s and `Button`'s corner
+radii were corrected to match Stitch's own scale (`radius.md`/8px for cards, `radius.sm`/4px for
+buttons — the app had been using `radius.lg`/12px and `radius.md`/8px respectively), and
+`VerdictBadge` moved from a left-accent tag to Stitch's pill shape (full border + soft fill +
+bold, tracked-out text).
+**Alternatives:** keeping the platform font and tuning only sizes/weights to approximate Stitch's
+type scale — rejected because typography carries most of a screen's visual identity, and the ask was
+explicit visual parity, not an approximation. Keeping teal-blue and treating the CTA colour as a
+Stitch default rather than a real brand call — rejected on the same grounds, on explicit
+confirmation.
+**Consequences:** NFR-02's cold-start budget must be re-measured on a device (`docs/eval-results.md`)
+now that the splash screen waits on a font load — the five bundled font files add real weight even
+after trimming the unused 34 sibling weights. §9 of `01-architecture.md` and Stage 0's notes in
+`05-frontend-plan.md` describe the old platform-font, teal-brand defaults and need a follow-up edit
+to match. The camera capture screen's Stitch reference uses a permanently dark, floating-controls
+chrome regardless of app theme; matching it exactly would mean bypassing the theme system's
+light/dark `tone` colouring inside that one screen, so it was left on the existing light-surface
+panel design rather than introduced as a one-off exception — a known remaining gap, not an oversight.
+**PR:** n/a · **Requirement:** n/a (visual-only; CLAUDE.md §10, reverses a Stage 0 note in
+`05-frontend-plan.md`)

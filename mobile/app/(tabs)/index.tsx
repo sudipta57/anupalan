@@ -61,7 +61,7 @@ export default function ScanScreen() {
               pack they have already put down, so it must not be something they have to go looking
               for. */}
           {openPhotos > 0 ? (
-            <Card>
+            <Card elevated>
               <Text variant="heading">{t('scan.openTitle')}</Text>
               <Text variant="body" tone="borderline">
                 {openPhotos === 1
@@ -80,7 +80,7 @@ export default function ScanScreen() {
               />
             </Card>
           ) : (
-            <Card>
+            <Card elevated>
               <Text variant="heading">{t('scan.start')}</Text>
               <Text variant="body" tone="muted">
                 {t('scan.subtitle')}
@@ -128,7 +128,7 @@ export default function ScanScreen() {
           </Card>
         </>
       ) : (
-        <Card>
+        <Card elevated>
           <Text variant="heading">{t('marker.notSet')}</Text>
           <Text variant="body" tone="muted">
             {t('marker.notSetBody')}

@@ -45,7 +45,7 @@ export function AnswerCard({ answer, now, onOpenFailed }: AnswerCardProps) {
   const downgraded = !showsModelText(answer);
 
   return (
-    <Card>
+    <Card elevated>
       {/* The downgrade is stated as its own banner, above everything. It is a statement about the
           assistant rather than about the question, and burying it under the not-found copy would
           hide the only signal that the extraction layer is returning uncited prose. */}

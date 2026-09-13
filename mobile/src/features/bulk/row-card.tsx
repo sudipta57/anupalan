@@ -32,7 +32,7 @@ export interface ListingRowCardProps {
 
 export function ListingRowCard({ row, expanded, onToggle }: ListingRowCardProps) {
   const t = useT();
-  const { colors } = useTheme();
+  const { colors, elevation } = useTheme();
 
   const counts = [
     { verdict: 'FAIL' as const, count: row.summary.fail },
@@ -42,7 +42,13 @@ export function ListingRowCard({ row, expanded, onToggle }: ListingRowCardProps)
   ];
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: colors.surface, borderColor: colors.border },
+        elevation.sm,
+      ]}
+    >
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded }}
@@ -123,7 +129,7 @@ export function ListingRowCard({ row, expanded, onToggle }: ListingRowCardProps)
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
     gap: spacing.sm,
     padding: spacing.md,

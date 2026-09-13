@@ -28,7 +28,6 @@ import {
   Banner,
   Button,
   Card,
-  Chip,
   Screen,
   Skeleton,
   Text,
@@ -45,17 +44,9 @@ import {
   issuesToReport,
   stageStateFor,
   verdictsAreProvisional,
-  type StageState,
 } from '@/features/processing';
 import { useT } from '@/i18n';
-import { radius, spacing, useTheme } from '@/theme';
-
-/** Stage rows are not verdicts, so they do not borrow the verdict palette. */
-function toneFor(state: StageState): 'pass' | 'brand' | 'neutral' {
-  if (state === 'done') return 'pass';
-  if (state === 'active') return 'brand';
-  return 'neutral';
-}
+import { spacing, useTheme } from '@/theme';
 
 function StageList({
   current,
@@ -69,30 +60,52 @@ function StageList({
 
   return (
     <View style={styles.stages}>
-      {PIPELINE_STAGES.map((stage) => {
+      {PIPELINE_STAGES.map((stage, index) => {
         const state = stageStateFor(stage, current, isComplete);
+        const isLast = index === PIPELINE_STAGES.length - 1;
 
         return (
           <View key={stage} style={styles.stageRow}>
-            <Text
-              variant="mono"
-              tone={state === 'waiting' || state === 'unknown' ? 'subtle' : 'brand'}
-              style={styles.stageCode}
-            >
-              {STAGE_CODES[stage]}
-            </Text>
-            <Text
-              variant={state === 'active' ? 'bodyStrong' : 'body'}
-              tone={state === 'done' ? 'muted' : state === 'active' ? 'default' : 'subtle'}
-              style={styles.stageLabel}
-            >
-              {t(STAGE_LABEL_KEYS[stage])}
-            </Text>
-            {state === 'done' ? (
-              <Chip label="✓" tone={toneFor(state)} selected />
-            ) : state === 'active' ? (
-              <View style={[styles.pulse, { backgroundColor: colors.brand }]} />
-            ) : null}
+            <View style={styles.stageMarkerColumn}>
+              <View
+                style={[
+                  styles.stageDot,
+                  state === 'done'
+                    ? { backgroundColor: colors.pass, borderColor: colors.pass }
+                    : state === 'active'
+                      ? { backgroundColor: colors.brand, borderColor: colors.brand }
+                      : { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
+                {state === 'done' ? (
+                  <Text variant="caption" tone="onBrand" style={styles.stageMark}>
+                    ✓
+                  </Text>
+                ) : state === 'active' ? (
+                  <View style={[styles.stageActiveDot, { backgroundColor: colors.onBrand }]} />
+                ) : null}
+              </View>
+              {!isLast ? (
+                <View
+                  style={[
+                    styles.stageConnector,
+                    { backgroundColor: state === 'done' ? colors.pass : colors.border },
+                  ]}
+                />
+              ) : null}
+            </View>
+
+            <View style={styles.stageBody}>
+              <Text
+                variant={state === 'active' ? 'bodyStrong' : 'body'}
+                tone={state === 'done' ? 'muted' : state === 'active' ? 'default' : 'subtle'}
+              >
+                {t(STAGE_LABEL_KEYS[stage])}
+              </Text>
+              <Text variant="mono" tone="subtle">
+                {STAGE_CODES[stage]}
+              </Text>
+            </View>
           </View>
         );
       })}
@@ -181,9 +194,9 @@ function Summary({ result }: { result: FindingsResult }) {
       {/* All four, always, even at zero. A summary that omits an empty group teaches the reader that
           the groups it shows are the only ones there are (CLAUDE.md §3.4). */}
       {rows.map((row) => (
-        <View key={row.verdict} style={styles.summaryRow}>
+        <View key={row.verdict} style={styles.summaryStat}>
+          <Text variant="title">{row.count}</Text>
           <VerdictBadge verdict={row.verdict} />
-          <Text variant="bodyStrong">{row.count}</Text>
         </View>
       ))}
     </View>
@@ -358,22 +371,21 @@ export default function ScanScreen() {
 }
 
 const styles = StyleSheet.create({
-  pulse: { borderRadius: 5, height: 10, width: 10 },
-  stageCode: { minWidth: 34 },
-  stageLabel: { flex: 1 },
-  stageRow: {
+  stageActiveDot: { borderRadius: 4, height: 8, width: 8 },
+  stageBody: { flex: 1, gap: 2, paddingBottom: spacing.md },
+  stageConnector: { flex: 1, marginVertical: 2, width: 2 },
+  stageDot: {
     alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.sm,
-    minHeight: 32,
+    borderRadius: 12,
+    borderWidth: 2,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
   },
-  stages: { gap: spacing.xs },
-  summary: { gap: spacing.sm },
-  summaryRow: {
-    alignItems: 'center',
-    borderRadius: radius.sm,
-    flexDirection: 'row',
-    gap: spacing.md,
-    justifyContent: 'space-between',
-  },
+  stageMark: { fontWeight: '700' },
+  stageMarkerColumn: { alignItems: 'center', width: 24 },
+  stageRow: { flexDirection: 'row', gap: spacing.sm },
+  stages: { gap: 0 },
+  summary: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg },
+  summaryStat: { alignItems: 'flex-start', gap: spacing.xs, minWidth: 72 },
 });

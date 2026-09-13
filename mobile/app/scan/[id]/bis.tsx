@@ -81,7 +81,7 @@ function Verdict({ record, now }: { record: BisApplicability; now: number }) {
 
   return (
     <>
-      <Card>
+      <Card elevated>
         <Text variant="caption" tone="subtle">
           {t('bis.product')}
         </Text>

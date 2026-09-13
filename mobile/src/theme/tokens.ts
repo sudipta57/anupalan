@@ -3,15 +3,19 @@
  *
  * Two rules shape this palette, and both come from what the product is:
  *
- * 1. **Verdict colour is semantic and separate from the brand.** The brand is a deep teal-blue;
- *    PASS is green. If the brand were green, a green chrome element would read as a passing
- *    verdict. Verdicts are the one thing in this app that must never be misread
- *    (CLAUDE.md §3.4), so they own their own hues and nothing else uses them.
+ * 1. **Verdict colour is semantic and separate from the brand.** The brand is near-black; PASS is
+ *    green. If the brand were green, a green chrome element would read as a passing verdict.
+ *    Verdicts are the one thing in this app that must never be misread (CLAUDE.md §3.4), so they
+ *    own their own hues and nothing else uses them.
  * 2. **Colour is never the only signal.** `VerdictBadge` pairs every colour with a distinct
  *    label, because a field officer may be colour-blind, in direct sunlight, or both.
  *
- * Fonts are the platform's own (Roboto on Android). No webfont is loaded: NFR-02 gives the app
- * a 3-second cold-start budget on a 4 GB device, and a font download is a poor way to spend it.
+ * Brand and type scale follow the approved Stitch design system: IBM Plex Sans for text, JetBrains
+ * Mono for rule ids, hashes and millimetre readings, and a near-black primary rather than a hue —
+ * a deliberate reversal of Stage 0's platform-font, teal-brand defaults, accepted for closer visual
+ * parity with the reference designs. The two Google Font families are bundled (not downloaded at
+ * runtime) and gate the splash screen in `app/_layout.tsx`, so NFR-02's cold-start budget still
+ * measures a real, fully-typeset first frame rather than a font swap happening after it.
  */
 
 export type ColorScheme = 'light' | 'dark';
@@ -71,25 +75,24 @@ const light: Palette = {
   textSubtle: '#636D75',
   onBrand: '#FFFFFF',
 
-  brand: '#0B5F73',
-  brandSoft: '#E0EDF1',
+  brand: '#000000',
+  brandSoft: '#EBEBEC',
 
-  // Darkened from #1B7F4B at the Stage 13 accessibility pass: 4.36:1 on `passSoft`, just under the
-  // threshold. The verdict badges draw their own colour on their own soft ground, so this pair is
-  // read on every findings screen.
-  pass: '#1A7A48',
-  passSoft: '#E2F3EA',
-  fail: '#B3261E',
-  failSoft: '#FBE7E5',
-  borderline: '#8A6100',
-  borderlineSoft: '#FAEFD9',
+  // Matched to the approved Stitch palette. Contrast checked against its own soft ground: pass
+  // 5.0:1, fail 6.9:1, borderline 6.5:1 — all clear of the 4.5:1 body-text floor.
+  pass: '#15803D',
+  passSoft: '#DCFCE7',
+  fail: '#B91C1C',
+  failSoft: '#FEE2E2',
+  borderline: '#B45309',
+  borderlineSoft: '#FEF3C7',
   notAssessable: '#5C6B73',
-  notAssessableSoft: '#EAEEF0',
+  notAssessableSoft: '#F1F5F9',
 
-  warning: '#8A6100',
-  warningSoft: '#FAEFD9',
-  info: '#0B5F73',
-  infoSoft: '#E0EDF1',
+  warning: '#B45309',
+  warningSoft: '#FEF3C7',
+  info: '#1D4ED8',
+  infoSoft: '#DBEAFE',
 
   overlay: 'rgba(16, 23, 26, 0.45)',
 };
@@ -107,10 +110,12 @@ const dark: Palette = {
   // subtle grey, which is correct — the same colour cannot sit 4.5:1 from both a near-white and a
   // near-black ground.
   textSubtle: '#87929A',
-  onBrand: '#052029',
+  // Brand inverts to near-white in dark mode — a near-black CTA would vanish against a near-black
+  // background — with `onBrand` flipping to a dark ink to keep the button's own text readable.
+  onBrand: '#101114',
 
-  brand: '#4BC5DA',
-  brandSoft: '#10333C',
+  brand: '#F2F2F3',
+  brandSoft: '#26272A',
 
   pass: '#5CC98A',
   passSoft: '#123021',
@@ -123,8 +128,8 @@ const dark: Palette = {
 
   warning: '#DBA92E',
   warningSoft: '#332711',
-  info: '#4BC5DA',
-  infoSoft: '#10333C',
+  info: '#60A5FA',
+  infoSoft: '#132A4A',
 
   overlay: 'rgba(0, 0, 0, 0.6)',
 };
@@ -153,15 +158,33 @@ export const radius = {
  * Type scale. `mono` exists for rule ids (`LM-9-2-TABLE1`), millimetre readings and hashes —
  * anything where digits must line up or a character must not be misread.
  */
+// Each Google Font weight ships as its own family name (there is no single "IBM Plex Sans" family
+// with a variable weight axis here), so the weight lives entirely in `fontFamily` and `fontWeight`
+// is omitted — setting both invites Android/iOS to synthesise a second, conflicting bold.
 export const typography = {
-  display: { fontSize: 28, lineHeight: 34, fontWeight: '700' },
-  title: { fontSize: 22, lineHeight: 28, fontWeight: '700' },
-  heading: { fontSize: 18, lineHeight: 24, fontWeight: '600' },
-  body: { fontSize: 16, lineHeight: 24, fontWeight: '400' },
-  bodyStrong: { fontSize: 16, lineHeight: 24, fontWeight: '600' },
-  label: { fontSize: 14, lineHeight: 20, fontWeight: '500' },
-  caption: { fontSize: 12, lineHeight: 16, fontWeight: '500' },
-  mono: { fontSize: 13, lineHeight: 18, fontWeight: '500', fontFamily: 'monospace' },
+  display: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontFamily: 'IBMPlexSans_700Bold',
+    letterSpacing: -0.4,
+  },
+  title: { fontSize: 22, lineHeight: 28, fontFamily: 'IBMPlexSans_700Bold', letterSpacing: -0.3 },
+  heading: { fontSize: 18, lineHeight: 24, fontFamily: 'IBMPlexSans_600SemiBold' },
+  body: { fontSize: 16, lineHeight: 24, fontFamily: 'IBMPlexSans_400Regular' },
+  bodyStrong: { fontSize: 16, lineHeight: 24, fontFamily: 'IBMPlexSans_600SemiBold' },
+  label: { fontSize: 14, lineHeight: 20, fontFamily: 'IBMPlexSans_500Medium' },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: 'IBMPlexSans_500Medium',
+    letterSpacing: 0.2,
+  },
+  mono: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: 'JetBrainsMono_500Medium',
+    letterSpacing: 0.3,
+  },
 } as const;
 
 export type TypographyVariant = keyof typeof typography;
@@ -169,3 +192,52 @@ export type TypographyVariant = keyof typeof typography;
 /** Minimum touch target. Field use means gloves, rain, and a phone held one-handed. */
 export const HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 } as const;
 export const MIN_TOUCH_TARGET = 44;
+
+export interface ElevationStyle {
+  shadowColor: string;
+  shadowOffset: { width: number; height: number };
+  shadowOpacity: number;
+  shadowRadius: number;
+  elevation: number;
+}
+
+/**
+ * Optional depth for surfaces that need to read as raised above the page (a hero card, the
+ * findings label pane) rather than merely bordered. Every existing card stays flat-and-bordered
+ * by default; `sm`/`md` are opt-in. Dark mode uses pure black at higher opacity, since a
+ * light-toned shadow is invisible against the app's near-black background.
+ */
+export const elevations: Record<ColorScheme, { sm: ElevationStyle; md: ElevationStyle }> = {
+  light: {
+    sm: {
+      shadowColor: '#10171A',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.08,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    md: {
+      shadowColor: '#10171A',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.12,
+      shadowRadius: 10,
+      elevation: 6,
+    },
+  },
+  dark: {
+    sm: {
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.4,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    md: {
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.5,
+      shadowRadius: 10,
+      elevation: 6,
+    },
+  },
+};

@@ -3,6 +3,8 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@expo-google-fonts/ibm-plex-sans": "^0.4.1",
+    "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo/ui": "~57.0.18",
     "@tanstack/react-query": "^5.102.8",
     "expo": "~57.0.22",

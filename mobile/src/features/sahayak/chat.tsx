@@ -60,7 +60,7 @@ export function SahayakChat({
 }: SahayakChatProps): ReactNode {
   const t = useT();
   const locale = useLocale();
-  const { colors } = useTheme();
+  const { colors, elevation } = useTheme();
 
   const { transcript, draft } = useThread(thread);
   const setDraft = useSahayakStore((s) => s.setDraft);
@@ -130,12 +130,14 @@ export function SahayakChat({
           {transcript.turns.map((turn, index) => {
             if (turn.kind === 'question') {
               return (
-                <Card key={turn.id}>
-                  <Text variant="caption" tone="subtle">
-                    {t('sahayak.you')}
-                  </Text>
-                  <Text variant="bodyStrong">{turn.text}</Text>
-                </Card>
+                <View key={turn.id} style={styles.questionRow}>
+                  <Card style={[styles.questionBubble, { backgroundColor: colors.brandSoft }]}>
+                    <Text variant="caption" tone="subtle">
+                      {t('sahayak.you')}
+                    </Text>
+                    <Text variant="bodyStrong">{turn.text}</Text>
+                  </Card>
+                </View>
               );
             }
 
@@ -199,6 +201,7 @@ export function SahayakChat({
           style={[
             styles.composer,
             { backgroundColor: colors.surface, borderTopColor: colors.border },
+            { ...elevation.md, shadowOffset: { width: 0, height: -4 } },
           ]}
         >
           <Field
@@ -238,6 +241,8 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
   },
   fill: { flex: 1 },
+  questionBubble: { maxWidth: '86%' },
+  questionRow: { alignItems: 'flex-end' },
   scroll: {
     gap: spacing.md,
     padding: spacing.lg,

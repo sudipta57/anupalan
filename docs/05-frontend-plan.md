@@ -105,6 +105,10 @@ screen composes from.
   **deliberately not green**, because verdict colours are semantic and must own their hues: a
   green chrome element would read as a passing verdict. No webfont — NFR-02's 3-second cold-start
   budget is not worth spending on a font download.
+  **Superseded 2026-09-13:** both defaults were reversed to match the approved Stitch designs —
+  brand is now near-black (still clear of every verdict hue), and IBM Plex Sans / JetBrains Mono
+  are bundled and gate the splash screen. See `docs/decisions.md`'s 2026-09-13 entry for the cost
+  and the one screen (camera capture) left unmatched on purpose.
 - `src/components/` — Button, Card, Chip, Field, Banner, EmptyState, Skeleton, SegmentedControl,
   Text, Screen, plus `VerdictBadge` and `AdvisoryDisclaimer`. Tab icons are hand-drawn in
   `react-native-svg` rather than adding an icon package; the scan icon is a viewfinder framing a

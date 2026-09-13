@@ -13,7 +13,7 @@
 
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import { Banner, Button, Card, Chip, Field, Screen, Text } from '@/components';
 import {
@@ -51,7 +51,7 @@ const VERIFY_KEYS: Record<MarkerType, TranslationKey> = {
 
 export default function MarkerScreen() {
   const t = useT();
-  const { colors } = useTheme();
+  const { colors, elevation } = useTheme();
 
   const saved = useMarkerStore((s) => s.reference);
   const setVerifiedReference = useMarkerStore((s) => s.setVerifiedReference);
@@ -97,35 +97,38 @@ export default function MarkerScreen() {
             const selected = spec.type === type;
 
             return (
-              <View
+              <Pressable
                 key={spec.type}
-                style={[
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                accessibilityLabel={t(NAME_KEYS[spec.type])}
+                onPress={() => {
+                  setType(spec.type);
+                  // A new reference has not been measured yet, whatever was true of the last one.
+                  setConfirmed(false);
+                }}
+                style={({ pressed }) => [
                   styles.option,
                   {
                     borderColor: selected ? colors.brand : colors.border,
                     backgroundColor: selected ? colors.brandSoft : colors.surface,
                   },
+                  selected ? elevation.sm : null,
+                  pressed ? styles.optionPressed : null,
                 ]}
               >
-                <Chip
-                  label={t(NAME_KEYS[spec.type])}
-                  tone={selected ? 'brand' : 'neutral'}
-                  selected={selected}
-                  onPress={() => {
-                    setType(spec.type);
-                    // A new reference has not been measured yet, whatever was true of the last one.
-                    setConfirmed(false);
-                  }}
-                />
+                <View style={styles.optionHead}>
+                  <Text variant="bodyStrong" tone={selected ? 'brand' : 'default'}>
+                    {t(NAME_KEYS[spec.type])}
+                  </Text>
+                  {spec.type === RECOMMENDED_MARKER_TYPE ? (
+                    <Chip label={t('marker.recommended')} tone="brand" />
+                  ) : null}
+                </View>
                 <Text variant="caption" tone="muted">
                   {t(DETAIL_KEYS[spec.type])}
                 </Text>
-                {spec.type === RECOMMENDED_MARKER_TYPE ? (
-                  <Text variant="caption" tone="brand">
-                    {t('marker.recommended')}
-                  </Text>
-                ) : null}
-              </View>
+              </Pressable>
             );
           })}
         </View>
@@ -207,9 +210,15 @@ const styles = StyleSheet.create({
   option: {
     gap: spacing.xs,
     padding: spacing.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderRadius: radius.md,
   },
+  optionHead: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  optionPressed: { opacity: 0.85 },
   preview: { width: 160, height: 160 },
   previewWrap: { alignItems: 'center', paddingVertical: spacing.sm },
 });

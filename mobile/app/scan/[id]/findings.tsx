@@ -31,7 +31,7 @@
  */
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -198,6 +198,7 @@ function LabelPane({
   selectedId,
   onSelect,
   labelView,
+  numbering,
 }: {
   image: ImageSize;
   source: ImageSourcePropType;
@@ -206,6 +207,7 @@ function LabelPane({
   selectedId: string | null;
   onSelect: (finding: Finding | null) => void;
   labelView: LabelView;
+  numbering: ReadonlyMap<string, number>;
 }) {
   const t = useT();
   const { colors } = useTheme();
@@ -287,6 +289,7 @@ function LabelPane({
                 height={canvas.height}
                 fit={fit}
                 zoom={view.zoom}
+                numbering={numbering}
               />
             </View>
           ) : null}
@@ -342,12 +345,18 @@ function Detail({
   mode: OrgMode | null;
 }) {
   const t = useT();
-  const { colors } = useTheme();
+  const { colors, elevation } = useTheme();
 
   const detail = detailFor(finding, mode);
 
   return (
-    <View style={[styles.detail, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+    <View
+      style={[
+        styles.detail,
+        { borderColor: colors.border, backgroundColor: colors.surface },
+        elevation.sm,
+      ]}
+    >
       <ScrollView contentContainerStyle={styles.detailBody}>
         <View style={styles.detailHead}>
           <VerdictBadge verdict={finding.verdict} />
@@ -380,7 +389,12 @@ function Detail({
 
         {/* Verbatim from the rule pack, in its own block. This is the sentence someone reads out in
             a dispute; it is never shortened, reworded or turned into a link. */}
-        <View style={[styles.citation, { borderLeftColor: colors.brand }]}>
+        <View
+          style={[
+            styles.citation,
+            { borderLeftColor: colors.brand, backgroundColor: colors.brandSoft },
+          ]}
+        >
           <Text variant="label" tone="muted">
             {t('findings.citation')}
           </Text>
@@ -430,15 +444,26 @@ function Row({
 
 const FindingRow = memo(function FindingRow({
   finding,
+  number,
   selected,
   onPress,
 }: {
   finding: Finding;
+  /** The same number the image overlay draws on this finding's box, or null if it has none. */
+  number: number | null;
   selected: boolean;
   onPress: () => void;
 }) {
   const t = useT();
-  const { colors } = useTheme();
+  const { colors, elevation } = useTheme();
+
+  const accentFor: Record<Verdict, string> = {
+    PASS: colors.pass,
+    FAIL: colors.fail,
+    BORDERLINE: colors.borderline,
+    NOT_ASSESSABLE: colors.notAssessable,
+  };
+  const accent = accentFor[finding.verdict];
 
   return (
     <Pressable
@@ -447,19 +472,54 @@ const FindingRow = memo(function FindingRow({
       onPress={onPress}
       style={[
         styles.findingRow,
-        { borderColor: selected ? colors.brand : colors.border },
+        {
+          borderColor: selected ? colors.brand : colors.border,
+          borderLeftColor: accent,
+          backgroundColor: colors.surface,
+        },
+        elevation.sm,
         selected && { backgroundColor: colors.brandSoft },
       ]}
     >
       <View style={styles.findingHead}>
+        <View style={styles.findingHeadLeft}>
+          {number !== null ? (
+            <View style={[styles.findingNumber, { backgroundColor: accent }]}>
+              <Text variant="caption" tone="onBrand" style={styles.findingNumberLabel}>
+                {number}
+              </Text>
+            </View>
+          ) : null}
+          <Text variant="mono" tone="subtle">
+            {finding.ruleId}
+          </Text>
+        </View>
         <VerdictBadge verdict={finding.verdict} />
-        <Text variant="mono" tone="subtle">
-          {finding.ruleId}
-        </Text>
       </View>
+
       <Text variant="body" numberOfLines={2}>
         {finding.message}
       </Text>
+
+      {/* The same numbers the Detail panel shows on a tap — shown here too, so a reader who only
+          wants "what number, against what" never has to leave the list for the common case. */}
+      {finding.required !== null && finding.observed !== null ? (
+        <View style={styles.findingStats}>
+          <View style={styles.findingStat}>
+            <Text variant="caption" tone="muted">
+              {t('findings.required')}
+            </Text>
+            <Text variant="mono">{finding.required}</Text>
+          </View>
+          <View style={styles.findingStat}>
+            <Text variant="caption" tone="muted">
+              {t('findings.observed')}
+            </Text>
+            <Text variant="mono">{finding.observed}</Text>
+          </View>
+        </View>
+      ) : null}
+
       {finding.bbox === null ? (
         <Text variant="caption" tone="subtle">
           {t('findings.noRegion')}
@@ -473,11 +533,13 @@ function Group({
   verdict,
   findings,
   selectedId,
+  numbering,
   onSelect,
 }: {
   verdict: Verdict;
   findings: Finding[];
   selectedId: string | null;
+  numbering: ReadonlyMap<string, number>;
   onSelect: (finding: Finding) => void;
 }) {
   const t = useT();
@@ -500,6 +562,7 @@ function Group({
           <FindingRow
             key={finding.id}
             finding={finding}
+            number={numbering.get(finding.id) ?? null}
             selected={finding.id === selectedId}
             onPress={() => onSelect(finding)}
           />
@@ -595,6 +658,20 @@ function Loaded({ scan, result }: { scan: Scan; result: FindingsResult }) {
   const provisional = verdictsAreProvisional(result);
   const locked = editingLocked(mode, scan);
 
+  // One number per finding that has a box, in the same failures-first order the groups render in —
+  // shared between the image overlay and the list rows so the two can never disagree about which
+  // number points at which finding.
+  const numbering = useMemo(() => {
+    const map = new Map<string, number>();
+    let next = 1;
+    for (const finding of findingsInDisplayOrder(result.findings)) {
+      if (finding.bbox === null) continue;
+      map.set(finding.id, next);
+      next += 1;
+    }
+    return map;
+  }, [result.findings]);
+
   const selected = result.findings.find((finding) => finding.id === selectedId) ?? null;
 
   const { focusBox } = labelView;
@@ -634,6 +711,7 @@ function Loaded({ scan, result }: { scan: Scan; result: FindingsResult }) {
           selectedId={selectedId}
           onSelect={selectFromImage}
           labelView={labelView}
+          numbering={numbering}
         />
       ) : (
         <NoImagePane />
@@ -702,6 +780,7 @@ function Loaded({ scan, result }: { scan: Scan; result: FindingsResult }) {
             verdict={group.verdict}
             findings={group.findings}
             selectedId={selectedId}
+            numbering={numbering}
             onSelect={selectFromList}
           />
         ))}
@@ -817,8 +896,9 @@ const styles = StyleSheet.create({
   centred: { textAlign: 'center' },
   citation: {
     borderLeftWidth: 3,
+    borderRadius: radius.sm,
     gap: spacing.xs,
-    paddingLeft: spacing.sm,
+    padding: spacing.sm,
   },
   detail: {
     borderTopWidth: 1,
@@ -827,17 +907,36 @@ const styles = StyleSheet.create({
   },
   detailBody: { gap: spacing.sm, padding: spacing.lg },
   detailHead: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  findingHead: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  findingHead: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+  },
+  findingHeadLeft: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  findingNumber: {
+    alignItems: 'center',
+    borderRadius: 10,
+    height: 20,
+    justifyContent: 'center',
+    width: 20,
+  },
+  findingNumberLabel: { fontFamily: 'JetBrainsMono_500Medium', lineHeight: 14 },
   findingRow: {
+    borderLeftWidth: 4,
     borderRadius: radius.md,
-    borderWidth: 1,
-    gap: spacing.xs,
+    borderWidth: 1.5,
+    gap: spacing.sm,
     padding: spacing.md,
   },
+  findingStat: { gap: 2 },
+  findingStats: { flexDirection: 'row', gap: spacing.xl },
   group: { gap: spacing.sm },
   groupHead: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
   hint: { gap: 2, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
   list: { gap: spacing.lg, paddingBottom: spacing.xl, paddingHorizontal: spacing.lg },
+  // Sharp-edged and full-bleed, matching the reference design's own label pane exactly — the image
+  // is evidence, not a card, and it is the one surface on this screen that stays unrounded.
   pane: { height: PANE_HEIGHT, overflow: 'hidden', width: '100%' },
   paneChrome: {
     alignItems: 'center',
